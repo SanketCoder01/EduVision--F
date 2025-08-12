@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -30,6 +30,16 @@ import {
   Coffee,
   Library
 } from "lucide-react"
+
+// Get user's own service requests from localStorage
+const getUserRequests = () => {
+  const studentSession = localStorage.getItem("student_session")
+  if (studentSession) {
+    const session = JSON.parse(studentSession)
+    return JSON.parse(localStorage.getItem(`service_requests_${session.email}`) || "[]")
+  }
+  return []
+}
 
 const services = [
   {
@@ -152,11 +162,11 @@ const services = [
   },
   {
     id: 15,
-    title: "Nearby Cafeteria",
-    description: "View menus, timings and locations of campus cafeterias",
+    title: "Nearby Mess",
+    description: "View mess menus, timings, and locations near campus",
     icon: Coffee,
     color: "bg-amber-100 text-amber-700",
-    href: "/student-dashboard/other-services/cafeteria"
+    href: "/student-dashboard/other-services/mess"
   },
   {
     id: 16,
@@ -172,6 +182,12 @@ const services = [
 
 export default function OtherServicesPage() {
   const [activeTab, setActiveTab] = useState("all")
+  const [userRequests, setUserRequests] = useState<any[]>([])
+
+  useEffect(() => {
+    // Load user's own requests
+    setUserRequests(getUserRequests())
+  }, [])
 
   const filteredServices = activeTab === "all" ? services : services.filter(service => service.badge)
 
@@ -185,15 +201,17 @@ export default function OtherServicesPage() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Other Services</h1>
-            <p className="text-gray-500 mt-1">Access additional campus services and resources</p>
+            <p className="text-gray-500 mt-1">Access additional campus services and track your requests</p>
           </div>
         </div>
 
         <Tabs defaultValue="all" className="mb-8" onValueChange={setActiveTab}>
-          <TabsList className="grid w-full md:w-[400px] grid-cols-2">
+          <TabsList className="grid w-full md:w-[500px] grid-cols-3">
             <TabsTrigger value="all">All Services</TabsTrigger>
+            <TabsTrigger value="requests">My Requests ({userRequests.length})</TabsTrigger>
             <TabsTrigger value="featured">Featured</TabsTrigger>
           </TabsList>
+          
           <TabsContent value="all" className="mt-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredServices.map((service) => (
@@ -201,9 +219,39 @@ export default function OtherServicesPage() {
               ))}
             </div>
           </TabsContent>
+          
+          <TabsContent value="requests" className="mt-6">
+            {userRequests.length === 0 ? (
+              <Card className="text-center py-12">
+                <CardContent>
+                  <div className="flex flex-col items-center space-y-4">
+                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
+                      <FileText className="w-8 h-8 text-gray-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">No Requests Yet</h3>
+                      <p className="text-gray-500 mt-1">
+                        You haven't submitted any service requests yet.
+                      </p>
+                      <p className="text-sm text-gray-400 mt-2">
+                        Use the services above to submit your first request.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-4">
+                {userRequests.map((request, index) => (
+                  <RequestCard key={index} request={request} />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+          
           <TabsContent value="featured" className="mt-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredServices.map((service) => (
+              {filteredServices.filter(service => service.badge).map((service) => (
                 <ServiceCard key={service.id} service={service} />
               ))}
             </div>
@@ -214,7 +262,7 @@ export default function OtherServicesPage() {
   )
 }
 
-function ServiceCard({ service }) {
+function ServiceCard({ service }: { service: any }) {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
@@ -252,5 +300,61 @@ function ServiceCard({ service }) {
         </CardContent>
       </Card>
     </motion.div>
+  )
+}
+
+function RequestCard({ request }: { request: any }) {
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'approved': return 'bg-green-100 text-green-700'
+      case 'pending': return 'bg-yellow-100 text-yellow-700'
+      case 'rejected': return 'bg-red-100 text-red-700'
+      default: return 'bg-gray-100 text-gray-700'
+    }
+  }
+
+  const downloadPDF = (requestId: string) => {
+    // Mock PDF download functionality
+    const link = document.createElement('a')
+    link.href = `/api/download-certificate/${requestId}`
+    link.download = `${request.type}_${requestId}.pdf`
+    link.click()
+  }
+
+  return (
+    <Card className="border-l-4 border-l-blue-500">
+      <CardHeader>
+        <div className="flex justify-between items-start">
+          <div>
+            <CardTitle className="text-lg">{request.title}</CardTitle>
+            <p className="text-sm text-gray-600 mt-1">
+              Submitted on {new Date(request.submittedDate).toLocaleDateString()}
+            </p>
+          </div>
+          <Badge className={getStatusColor(request.status)}>
+            {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-gray-700 mb-3">{request.description}</p>
+        {request.status === 'approved' && request.documentUrl && (
+          <Button 
+            size="sm" 
+            onClick={() => downloadPDF(request.id)}
+            className="bg-green-600 hover:bg-green-700"
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            Download PDF
+          </Button>
+        )}
+        {request.feedback && (
+          <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+            <p className="text-sm font-medium text-gray-700">Feedback:</p>
+            <p className="text-sm text-gray-600 mt-1">{request.feedback}</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }

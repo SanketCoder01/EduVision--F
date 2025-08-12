@@ -1,9 +1,10 @@
 "use client"
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { GraduationCap, Users, BookOpen } from "lucide-react";
-import { motion } from "framer-motion";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { GraduationCap, Users, BookOpen } from 'lucide-react'
+import { motion } from 'framer-motion'
+
 import { useRouter } from "next/navigation";
 
 export default function App() {
@@ -161,6 +162,8 @@ export default function App() {
               </CardContent>
             </Card>
           </motion.div>
+
+
 
           {/* Footer text */}
           <motion.p

@@ -1,151 +1,333 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { motion, AnimatePresence } from "framer-motion"
-import { Users, Search, School, ArrowRight, Plus } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { useToast } from "@/components/ui/use-toast"
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { createStudyGroup, getFacultyStudyGroups, createStudyGroupTask, StudyGroup, StudyGroupTask } from "@/lib/study-groups";
+import { useRealtimeStudyGroups, useRealtimeStudyGroupTasks } from "@/hooks/useRealtimeStudyGroups";
 
-interface ClassInfo {
-  id: string
-  name: string
-  description?: string
-  subject?: string
-  faculty?: string
-  maxMembers?: number
-  students_count?: number
-  created_at?: string
-}
+export default function FacultyStudyGroupsPage() {
+  const [studyGroups, setStudyGroups] = useState<StudyGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<StudyGroup | null>(null);
+  const [showTaskForm, setShowTaskForm] = useState(false);
+  const { toast } = useToast();
 
-export default function StudyGroupsPage() {
-  const { toast } = useToast()
-  const router = useRouter()
-  const [searchQuery, setSearchQuery] = useState("")
-  const [classes, setClasses] = useState<ClassInfo[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  // Get faculty info from localStorage
+  const faculty = JSON.parse(localStorage.getItem("faculty") || "{}");
+
+  const [formData, setFormData] = useState({
+    name: "",
+    description: "",
+    department: "",
+    year: "",
+    max_members: 20
+  });
+
+  const [taskFormData, setTaskFormData] = useState({
+    title: "",
+    description: "",
+    due_date: ""
+  });
+
+  // Load study groups
+  const loadStudyGroups = async () => {
+    try {
+      const { data, error } = await getFacultyStudyGroups(faculty.id);
+      if (error) throw error;
+      setStudyGroups(data || []);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load study groups",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Real-time study group updates
+  useRealtimeStudyGroups(faculty.department, "", (newGroup: StudyGroup) => {
+    if (newGroup.faculty_id === faculty.id) {
+      setStudyGroups(prev => [newGroup, ...prev.filter(g => g.id !== newGroup.id)]);
+    }
+  });
+
+  // Real-time task updates
+  useRealtimeStudyGroupTasks(selectedGroup?.id || "", (newTask: StudyGroupTask) => {
+    if (selectedGroup?.id === newTask.group_id) {
+      // Update the selected group's tasks
+      setSelectedGroup(prev => prev ? {
+        ...prev,
+        tasks: [...(prev.tasks || []), newTask]
+      } : null);
+    }
+  });
 
   useEffect(() => {
-    // Load classes from localStorage
-    const storedClasses = JSON.parse(localStorage.getItem("study_classes") || "[]")
-    setClasses(storedClasses)
-    setIsLoading(false)
-  }, [])
+    loadStudyGroups();
+  }, [faculty.id]);
 
-  // Filter classes based on search query
-  const filteredClasses = classes.filter((cls) => {
-    if (searchQuery === "") return true
-    return (
-      cls.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.subject?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.faculty?.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  })
+  const handleCreateGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      const group: StudyGroup = {
+        ...formData,
+        faculty_id: faculty.id,
+        faculty_name: faculty.name,
+        faculty_email: faculty.email
+      };
+
+      const { error } = await createStudyGroup(group);
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Study group created successfully!"
+      });
+
+      setFormData({
+        name: "",
+        description: "",
+        department: "",
+        year: "",
+        max_members: 20
+      });
+      setShowForm(false);
+      loadStudyGroups();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create study group",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!selectedGroup) return;
+    
+    try {
+      const task: StudyGroupTask = {
+        ...taskFormData,
+        group_id: selectedGroup.id!,
+        assigned_by: faculty.id,
+        assigned_by_name: faculty.name
+      };
+
+      const { error } = await createStudyGroupTask(task);
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Task created successfully!"
+      });
+
+      setTaskFormData({
+        title: "",
+        description: "",
+        due_date: ""
+      });
+      setShowTaskForm(false);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create task",
+        variant: "destructive"
+      });
+    }
+  };
+
+  if (loading) {
+    return <div className="p-6">Loading study groups...</div>;
+  }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <motion.div
-        className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6"
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <h1 className="text-2xl font-bold flex items-center">
-          <Users className="inline-block mr-2 h-6 w-6 text-blue-600" />
-          Study Groups Management
-        </h1>
-
-        <Button onClick={() => router.push("/dashboard/study-groups/create")} className="bg-blue-600 hover:bg-blue-700">
-          <Plus className="mr-2 h-4 w-4" />
-          Create New Groups
+    <div className="p-6 space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold">Study Groups</h1>
+        <Button onClick={() => setShowForm(!showForm)}>
+          {showForm ? "Cancel" : "Create Study Group"}
         </Button>
-      </motion.div>
-
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Search classes..."
-            className="pl-9"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
       </div>
 
-      <AnimatePresence>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {isLoading ? (
-            // Loading skeleton
-            Array.from({ length: 6 }).map((_, index) => (
-              <Card key={index} className="animate-pulse">
-                <CardContent className="p-6">
-                  <div className="h-6 bg-gray-200 rounded w-3/4 mb-4"></div>
-                  <div className="h-4 bg-gray-200 rounded w-1/2 mb-2"></div>
-                  <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-                </CardContent>
-              </Card>
-            ))
-          ) : filteredClasses.length === 0 ? (
-            <div className="col-span-full text-center py-12 bg-gray-50 rounded-lg">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <School className="h-8 w-8 text-gray-400" />
+      {showForm && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Create New Study Group</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleCreateGroup} className="space-y-4">
+              <Input
+                placeholder="Study Group Name"
+                value={formData.name}
+                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                required
+              />
+              <Textarea
+                placeholder="Description"
+                value={formData.description}
+                onChange={(e) => setFormData({...formData, description: e.target.value})}
+                required
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <Select value={formData.department} onValueChange={(value) => setFormData({...formData, department: value})}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Computer Science">Computer Science</SelectItem>
+                    <SelectItem value="Mechanical">Mechanical</SelectItem>
+                    <SelectItem value="Electrical">Electrical</SelectItem>
+                    <SelectItem value="Civil">Civil</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={formData.year} onValueChange={(value) => setFormData({...formData, year: value})}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Year" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1st">1st Year</SelectItem>
+                    <SelectItem value="2nd">2nd Year</SelectItem>
+                    <SelectItem value="3rd">3rd Year</SelectItem>
+                    <SelectItem value="4th">4th Year</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No classes found</h3>
-              <p className="text-gray-500 mb-4">Create your first class to start managing study groups.</p>
-              <Button
-                onClick={() => router.push("/dashboard/study-groups/create")}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Create Class
-              </Button>
-            </div>
-          ) : (
-            filteredClasses.map((cls) => (
-              <motion.div
-                key={cls.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.3 }}
-                whileHover={{ scale: 1.02 }}
-              >
-                <Card className="cursor-pointer hover:shadow-md transition-shadow duration-200">
-                  <CardContent className="p-6" onClick={() => router.push(`/dashboard/study-groups/${cls.id}`)}>
-                    <div className="flex justify-between items-start mb-4">
+              <Input
+                type="number"
+                placeholder="Max Members"
+                value={formData.max_members}
+                onChange={(e) => setFormData({...formData, max_members: parseInt(e.target.value)})}
+                min="1"
+                max="50"
+              />
+              <Button type="submit">Create Study Group</Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid gap-4">
+        {studyGroups.map((group) => (
+          <Card key={group.id}>
+            <CardHeader>
+              <div className="flex justify-between items-start">
+                <div>
+                  <CardTitle>{group.name}</CardTitle>
+                  <p className="text-sm text-gray-600">
+                    {group.department} - {group.year} Year
+                  </p>
+                </div>
+                <Badge variant="secondary">
+                  {group.study_group_members?.length || 0} members
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="mb-4">{group.description}</p>
+              <div className="flex gap-2">
+                <Button onClick={() => setSelectedGroup(group)}>
+                  View Details
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedGroup(group);
+                    setShowTaskForm(true);
+                  }}
+                >
+                  Add Task
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {selectedGroup && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Study Group: {selectedGroup.name}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-semibold mb-2">Members</h4>
+                <div className="space-y-2">
+                  {selectedGroup.study_group_members?.map((member) => (
+                    <div key={member.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
                       <div>
-                        <h3 className="text-lg font-bold">{cls.name}</h3>
-                        {cls.subject && <p className="text-sm text-blue-600 font-medium">{cls.subject}</p>}
-                        {cls.faculty && <p className="text-sm text-gray-500">Faculty: {cls.faculty}</p>}
-                        <p className="text-sm text-gray-500">
-                          {cls.students_count || 0} {cls.students_count === 1 ? "student" : "students"}
-                        </p>
+                        <p className="font-medium">{member.student_name}</p>
+                        <p className="text-sm text-gray-600">{member.student_email}</p>
                       </div>
-                      <School className="h-8 w-8 text-blue-500" />
+                      <p className="text-sm text-gray-500">
+                        Joined: {new Date(member.joined_at!).toLocaleDateString()}
+                      </p>
                     </div>
-                    <p className="text-sm text-gray-700 mb-4 line-clamp-2">{cls.description || "No description"}</p>
-                    {cls.maxMembers && (
-                      <div className="mb-4">
-                        <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">
-                          Max {cls.maxMembers} members per group
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex justify-end">
-                      <Button variant="ghost" size="sm" className="text-blue-600">
-                        Manage Groups <ArrowRight className="ml-1 h-4 w-4" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))
-          )}
-        </div>
-      </AnimatePresence>
+                  ))}
+                  {(!selectedGroup.study_group_members || selectedGroup.study_group_members.length === 0) && (
+                    <p className="text-gray-500">No members yet</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {showTaskForm && selectedGroup && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Create Task for: {selectedGroup.name}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleCreateTask} className="space-y-4">
+              <Input
+                placeholder="Task Title"
+                value={taskFormData.title}
+                onChange={(e) => setTaskFormData({...taskFormData, title: e.target.value})}
+                required
+              />
+              <Textarea
+                placeholder="Task Description"
+                value={taskFormData.description}
+                onChange={(e) => setTaskFormData({...taskFormData, description: e.target.value})}
+                required
+              />
+              <Input
+                type="date"
+                value={taskFormData.due_date}
+                onChange={(e) => setTaskFormData({...taskFormData, due_date: e.target.value})}
+                required
+              />
+              <div className="flex gap-2">
+                <Button type="submit">Create Task</Button>
+                <Button 
+                  type="button" 
+                  variant="outline"
+                  onClick={() => {
+                    setShowTaskForm(false);
+                    setSelectedGroup(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      )}
     </div>
-  )
+  );
 }

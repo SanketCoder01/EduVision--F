@@ -34,7 +34,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { createClient } from '@/lib/supabase/client';
 import { toast } from "@/hooks/use-toast"
+
+const supabase = createClient();
 
 interface Assignment {
   id: string
@@ -72,43 +75,13 @@ const classOptions = [
 ]
 
 // Mock submissions data
-const mockSubmissions: Submission[] = [
-  {
-    id: "1",
-    studentName: "John Doe",
-    studentEmail: "john.doe@example.com",
-    submittedAt: "2024-01-15T10:30:00Z",
-    files: [
-      { name: "assignment1.pdf", size: "2.5 MB", type: "application/pdf" },
-      { name: "code.zip", size: "1.2 MB", type: "application/zip" },
-    ],
-    status: "submitted",
-  },
-  {
-    id: "2",
-    studentName: "Jane Smith",
-    studentEmail: "jane.smith@example.com",
-    submittedAt: "2024-01-14T15:45:00Z",
-    files: [{ name: "report.docx", size: "3.1 MB", type: "application/docx" }],
-    status: "graded",
-    grade: "A",
-    feedback: "Excellent work! Your analysis was thorough and well-presented.",
-  },
-  {
-    id: "3",
-    studentName: "Mike Johnson",
-    studentEmail: "mike.johnson@example.com",
-    submittedAt: "2024-01-16T09:15:00Z",
-    files: [{ name: "late_submission.pdf", size: "1.8 MB", type: "application/pdf" }],
-    status: "late",
-  },
-]
+
 
 export default function AssignmentDetailsPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const [assignment, setAssignment] = useState<Assignment | null>(null)
-  const [submissions, setSubmissions] = useState<Submission[]>(mockSubmissions)
-  const [filteredSubmissions, setFilteredSubmissions] = useState<Submission[]>(mockSubmissions)
+  const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [filteredSubmissions, setFilteredSubmissions] = useState<Submission[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -125,37 +98,58 @@ export default function AssignmentDetailsPage({ params }: { params: { id: string
     filterSubmissions()
   }, [submissions, searchTerm, statusFilter])
 
-  const loadAssignment = () => {
+  const loadAssignment = async () => {
+    setLoading(true);
     try {
-      const storedAssignments = localStorage.getItem("assignments")
-      if (storedAssignments) {
-        const assignments = JSON.parse(storedAssignments)
-        const foundAssignment = assignments.find((a: any) => a.id === params.id)
-        if (foundAssignment) {
-          setAssignment({
-            ...foundAssignment,
-            dueDate: new Date(foundAssignment.dueDate),
-          })
-        } else {
-          toast({
-            title: "Assignment not found",
-            description: "The assignment you're looking for doesn't exist.",
-            variant: "destructive",
-          })
-          router.push("/dashboard/assignments")
-        }
+      const { data: assignmentData, error: assignmentError } = await supabase
+        .from("assignments")
+        .select(`*`)
+        .eq("id", params.id)
+        .single();
+
+      if (assignmentError || !assignmentData) {
+        console.error("Error loading assignment:", assignmentError);
+        toast({
+          title: "Error",
+          description: "Failed to load assignment details.",
+          variant: "destructive",
+        });
+        router.push("/dashboard/assignments");
+        return;
       }
+
+      const { data: submissionsData, error: submissionsError } = await supabase
+        .from("assignment_submissions")
+        .select(`*`)
+        .eq("assignment_id", params.id);
+      
+      if (submissionsError) {
+        console.error("Error loading submissions:", submissionsError);
+        toast({
+          title: "Error",
+          description: "Failed to load submissions.",
+          variant: "destructive",
+        });
+      }
+
+      setAssignment({
+        ...assignmentData,
+        dueDate: new Date(assignmentData.dueDate),
+        submissions: submissionsData || [],
+      });
+      setSubmissions(submissionsData || []);
+
     } catch (error) {
-      console.error("Error loading assignment:", error)
+      console.error("Error in loadAssignment:", error);
       toast({
         title: "Error",
-        description: "Failed to load assignment details",
+        description: "An unexpected error occurred.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const filterSubmissions = () => {
     let filtered = submissions

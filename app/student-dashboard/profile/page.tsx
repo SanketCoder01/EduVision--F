@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { ArrowLeft, Camera, User, Lock, Eye, EyeOff, Save } from "lucide-react"
+import { ArrowLeft, Camera, User, Lock, Eye, EyeOff, Save, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,7 +11,18 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { toast } from "@/hooks/use-toast"
-import { updateUserPassword } from "@/lib/supabase"
+
+// Mock password update function
+const updateUserPassword = async (userId: string, newPassword: string) => {
+  const users = JSON.parse(localStorage.getItem("student_users") || "[]")
+  const userIndex = users.findIndex((u: any) => u.id === userId)
+  if (userIndex !== -1) {
+    users[userIndex].password = newPassword
+    localStorage.setItem("student_users", JSON.stringify(users))
+    return true
+  }
+  throw new Error("User not found")
+}
 
 export default function StudentProfilePage() {
   const [isEditing, setIsEditing] = useState(false)
@@ -29,9 +40,9 @@ export default function StudentProfilePage() {
     prn: "",
     department: "",
     year: "",
-    phone: "",
+    mobile: "",
     address: "",
-    photoUrl: null,
+    photo: null as string | null,
   })
 
   const [passwordData, setPasswordData] = useState({
@@ -40,12 +51,17 @@ export default function StudentProfilePage() {
     confirmPassword: "",
   })
 
+  const [errors, setErrors] = useState<Partial<Record<keyof Omit<typeof profile, 'id' | 'prn' | 'department' | 'year' | 'photo'>, string>>>({})
+  const [passwordErrors, setPasswordErrors] = useState<Partial<Record<keyof typeof passwordData, string>>>({})
+
   useEffect(() => {
-    // Get user data from localStorage or session
-    const studentSession = localStorage.getItem("studentSession")
+    const studentSession = localStorage.getItem("student_session")
     if (studentSession) {
-      try {
-        const user = JSON.parse(studentSession)
+      const session = JSON.parse(studentSession)
+      const users = JSON.parse(localStorage.getItem("student_users") || "[]")
+      const user = users.find((u: any) => u.email === session.email)
+      
+      if (user) {
         setProfile({
           id: user.id || "",
           name: user.name || "",
@@ -53,16 +69,9 @@ export default function StudentProfilePage() {
           prn: user.prn || "",
           department: user.department || "",
           year: user.year || "",
-          phone: user.phone || "",
+          mobile: user.mobile || "",
           address: user.address || "",
-          photoUrl: user.photoUrl || null,
-        })
-      } catch (error) {
-        console.error("Failed to parse user data from localStorage", error)
-        toast({
-          title: "Error",
-          description: "Failed to load profile data. Please try logging in again.",
-          variant: "destructive",
+          photo: user.photo || null,
         })
       }
     }
@@ -70,30 +79,64 @@ export default function StudentProfilePage() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
-    setProfile((prev) => ({
-      ...prev,
-      [name]: value,
-    }))
+    setProfile(prev => ({ ...prev, [name]: value }))
+    if (errors[name as keyof typeof errors]) {
+      setErrors(prev => ({ ...prev, [name]: undefined }))
+    }
   }
 
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
-    setPasswordData((prev) => ({
-      ...prev,
-      [name]: value,
-    }))
+    setPasswordData(prev => ({ ...prev, [name]: value }))
+    if (passwordErrors[name as keyof typeof passwordErrors]) {
+      setPasswordErrors(prev => ({ ...prev, [name]: undefined }))
+    }
+  }
+
+  const validateProfile = () => {
+    const newErrors: Partial<typeof errors> = {}
+    if (!profile.name.trim()) newErrors.name = "Full name is required."
+    if (!profile.email.trim()) {
+      newErrors.email = "Email is required."
+    } else if (!/\S+@\S+\.\S+/.test(profile.email)) {
+      newErrors.email = "Please enter a valid email address."
+    }
+    if (!profile.mobile.trim()) {
+      newErrors.mobile = "Mobile number is required."
+    } else if (!/^\d{10}$/.test(profile.mobile)) {
+      newErrors.mobile = "Mobile number must be 10 digits."
+    }
+    if (!profile.address.trim()) newErrors.address = "Address is required."
+
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
   }
 
   const handleSaveProfile = async () => {
+    if (!validateProfile()) {
+      toast({
+        title: "Validation Error",
+        description: "Please check the fields and try again.",
+        variant: "destructive",
+      })
+      return
+    }
     setIsUpdatingProfile(true)
 
     try {
-      // Update localStorage with new data
-      const studentSession = localStorage.getItem("studentSession")
+      const studentSession = localStorage.getItem("student_session")
+      const users = JSON.parse(localStorage.getItem("student_users") || "[]")
+      
       if (studentSession) {
-        const user = JSON.parse(studentSession)
-        const updatedUser = { ...user, ...profile }
-        localStorage.setItem("studentSession", JSON.stringify(updatedUser))
+        const sessionUser = JSON.parse(studentSession)
+        const updatedUser = { ...sessionUser, ...profile }
+        localStorage.setItem("student_session", JSON.stringify(updatedUser))
+        
+        const userIndex = users.findIndex((u: any) => u.email === sessionUser.email)
+        if (userIndex !== -1) {
+          users[userIndex] = { ...users[userIndex], ...profile }
+          localStorage.setItem("student_users", JSON.stringify(users))
+        }
       }
 
       setIsEditing(false)
@@ -104,8 +147,8 @@ export default function StudentProfilePage() {
     } catch (error) {
       console.error("Error updating profile:", error)
       toast({
-        title: "Error",
-        description: "Failed to update profile. Please try again.",
+        title: "Update Failed",
+        description: "An unexpected error occurred. Please try again later.",
         variant: "destructive",
       })
     } finally {
@@ -113,57 +156,51 @@ export default function StudentProfilePage() {
     }
   }
 
+  const validatePassword = () => {
+    const newErrors: Partial<typeof passwordErrors> = {}
+    if (!passwordData.currentPassword) newErrors.currentPassword = "Current password is required."
+    if (!passwordData.newPassword) {
+      newErrors.newPassword = "New password is required."
+    } else if (passwordData.newPassword.length < 6) {
+      newErrors.newPassword = "Password must be at least 6 characters long."
+    }
+    if (!passwordData.confirmPassword) {
+      newErrors.confirmPassword = "Please confirm your new password."
+    } else if (passwordData.newPassword !== passwordData.confirmPassword) {
+      newErrors.confirmPassword = "The new passwords do not match."
+    }
+    setPasswordErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
   const handleChangePassword = async () => {
-    if (!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword) {
-      toast({
-        title: "Missing Information",
-        description: "Please fill in all password fields.",
-        variant: "destructive",
-      })
+    if (!validatePassword()) {
       return
     }
-
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      toast({
-        title: "Password Mismatch",
-        description: "New password and confirm password do not match.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (passwordData.newPassword.length < 6) {
-      toast({
-        title: "Weak Password",
-        description: "Password must be at least 6 characters long.",
-        variant: "destructive",
-      })
-      return
-    }
-
     setIsUpdatingPassword(true)
 
     try {
-      // Verify current password by checking against stored session
-      const studentSession = localStorage.getItem("studentSession")
+      const studentSession = localStorage.getItem("student_session")
       if (studentSession) {
         const user = JSON.parse(studentSession)
+        // NOTE: This is a mock verification. In a real app, you'd verify against the backend.
+        if (user.password !== passwordData.currentPassword) {
+            toast({
+                title: "Incorrect Password",
+                description: "The current password you entered is incorrect.",
+                variant: "destructive",
+            })
+            setIsUpdatingPassword(false)
+            return
+        }
+        
+        await updateUserPassword(profile.id, passwordData.newPassword)
 
-        // In a real implementation, you would verify the current password with the backend
-        // For now, we'll update the password in Supabase
-        await updateUserPassword(profile.id, passwordData.newPassword, "student")
-
-        // Update the session with new password (in real app, this would be handled by backend)
         const updatedUser = { ...user, password: passwordData.newPassword }
-        localStorage.setItem("studentSession", JSON.stringify(updatedUser))
+        localStorage.setItem("student_session", JSON.stringify(updatedUser))
 
-        setPasswordData({
-          currentPassword: "",
-          newPassword: "",
-          confirmPassword: "",
-        })
+        setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" })
         setShowPasswordDialog(false)
-
         toast({
           title: "Password Updated",
           description: "Your password has been changed successfully.",
@@ -253,9 +290,9 @@ export default function StudentProfilePage() {
             >
               <div className="relative">
                 <div className="w-32 h-32 rounded-full bg-green-100 flex items-center justify-center overflow-hidden">
-                  {profile.photoUrl ? (
+                  {profile.photo ? (
                     <img
-                      src={profile.photoUrl || "/placeholder.svg"}
+                      src={profile.photo}
                       alt="Profile"
                       className="w-full h-full object-cover"
                     />
@@ -299,8 +336,9 @@ export default function StudentProfilePage() {
                       value={profile.name}
                       onChange={handleInputChange}
                       disabled={!isEditing}
-                      className={!isEditing ? "bg-gray-50" : ""}
+                      className={`${!isEditing ? "bg-gray-50" : ""} ${errors.name ? "border-red-500" : ""}`}
                     />
+                    {errors.name && <p className="text-sm text-red-600 mt-1">{errors.name}</p>}
                   </div>
 
                   <div className="grid gap-2">
@@ -312,20 +350,22 @@ export default function StudentProfilePage() {
                       value={profile.email}
                       onChange={handleInputChange}
                       disabled={!isEditing}
-                      className={!isEditing ? "bg-gray-50" : ""}
+                      className={`${!isEditing ? "bg-gray-50" : ""} ${errors.email ? "border-red-500" : ""}`}
                     />
+                    {errors.email && <p className="text-sm text-red-600 mt-1">{errors.email}</p>}
                   </div>
 
                   <div className="grid gap-2">
-                    <Label htmlFor="phone">Phone Number</Label>
+                    <Label htmlFor="mobile">Mobile Number</Label>
                     <Input
-                      id="phone"
-                      name="phone"
-                      value={profile.phone}
+                      id="mobile"
+                      name="mobile"
+                      value={profile.mobile}
                       onChange={handleInputChange}
                       disabled={!isEditing}
-                      className={!isEditing ? "bg-gray-50" : ""}
+                      className={`${!isEditing ? "bg-gray-50" : ""} ${errors.mobile ? "border-red-500" : ""}`}
                     />
+                    {errors.mobile && <p className="text-sm text-red-600 mt-1">{errors.mobile}</p>}
                   </div>
 
                   <div className="grid gap-2">
@@ -342,8 +382,9 @@ export default function StudentProfilePage() {
                     value={profile.address}
                     onChange={handleInputChange}
                     disabled={!isEditing}
-                    className={!isEditing ? "bg-gray-50" : ""}
+                    className={`${!isEditing ? "bg-gray-50" : ""} ${errors.address ? "border-red-500" : ""}`}
                   />
+                  {errors.address && <p className="text-sm text-red-600 mt-1">{errors.address}</p>}
                 </div>
               </div>
 
@@ -373,7 +414,6 @@ export default function StudentProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Change Password Dialog */}
       <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -393,6 +433,7 @@ export default function StudentProfilePage() {
                   value={passwordData.currentPassword}
                   onChange={handlePasswordChange}
                   placeholder="Enter current password"
+                  className={passwordErrors.currentPassword ? "border-red-500" : ""}
                 />
                 <Button
                   type="button"
@@ -404,6 +445,7 @@ export default function StudentProfilePage() {
                   {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
+              {passwordErrors.currentPassword && <p className="text-sm text-red-600 mt-1">{passwordErrors.currentPassword}</p>}
             </div>
 
             <div className="space-y-2">
@@ -416,6 +458,7 @@ export default function StudentProfilePage() {
                   value={passwordData.newPassword}
                   onChange={handlePasswordChange}
                   placeholder="Enter new password"
+                  className={passwordErrors.newPassword ? "border-red-500" : ""}
                 />
                 <Button
                   type="button"
@@ -427,6 +470,7 @@ export default function StudentProfilePage() {
                   {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
+              {passwordErrors.newPassword && <p className="text-sm text-red-600 mt-1">{passwordErrors.newPassword}</p>}
             </div>
 
             <div className="space-y-2">
@@ -439,6 +483,7 @@ export default function StudentProfilePage() {
                   value={passwordData.confirmPassword}
                   onChange={handlePasswordChange}
                   placeholder="Confirm new password"
+                  className={passwordErrors.confirmPassword ? "border-red-500" : ""}
                 />
                 <Button
                   type="button"
@@ -450,6 +495,7 @@ export default function StudentProfilePage() {
                   {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
+              {passwordErrors.confirmPassword && <p className="text-sm text-red-600 mt-1">{passwordErrors.confirmPassword}</p>}
             </div>
 
             <div className="text-sm text-gray-500">

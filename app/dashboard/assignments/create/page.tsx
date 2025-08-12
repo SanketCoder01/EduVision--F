@@ -17,7 +17,8 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "@/hooks/use-toast"
-import { createAssignment, addAssignmentResources, uploadFile } from "@/lib/supabase"
+import { createAssignment, addAssignmentResources } from "@/lib/supabase"
+import { uploadFile } from "@/lib/file-upload"
 
 const departments = [
   { id: "cse", name: "Computer Science & Engineering", code: "CSE" },
@@ -127,13 +128,13 @@ export default function CreateAssignmentPage() {
           try {
             const fileName = `${Date.now()}-${file.name}`
             const filePath = `assignments/${assignment.id}/resources/${fileName}`
-            const { url } = await uploadFile(file, "assignment-resources", filePath)
+            const upload = await uploadFile(file, "assignment-resources", filePath)
 
             resourceData.push({
               assignment_id: assignment.id,
               name: file.name,
               file_type: file.type,
-              file_url: url,
+              file_url: upload.fileUrl || (upload as any).url,
             })
           } catch (error) {
             console.error("Error uploading resource:", error)
@@ -178,8 +179,8 @@ export default function CreateAssignmentPage() {
 
     setIsLoading(true)
 
-    try {
-      const response = await fetch("/api/gemini", {
+      try {
+        const response = await fetch("/api/openai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -203,7 +204,7 @@ export default function CreateAssignmentPage() {
         const content = data.content
 
         // Extract title from the generated content
-        const titleMatch = content.match(/(?:Title|Assignment):\s*(.+)/i)
+        const titleMatch = content.match(/(?:^|\n)\s*(?:Title|Assignment)\s*:\s*(.+)/i)
         const title = titleMatch ? titleMatch[1].trim() : `AI Generated: ${formData.aiPrompt.substring(0, 50)}...`
 
         setFormData((prev) => ({
@@ -360,7 +361,7 @@ export default function CreateAssignmentPage() {
                     value={formData.department}
                     onValueChange={(value) => setFormData((prev) => ({ ...prev, department: value }))}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger disabled>
                       <SelectValue placeholder="Select department" />
                     </SelectTrigger>
                     <SelectContent>

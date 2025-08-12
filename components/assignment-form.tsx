@@ -1,10 +1,10 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Check, HelpCircle, ArrowLeft } from "lucide-react"
+import { AnimatePresence, motion } from "framer-motion"
+import { FileText, Settings, Calendar, Paperclip, ArrowLeft, Check, HelpCircle } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -13,7 +13,6 @@ import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { ClassInfo } from "@/types/assignment"
@@ -27,6 +26,7 @@ interface AssignmentFormProps {
   onSubmit: (formData: {
     title: string
     description: string
+    instructions: string
     facultyId: string
     classId: string
     assignmentType: string
@@ -51,6 +51,13 @@ interface AssignmentFormProps {
   facultyId: string
 }
 
+const steps = [
+  { id: 'details', name: 'Assignment Details', icon: FileText },
+  { id: 'resources', name: 'Resources', icon: Paperclip },
+  { id: 'schedule', name: 'Schedule & Grading', icon: Calendar },
+  { id: 'settings', name: 'Advanced Settings', icon: Settings },
+];
+
 export function AssignmentForm({ onSubmit, classes, facultyId }: AssignmentFormProps) {
   const { toast } = useToast()
   const router = useRouter()
@@ -59,12 +66,13 @@ export function AssignmentForm({ onSubmit, classes, facultyId }: AssignmentFormP
   const [showAIPromptDialog, setShowAIPromptDialog] = useState(false)
   const [aiPrompt, setAIPrompt] = useState("")
   const [isProcessingAI, setIsProcessingAI] = useState(false)
-  const [activeTab, setActiveTab] = useState("basic")
+  const [activeStep, setActiveStep] = useState(steps[0].id);
 
   // Form state
   const [formData, setFormData] = useState({
     title: "",
     description: "",
+    instructions: "",
     classId: "",
     assignmentType: "file_upload",
     allowedFileTypes: ["pdf", "docx", "zip"],
@@ -131,96 +139,46 @@ export function AssignmentForm({ onSubmit, classes, facultyId }: AssignmentFormP
       })
       return
     }
-
     setIsProcessingAI(true)
+    try {
+      const response = await fetch('/api/generate-assignment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt: aiPrompt }),
+      });
 
-    // Simulate AI processing
-    setTimeout(() => {
-      // Generate assignment based on prompt
-      let generatedTitle = ""
-      let generatedDescription = ""
-
-      if (aiPrompt.toLowerCase().includes("data structure")) {
-        generatedTitle = "Advanced Data Structures Implementation"
-        generatedDescription =
-          "# Data Structures Assignment\n\n" +
-          "## Objectives\n\n" +
-          "Implement and analyze advanced data structures to solve complex problems.\n\n" +
-          "## Requirements\n\n" +
-          "1. Implement a self-balancing binary search tree (AVL or Red-Black)\n" +
-          "2. Create a priority queue using a binary heap\n" +
-          "3. Develop a hash table with collision resolution\n" +
-          "4. Analyze the time and space complexity of each implementation\n" +
-          "5. Compare the performance of your implementations with standard library versions\n\n" +
-          "## Submission Guidelines\n\n" +
-          "- Submit source code with comprehensive comments\n" +
-          "- Include a report (PDF) with analysis and performance comparisons\n" +
-          "- Prepare test cases demonstrating the functionality of each data structure"
-      } else if (aiPrompt.toLowerCase().includes("algorithm")) {
-        generatedTitle = "Algorithm Design and Analysis"
-        generatedDescription =
-          "# Algorithms Assignment\n\n" +
-          "## Objectives\n\n" +
-          "Design, implement, and analyze algorithms for solving computational problems.\n\n" +
-          "## Requirements\n\n" +
-          "1. Implement three different sorting algorithms\n" +
-          "2. Develop a graph algorithm for finding shortest paths\n" +
-          "3. Create a dynamic programming solution for the knapsack problem\n" +
-          "4. Analyze the time and space complexity of each algorithm\n" +
-          "5. Compare the performance of your implementations with different input sizes\n\n" +
-          "## Submission Guidelines\n\n" +
-          "- Submit source code with comprehensive comments\n" +
-          "- Include a report (PDF) with analysis and performance comparisons\n" +
-          "- Prepare visualizations of algorithm performance"
-      } else if (aiPrompt.toLowerCase().includes("database")) {
-        generatedTitle = "Database Design and SQL Implementation"
-        generatedDescription =
-          "# Database Management Assignment\n\n" +
-          "## Objectives\n\n" +
-          "Design a relational database and implement SQL queries for data manipulation and analysis.\n\n" +
-          "## Requirements\n\n" +
-          "1. Design a normalized database schema for a given scenario\n" +
-          "2. Create tables with appropriate constraints and relationships\n" +
-          "3. Implement complex SQL queries for data retrieval and analysis\n" +
-          "4. Develop stored procedures and triggers for business logic\n" +
-          "5. Optimize queries for performance\n\n" +
-          "## Submission Guidelines\n\n" +
-          "- Submit SQL scripts for schema creation and data manipulation\n" +
-          "- Include an ER diagram of your database design\n" +
-          "- Provide a report explaining your design decisions and query optimizations"
-      } else {
-        generatedTitle = "Programming Fundamentals Assignment"
-        generatedDescription =
-          "# Programming Assignment\n\n" +
-          "## Objectives\n\n" +
-          "Demonstrate understanding of programming fundamentals through practical implementation.\n\n" +
-          "## Requirements\n\n" +
-          "1. Implement a solution for the given problem using proper programming techniques\n" +
-          "2. Apply object-oriented principles in your design\n" +
-          "3. Handle edge cases and exceptions appropriately\n" +
-          "4. Write clean, well-documented code\n" +
-          "5. Create comprehensive test cases\n\n" +
-          "## Submission Guidelines\n\n" +
-          "- Submit source code with comprehensive comments\n" +
-          "- Include a report explaining your approach and design decisions\n" +
-          "- Provide test cases and their expected outputs"
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to generate assignment' }));
+        throw new Error(errorData.error || 'Failed to generate assignment');
       }
+
+      const data = await response.json();
 
       setFormData((prev) => ({
         ...prev,
-        title: generatedTitle,
-        description: generatedDescription,
-      }))
+        title: data.title,
+        description: data.description,
+      }));
 
-      setIsProcessingAI(false)
-      setShowAIPromptDialog(false)
-
+      setShowAIPromptDialog(false);
       toast({
-        title: "AI Generation Complete",
-        description: "Assignment details have been generated based on your prompt.",
-      })
-    }, 3000)
-  }
+        title: "Success!",
+        description: "Assignment details have been generated by AI.",
+      });
+
+    } catch (error) {
+      console.error("Error generating assignment:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Couldn't generate assignment. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessingAI(false);
+    }
+  };
 
   // Handle form submission
   const handleSubmit = async () => {
@@ -237,7 +195,16 @@ export function AssignmentForm({ onSubmit, classes, facultyId }: AssignmentFormP
     if (!formData.description.trim()) {
       toast({
         title: "Error",
-        description: "Please enter assignment instructions/description",
+        description: "Please enter assignment description",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!formData.instructions.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter detailed instructions for the assignment",
         variant: "destructive",
       })
       return
@@ -285,6 +252,7 @@ export function AssignmentForm({ onSubmit, classes, facultyId }: AssignmentFormP
       await onSubmit({
         title: formData.title,
         description: formData.description,
+        instructions: formData.instructions,
         facultyId,
         classId: formData.classId,
         assignmentType: formData.assignmentType,
@@ -320,205 +288,136 @@ export function AssignmentForm({ onSubmit, classes, facultyId }: AssignmentFormP
     }
   }
 
+  const renderStepContent = () => {
+    switch (activeStep) {
+      case 'details':
+        return (
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }} className="space-y-8">
+            <h2 class="text-xl font-semibold text-gray-800">Basic Details</h2>
+            <div>
+              <Label htmlFor="title" className="text-base font-medium">Assignment Title</Label>
+              <Input id="title" name="title" value={formData.title} onChange={handleInputChange} placeholder="e.g., Advanced Data Structures" className="mt-2" />
+            </div>
+            <div>
+              <Label htmlFor="description" className="text-base font-medium">Description</Label>
+              <RichTextEditor value={formData.description} onChange={(value) => setFormData((prev) => ({ ...prev, description: value }))} placeholder="A brief overview of the assignment." minHeight="150px" />
+            </div>
+            <div>
+              <Label htmlFor="instructions" className="text-base font-medium">Detailed Instructions</Label>
+              <RichTextEditor value={formData.instructions} onChange={(value) => setFormData((prev) => ({ ...prev, instructions: value }))} placeholder="Explain the requirements, submission guidelines, etc." minHeight="250px" />
+            </div>
+          </motion.div>
+        );
+      case 'resources':
+        return (
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }} className="space-y-8">
+            <h2 class="text-xl font-semibold text-gray-800">Supporting Resources</h2>
+            <FileUploader onUpload={(files) => setResources(files)} />
+          </motion.div>
+        );
+      case 'schedule':
+        return (
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }} className="space-y-8">
+            <h2 class="text-xl font-semibold text-gray-800">Schedule & Grading</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <DateTimePicker label="Start Date & Time" date={formData.startDate} time={formData.startTime} onDateChange={(date) => setFormData((prev) => ({ ...prev, startDate: date }))} onTimeChange={(time) => setFormData((prev) => ({ ...prev, startTime: time }))} />
+              <DateTimePicker label="Due Date & Time" date={formData.dueDate} time={formData.dueTime} onDateChange={(date) => setFormData((prev) => ({ ...prev, dueDate: date }))} onTimeChange={(time) => setFormData((prev) => ({ ...prev, dueTime: time }))} />
+            </div>
+            <div>
+              <Label htmlFor="maxMarks" className="text-base font-medium">Maximum Marks</Label>
+              <Input id="maxMarks" name="maxMarks" type="number" value={formData.maxMarks} onChange={handleInputChange} className="mt-2 w-full md:w-1/2" />
+            </div>
+          </motion.div>
+        );
+      case 'settings':
+        return (
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }} className="space-y-8">
+            <h2 class="text-xl font-semibold text-gray-800">Advanced Settings</h2>
+            <div>
+              <Label htmlFor="assignmentType" className="text-base font-medium">Submission Type</Label>
+              <Select name="assignmentType" value={formData.assignmentType} onValueChange={(value) => handleSelectChange("assignmentType", value)}>
+                <SelectTrigger className="mt-2"><SelectValue placeholder="Select submission type" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="file_upload">File Upload</SelectItem>
+                  <SelectItem value="text_entry">Text Entry</SelectItem>
+                  <SelectItem value="quiz">Quiz</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {formData.assignmentType === "file_upload" && (
+              <div>
+                <Label className="text-base font-medium">Allowed File Types</Label>
+                <div className="flex flex-wrap gap-x-6 gap-y-4 mt-3">
+                  {["pdf", "docx", "pptx", "xlsx", "zip", "jpg", "png"].map((type) => (
+                    <div key={type} className="flex items-center space-x-2">
+                      <Checkbox id={`file-type-${type}`} checked={formData.allowedFileTypes.includes(type)} onCheckedChange={(checked) => handleFileTypeChange(type, checked as boolean)} />
+                      <Label htmlFor={`file-type-${type}`} className="font-normal text-sm">{type.toUpperCase()}</Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
+              {[ {id: 'allowLateSubmission', label: 'Allow Late Submission'}, {id: 'allowResubmission', label: 'Allow Resubmission'}, {id: 'enablePlagiarismCheck', label: 'Enable Plagiarism Check'}, {id: 'allowGroupSubmission', label: 'Allow Group Submission'} ].map(item => (
+                <div key={item.id} className="flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors">
+                  <Label htmlFor={item.id} className="flex items-center text-sm font-medium text-gray-700 cursor-pointer">
+                    <HelpCircle className="w-4 h-4 mr-3 text-gray-400" />
+                    {item.label}
+                  </Label>
+                  <Switch id={item.id} checked={formData[item.id]} onCheckedChange={(checked) => handleSwitchChange(item.id, checked)} />
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="flex items-center mb-6">
-        <Button variant="ghost" size="icon" className="mr-2" onClick={() => router.push("/dashboard/assignments")}>
+    <div className="max-w-6xl mx-auto p-4 sm:p-6 lg:p-8 bg-white rounded-2xl shadow-lg">
+      <div className="flex items-center mb-8">
+        <Button variant="ghost" size="icon" className="mr-4 rounded-full" onClick={() => router.push("/faculty-dashboard/assignments")}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h1 className="text-2xl font-bold">Create New Assignment</h1>
+        <h1 className="text-3xl font-bold text-gray-800">Create New Assignment</h1>
       </div>
 
-      <Card className="mb-6">
-        <CardContent className="p-6">
-          <div className="flex flex-col md:flex-row gap-4 mb-6">
-            <CreationModeSelection
-              creationMethod={creationMethod}
-              setCreationMethod={setCreationMethod}
-              onAISelect={() => setShowAIPromptDialog(true)}
-            />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+        {/* Vertical Stepper */}
+        <nav className="lg:col-span-3 space-y-2">
+          {steps.map(step => {
+            const isActive = activeStep === step.id;
+            return (
+              <button
+                key={step.id}
+                onClick={() => setActiveStep(step.id)}
+                className={`w-full flex items-center text-left p-4 rounded-lg transition-all duration-300 ${isActive ? 'bg-indigo-600 text-white shadow-lg' : 'bg-gray-50 hover:bg-indigo-50 text-gray-600'}`}              >
+                <step.icon className={`w-6 h-6 mr-4 transition-transform duration-300 ${isActive ? 'scale-110' : ''}`} />
+                <span className="font-semibold">{step.name}</span>
+                {isActive && <motion.div layoutId="active-step-indicator" className="ml-auto"><Check className="w-5 h-5"/></motion.div>}
+              </button>
+            )
+          })}
+        </nav>
 
-            <ClassSelection
-              classes={classes}
-              selectedClass={formData.classId}
-              onClassChange={(value) => handleSelectChange("classId", value)}
-            />
-          </div>
-
-          <Tabs defaultValue="basic" value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="basic">Basic Details</TabsTrigger>
-              <TabsTrigger value="resources">Resources</TabsTrigger>
-              <TabsTrigger value="schedule">Schedule</TabsTrigger>
-              <TabsTrigger value="settings">Settings</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="basic" className="space-y-6 pt-4">
-              <div>
-                <Label htmlFor="title" className="text-base">
-                  Assignment Title
-                </Label>
-                <Input
-                  id="title"
-                  name="title"
-                  value={formData.title}
-                  onChange={handleInputChange}
-                  placeholder="Enter assignment title"
-                  className="mt-1"
-                />
+        {/* Form Content */}
+        <main className="lg:col-span-9">
+          <Card className="border-none shadow-none">
+            <CardContent className="p-2">
+              <div className="flex flex-col md:flex-row gap-6 mb-8">
+                <CreationModeSelection creationMethod={creationMethod} setCreationMethod={setCreationMethod} onAISelect={() => setShowAIPromptDialog(true)} />
+                <ClassSelection classes={classes} selectedClass={formData.classId} onClassChange={(value) => handleSelectChange("classId", value)} />
               </div>
+              <AnimatePresence mode="wait">
+                {renderStepContent()}
+              </AnimatePresence>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
 
-              <div>
-                <Label htmlFor="description" className="text-base">
-                  Instructions/Description
-                </Label>
-                <RichTextEditor
-                  value={formData.description}
-                  onChange={(value) => setFormData((prev) => ({ ...prev, description: value }))}
-                  placeholder="Enter detailed instructions for the assignment"
-                  minHeight="300px"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <Label className="text-base">Assignment Type</Label>
-                  <Select
-                    value={formData.assignmentType}
-                    onValueChange={(value) => handleSelectChange("assignmentType", value)}
-                  >
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="Select assignment type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="file_upload">File Upload</SelectItem>
-                      <SelectItem value="text_based">Text-based</SelectItem>
-                      <SelectItem value="quiz">Quiz</SelectItem>
-                      <SelectItem value="coding">Coding</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor="maxMarks" className="text-base">
-                    Maximum Marks
-                  </Label>
-                  <Input
-                    id="maxMarks"
-                    name="maxMarks"
-                    type="number"
-                    value={formData.maxMarks}
-                    onChange={handleInputChange}
-                    placeholder="Enter maximum marks"
-                    className="mt-1"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <Label htmlFor="wordLimit" className="text-base">
-                    Word/Page Limit (Optional)
-                  </Label>
-                  <Input
-                    id="wordLimit"
-                    name="wordLimit"
-                    type="number"
-                    value={formData.wordLimit}
-                    onChange={handleInputChange}
-                    placeholder="Enter word limit"
-                    className="mt-1"
-                  />
-                </div>
-
-                {formData.assignmentType === "file_upload" && (
-                  <div>
-                    <Label className="text-base mb-2 block">Allowed File Types</Label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                      {["pdf", "docx", "pptx", "xlsx", "zip", "jpg", "png", "txt"].map((type) => (
-                        <div key={type} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`filetype-${type}`}
-                            checked={formData.allowedFileTypes.includes(type)}
-                            onCheckedChange={(checked) => handleFileTypeChange(type, checked as boolean)}
-                          />
-                          <Label htmlFor={`filetype-${type}`} className="text-sm font-normal">
-                            .{type}
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end">
-                <Button onClick={() => setActiveTab("resources")}>Next: Resources</Button>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="resources" className="space-y-6 pt-4">
-              <FileUploader
-                files={resources}
-                onFilesChange={setResources}
-                label="Assignment Resources"
-                emptyState={
-                  <div className="border border-dashed rounded-md p-6 text-center">
-                    <div className="h-16 w-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <HelpCircle className="h-8 w-8 text-gray-400" />
-                    </div>
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">Add Resources</h3>
-                    <p className="text-gray-500 text-sm mb-4">
-                      Attach PDFs, documents, images, or links that students will need to complete the assignment.
-                    </p>
-                  </div>
-                }
-              />
-
-              <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setActiveTab("basic")}>
-                  Back: Basic Details
-                </Button>
-                <Button onClick={() => setActiveTab("schedule")}>Next: Schedule</Button>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="schedule" className="space-y-6 pt-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <DateTimePicker
-                  label="Start Date & Time"
-                  date={formData.startDate}
-                  time={formData.startTime}
-                  onDateChange={(date) => setFormData((prev) => ({ ...prev, startDate: date }))}
-                  onTimeChange={(time) => setFormData((prev) => ({ ...prev, startTime: time }))}
-                  timezone={formData.timezone}
-                  onTimezoneChange={(timezone) => setFormData((prev) => ({ ...prev, timezone }))}
-                  showTimezone={true}
-                />
-
-                <DateTimePicker
-                  label="Due Date & Time"
-                  date={formData.dueDate}
-                  time={formData.dueTime}
-                  onDateChange={(date) => setFormData((prev) => ({ ...prev, dueDate: date }))}
-                  onTimeChange={(time) => setFormData((prev) => ({ ...prev, dueTime: time }))}
-                  required={true}
-                />
-              </div>
-
-              <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setActiveTab("resources")}>
-                  Back: Resources
-                </Button>
-                <Button onClick={() => setActiveTab("settings")}>Next: Settings</Button>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="settings" className="space-y-6 pt-4">
-              <div className="space-y-4">
-                <h2 className="text-lg font-medium">Submission Settings</h2>
-
-                <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
                       <Label className="text-base">Visibility</Label>

@@ -22,6 +22,7 @@ import {
   Settings,
   ChevronRight,
   GraduationCap,
+  Camera,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -38,6 +39,7 @@ import { toast } from "@/hooks/use-toast"
 const sidebarItems = [
   { icon: Home, label: "Dashboard", href: "/dashboard", color: "text-blue-600" },
   { icon: BookOpen, label: "Assignments", href: "/dashboard/assignments", color: "text-green-600" },
+  { icon: Camera, label: "Attendance", href: "/dashboard/attendance", color: "text-emerald-600" },
   { icon: Users, label: "Study Groups", href: "/dashboard/study-groups", color: "text-blue-600" },
   { icon: Calendar, label: "Events", href: "/dashboard/events", color: "text-orange-600" },
   { icon: Video, label: "Virtual Classroom", href: "/dashboard/virtual-classroom", color: "text-red-600" },
@@ -54,16 +56,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [user, setUser] = useState<any>(null)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [notifications, setNotifications] = useState(0)
+  const [showFaceSetup, setShowFaceSetup] = useState(false)
 
   useEffect(() => {
-    // Check for faculty login
-    const facultySession = localStorage.getItem("facultySession")
+    // Check for faculty login using correct session key
+    const facultySession = localStorage.getItem("faculty_session")
     const currentUser = localStorage.getItem("currentUser")
 
     if (facultySession) {
       try {
         const faculty = JSON.parse(facultySession)
         setUser(faculty)
+        // Don't show face setup if user has photo (already completed during registration)
+        if (!faculty.photo && !faculty.faceRegistered) setShowFaceSetup(true)
       } catch (error) {
         console.error("Error parsing faculty session:", error)
         router.push("/login?type=faculty")
@@ -73,6 +78,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         const userData = JSON.parse(currentUser)
         if (userData.userType === "faculty") {
           setUser(userData)
+          // Don't show face setup if user has photo (already completed during registration)
+          if (!userData.photo && !userData.faceRegistered) setShowFaceSetup(true)
         } else {
           router.push("/login?type=faculty")
         }
@@ -108,6 +115,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
     )
   }
+
+  const FirstTimeSetup = showFaceSetup ? require("@/components/attendance/first-time-setup").FirstTimeSetup : null
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
@@ -360,6 +369,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
               {children}
             </motion.div>
+            {showFaceSetup && FirstTimeSetup && (
+              <FirstTimeSetup
+                user_id={user.id}
+                user_type="faculty"
+                user_name={user.name}
+                onComplete={() => {
+                  setShowFaceSetup(false)
+                  const updated = { ...user, faceRegistered: true }
+                  setUser(updated)
+                  localStorage.setItem("currentUser", JSON.stringify(updated))
+                }}
+              />
+            )}
           </div>
         </main>
       </div>

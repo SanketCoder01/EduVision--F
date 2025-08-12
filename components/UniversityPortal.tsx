@@ -12,7 +12,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "@/hooks/use-toast"
-import UniversityDashboard from "@/components/UniversityDashboard"
 
 interface UniversityPortalProps {
   onBack: () => void
@@ -24,7 +23,6 @@ export default function UniversityPortal({ onBack }: UniversityPortalProps) {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -49,7 +47,8 @@ export default function UniversityPortal({ onBack }: UniversityPortalProps) {
           description: "Welcome to University Administration Portal!",
         })
 
-        setIsAuthenticated(true)
+        // Redirect to university dashboard
+        router.push("/university/dashboard")
       } else {
         throw new Error("Invalid university credentials")
       }
@@ -63,10 +62,6 @@ export default function UniversityPortal({ onBack }: UniversityPortalProps) {
     } finally {
       setIsLoading(false)
     }
-  }
-
-  if (isAuthenticated) {
-    return <UniversityDashboard onLogout={() => setIsAuthenticated(false)} />
   }
 
   return (

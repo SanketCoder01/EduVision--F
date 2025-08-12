@@ -25,19 +25,40 @@ export default function ProfilePage() {
   })
 
   useEffect(() => {
-    // Get user data from localStorage (from face authentication)
+    // Get user data from localStorage using correct session key
+    const facultySession = localStorage.getItem("faculty_session")
     const userData = localStorage.getItem("currentUser")
-    if (userData) {
-      const user = JSON.parse(userData)
-      setProfile({
-        name: user.name, // Use exact name from ID card
-        email: user.email,
-        department: user.department,
-        designation: user.designation || "Professor",
-        employee_id: user.employee_id || "FAC001",
-        phone: user.phone || "+91 9876543210",
-        photoUrl: null,
-      })
+    
+    if (facultySession) {
+      try {
+        const user = JSON.parse(facultySession)
+        setProfile({
+          name: user.name,
+          email: user.email,
+          department: user.department,
+          designation: user.designation || "Professor",
+          employee_id: user.employee_id || "FAC001",
+          phone: user.mobile || user.phone || "+91 9876543210",
+          photoUrl: user.photo || null,
+        })
+      } catch (error) {
+        console.error("Error parsing faculty session:", error)
+      }
+    } else if (userData) {
+      try {
+        const user = JSON.parse(userData)
+        setProfile({
+          name: user.name,
+          email: user.email,
+          department: user.department,
+          designation: user.designation || "Professor",
+          employee_id: user.employee_id || "FAC001",
+          phone: user.phone || "+91 9876543210",
+          photoUrl: user.photo || null,
+        })
+      } catch (error) {
+        console.error("Error parsing user data:", error)
+      }
     }
   }, [])
 
