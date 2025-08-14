@@ -1,7 +1,6 @@
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
@@ -9,7 +8,7 @@ export async function GET(request: NextRequest) {
   const userType = requestUrl.searchParams.get('type') || 'student';
 
   if (code) {
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = createClient();
     const { error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
 
     if (sessionError) {
@@ -38,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     if (profile) {
       // User exists, redirect to their dashboard
-      const dashboardUrl = userType === 'faculty' ? '/faculty-dashboard' : '/student-dashboard';
+      const dashboardUrl = userType === 'faculty' ? '/dashboard' : '/student-dashboard';
       return NextResponse.redirect(requestUrl.origin + dashboardUrl);
     } else {
       // User does not exist, redirect to registration

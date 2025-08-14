@@ -52,11 +52,18 @@ export default function StudentDashboardPage() {
       color: "from-blue-500 to-blue-700",
     },
     {
-      icon: <Video className="h-8 w-8 text-red-600" />,
-      title: "Virtual Classroom",
-      href: "/student-dashboard/virtual-classroom",
-      description: "Attend online classes and lectures",
+      icon: <Calendar className="h-8 w-8 text-red-600" />,
+      title: "Timetable",
+      href: "/student-dashboard/timetable",
+      description: "View your class schedule and daily periods",
       color: "from-red-500 to-red-700",
+    },
+    {
+      icon: <BookOpen className="h-8 w-8 text-purple-600" />,
+      title: "Study Material",
+      href: "/student-dashboard/study-material",
+      description: "Access study materials from faculty",
+      color: "from-purple-500 to-purple-700",
     },
     {
       icon: <Calendar className="h-8 w-8 text-orange-600" />,

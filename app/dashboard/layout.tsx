@@ -10,10 +10,8 @@ import {
   Users,
   Calendar,
   MessageSquare,
-  Video,
   Bell,
   Code,
-  UserCheck,
   Home,
   Menu,
   X,
@@ -23,6 +21,7 @@ import {
   ChevronRight,
   GraduationCap,
   Camera,
+  FileText,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -42,9 +41,9 @@ const sidebarItems = [
   { icon: Camera, label: "Attendance", href: "/dashboard/attendance", color: "text-emerald-600" },
   { icon: Users, label: "Study Groups", href: "/dashboard/study-groups", color: "text-blue-600" },
   { icon: Calendar, label: "Events", href: "/dashboard/events", color: "text-orange-600" },
-  { icon: Video, label: "Virtual Classroom", href: "/dashboard/virtual-classroom", color: "text-red-600" },
+  { icon: Calendar, label: "Timetable", href: "/dashboard/timetable", color: "text-red-600" },
   { icon: MessageSquare, label: "Student Queries", href: "/dashboard/queries", color: "text-indigo-600" },
-  { icon: UserCheck, label: "Mentorship", href: "/dashboard/mentorship", color: "text-pink-600" },
+  { icon: FileText, label: "Study Material", href: "/dashboard/study-material", color: "text-pink-600" },
   { icon: Bell, label: "Announcements", href: "/dashboard/announcements", color: "text-yellow-600" },
   { icon: Code, label: "Compiler", href: "/dashboard/compiler", color: "text-teal-600" },
   { icon: Settings, label: "Other Services", href: "/dashboard/other-services", color: "text-purple-600" },
