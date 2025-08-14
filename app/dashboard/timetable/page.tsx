@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { Calendar, Plus, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import TimetableUpload from './_components/TimetableUpload';
 import TimetableList from './_components/TimetableList';
@@ -15,7 +15,7 @@ export default function TimetablePage() {
   const [timetables, setTimetables] = useState<TimetableEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('manage');
+  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
 
   const fetchTimetables = async () => {
     setIsLoading(true);
@@ -38,7 +38,7 @@ export default function TimetablePage() {
 
   const handleUploadSuccess = () => {
     fetchTimetables();
-    setActiveTab('manage');
+    setIsUploadDialogOpen(false);
   };
 
   const handleRefresh = () => {
@@ -52,7 +52,7 @@ export default function TimetablePage() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="flex items-center justify-between"
+        className="flex flex-col md:flex-row md:items-center md:justify-between gap-4"
       >
         <div>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
@@ -64,15 +64,31 @@ export default function TimetablePage() {
           </p>
         </div>
         
-        <Button
-          onClick={handleRefresh}
-          variant="outline"
-          disabled={isLoading}
-          className="flex items-center gap-2"
-        >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={handleRefresh}
+            variant="outline"
+            disabled={isLoading}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Upload Timetable
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[625px]">
+              <DialogHeader>
+                <DialogTitle>Upload New Timetable</DialogTitle>
+              </DialogHeader>
+              <TimetableUpload onUploadSuccess={handleUploadSuccess} />
+            </DialogContent>
+          </Dialog>
+        </div>
       </motion.div>
 
       {error && (
@@ -81,53 +97,7 @@ export default function TimetablePage() {
         </Alert>
       )}
 
-      {/* Stats Cards */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.1 }}
-        className="grid grid-cols-1 md:grid-cols-3 gap-6"
-      >
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Total Timetables</p>
-                <p className="text-2xl font-bold text-gray-900">{timetables.length}</p>
-              </div>
-              <Calendar className="h-8 w-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Departments</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {new Set(timetables.map(t => t.department)).size}
-                </p>
-              </div>
-              <Plus className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Years Covered</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {new Set(timetables.map(t => t.year)).size}
-                </p>
-              </div>
-              <Calendar className="h-8 w-8 text-orange-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
+
 
       {/* Main Content */}
       <motion.div
@@ -135,43 +105,24 @@ export default function TimetablePage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.2 }}
       >
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="upload" className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Upload New
-            </TabsTrigger>
-            <TabsTrigger value="manage" className="flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              Manage ({timetables.length})
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="upload" className="space-y-6">
-            <TimetableUpload onUploadSuccess={handleUploadSuccess} />
-          </TabsContent>
-
-          <TabsContent value="manage" className="space-y-6">
-            {isLoading ? (
-              <Card>
-                <CardContent className="flex items-center justify-center py-12">
-                  <div className="text-center">
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                      className="mx-auto mb-4"
-                    >
-                      <RefreshCw className="h-8 w-8 text-blue-600" />
-                    </motion.div>
-                    <p className="text-gray-600">Loading timetables...</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              <TimetableList timetables={timetables} onDelete={fetchTimetables} />
-            )}
-          </TabsContent>
-        </Tabs>
+        {isLoading ? (
+          <Card>
+            <CardContent className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  className="mx-auto mb-4"
+                >
+                  <RefreshCw className="h-8 w-8 text-blue-600" />
+                </motion.div>
+                <p className="text-gray-600">Loading timetables...</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <TimetableList timetables={timetables} onDelete={fetchTimetables} />
+        )}
       </motion.div>
     </div>
   );

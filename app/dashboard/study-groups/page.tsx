@@ -1,151 +1,377 @@
-"use client"
+'use client';
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { motion, AnimatePresence } from "framer-motion"
-import { Users, Search, School, ArrowRight, Plus } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { useToast } from "@/components/ui/use-toast"
-
-interface ClassInfo {
-  id: string
-  name: string
-  description?: string
-  subject?: string
-  faculty?: string
-  maxMembers?: number
-  students_count?: number
-  created_at?: string
-}
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { 
+  Users, 
+  Plus, 
+  MessageSquare, 
+  ClipboardList, 
+  Award, 
+  Shuffle,
+  Calendar,
+  BookOpen,
+  GraduationCap,
+  Clock,
+  CheckCircle,
+  AlertCircle,
+  Trash2,
+  Eye,
+  Settings
+} from 'lucide-react';
+import { 
+  getFacultyStudyGroups, 
+  randomlyAssignStudents, 
+  deleteStudyGroup,
+  type StudyGroup 
+} from './actions';
+import CreateGroupModal from './_components/CreateGroupModal';
+import GroupDetailsModal from './_components/GroupDetailsModal';
 
 export default function StudyGroupsPage() {
-  const { toast } = useToast()
-  const router = useRouter()
-  const [searchQuery, setSearchQuery] = useState("")
-  const [classes, setClasses] = useState<ClassInfo[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  const [groups, setGroups] = useState<StudyGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<StudyGroup | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [assigningStudents, setAssigningStudents] = useState<string | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
+
+  const fetchGroups = async () => {
+    setLoading(true);
+    setError(null);
+    
+    const result = await getFacultyStudyGroups();
+    if (result.error) {
+      setError(result.error.message);
+    } else {
+      setGroups(result.data || []);
+    }
+    
+    setLoading(false);
+  };
 
   useEffect(() => {
-    // Load classes from localStorage
-    const storedClasses = JSON.parse(localStorage.getItem("study_classes") || "[]")
-    setClasses(storedClasses)
-    setIsLoading(false)
-  }, [])
+    fetchGroups();
+  }, []);
 
-  // Filter classes based on search query
-  const filteredClasses = classes.filter((cls) => {
-    if (searchQuery === "") return true
+  const handleRandomAssignment = async (groupId: string) => {
+    setAssigningStudents(groupId);
+    
+    const result = await randomlyAssignStudents(groupId);
+    if (result.error) {
+      setError(result.error.message);
+    } else {
+      await fetchGroups(); // Refresh the groups
+    }
+    
+    setAssigningStudents(null);
+  };
+
+  const handleDeleteGroup = async (groupId: string) => {
+    setDeletingGroup(groupId);
+    
+    const result = await deleteStudyGroup(groupId);
+    if (result.error) {
+      setError(result.error.message);
+    } else {
+      await fetchGroups(); // Refresh the groups
+    }
+    
+    setDeletingGroup(null);
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'open': return 'bg-blue-100 text-blue-800';
+      case 'forming': return 'bg-yellow-100 text-yellow-800';
+      case 'active': return 'bg-green-100 text-green-800';
+      case 'completed': return 'bg-gray-100 text-gray-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  if (loading) {
     return (
-      cls.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.subject?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cls.faculty?.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  })
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"
+          />
+          <p className="text-gray-600">Loading study groups...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Header */}
       <motion.div
-        className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
+        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
       >
-        <h1 className="text-2xl font-bold flex items-center">
-          <Users className="inline-block mr-2 h-6 w-6 text-blue-600" />
-          Study Groups Management
-        </h1>
-
-        <Button onClick={() => router.push("/dashboard/study-groups/create")} className="bg-blue-600 hover:bg-blue-700">
-          <Plus className="mr-2 h-4 w-4" />
-          Create New Groups
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+            <Users className="h-8 w-8 text-blue-600" />
+            Study Groups Management
+          </h1>
+          <p className="text-gray-600 mt-1">Create and manage student study groups with random assignment</p>
+        </div>
+        <Button 
+          onClick={() => setShowCreateModal(true)}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Create New Group
         </Button>
       </motion.div>
 
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Search classes..."
-            className="pl-9"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
+      {/* Error Alert */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <Users className="h-6 w-6 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-600">Total Groups</p>
+                <p className="text-2xl font-bold text-gray-900">{groups.length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-green-100 rounded-lg">
+                <CheckCircle className="h-6 w-6 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-600">Active Groups</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {groups.filter(g => g.status === 'active').length}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-yellow-100 rounded-lg">
+                <Clock className="h-6 w-6 text-yellow-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-600">Forming</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {groups.filter(g => g.status === 'forming').length}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <GraduationCap className="h-6 w-6 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-600">Total Students</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {groups.reduce((sum, g) => sum + g.current_size, 0)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <AnimatePresence>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {isLoading ? (
-            // Loading skeleton
-            Array.from({ length: 6 }).map((_, index) => (
-              <Card key={index} className="animate-pulse">
-                <CardContent className="p-6">
-                  <div className="h-6 bg-gray-200 rounded w-3/4 mb-4"></div>
-                  <div className="h-4 bg-gray-200 rounded w-1/2 mb-2"></div>
-                  <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-                </CardContent>
-              </Card>
-            ))
-          ) : filteredClasses.length === 0 ? (
-            <div className="col-span-full text-center py-12 bg-gray-50 rounded-lg">
+      {/* Groups List */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+      >
+        {groups.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center">
               <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <School className="h-8 w-8 text-gray-400" />
+                <Users className="h-8 w-8 text-gray-400" />
               </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No classes found</h3>
-              <p className="text-gray-500 mb-4">Create your first class to start managing study groups.</p>
-              <Button
-                onClick={() => router.push("/dashboard/study-groups/create")}
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No study groups yet</h3>
+              <p className="text-gray-600 mb-4">Create your first study group to get started with collaborative learning.</p>
+              <Button 
+                onClick={() => setShowCreateModal(true)}
                 className="bg-blue-600 hover:bg-blue-700"
               >
-                <Plus className="mr-2 h-4 w-4" />
-                Create Class
+                <Plus className="h-4 w-4 mr-2" />
+                Create Study Group
               </Button>
-            </div>
-          ) : (
-            filteredClasses.map((cls) => (
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-6">
+            {groups.map((group, index) => (
               <motion.div
-                key={cls.id}
+                key={group.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.3 }}
-                whileHover={{ scale: 1.02 }}
+                transition={{ duration: 0.3, delay: index * 0.1 }}
               >
-                <Card className="cursor-pointer hover:shadow-md transition-shadow duration-200">
-                  <CardContent className="p-6" onClick={() => router.push(`/dashboard/study-groups/${cls.id}`)}>
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h3 className="text-lg font-bold">{cls.name}</h3>
-                        {cls.subject && <p className="text-sm text-blue-600 font-medium">{cls.subject}</p>}
-                        {cls.faculty && <p className="text-sm text-gray-500">Faculty: {cls.faculty}</p>}
-                        <p className="text-sm text-gray-500">
-                          {cls.students_count || 0} {cls.students_count === 1 ? "student" : "students"}
-                        </p>
+                <Card className="hover:shadow-lg transition-shadow">
+                  <CardHeader className="pb-3">
+                    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                      <div className="flex-1">
+                        <CardTitle className="text-xl text-gray-900 mb-2">{group.name}</CardTitle>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <Badge className={getStatusColor(group.status)}>
+                            {group.status.charAt(0).toUpperCase() + group.status.slice(1)}
+                          </Badge>
+                          <Badge variant="outline" className="flex items-center gap-1">
+                            <BookOpen className="h-3 w-3" />
+                            {group.subject}
+                          </Badge>
+                          <Badge variant="outline" className="flex items-center gap-1">
+                            <GraduationCap className="h-3 w-3" />
+                            {group.department} - Year {group.year}
+                          </Badge>
+                          <Badge variant="outline">
+                            {group.current_size}/{group.max_size} members
+                          </Badge>
+                        </div>
                       </div>
-                      <School className="h-8 w-8 text-blue-500" />
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {group.status === 'open' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleRandomAssignment(group.id)}
+                            disabled={assigningStudents === group.id}
+                            className="text-blue-600 hover:text-blue-700"
+                          >
+                            {assigningStudents === group.id ? (
+                              <motion.div
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                              >
+                                <Shuffle className="h-4 w-4" />
+                              </motion.div>
+                            ) : (
+                              <Shuffle className="h-4 w-4" />
+                            )}
+                            Random Assign
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedGroup(group)}
+                        >
+                          <Eye className="h-4 w-4 mr-1" />
+                          View Details
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeleteGroup(group.id)}
+                          disabled={deletingGroup === group.id}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          {deletingGroup === group.id ? (
+                            <motion.div
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </motion.div>
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
-                    <p className="text-sm text-gray-700 mb-4 line-clamp-2">{cls.description || "No description"}</p>
-                    {cls.maxMembers && (
-                      <div className="mb-4">
-                        <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">
-                          Max {cls.maxMembers} members per group
-                        </span>
-                      </div>
+                  </CardHeader>
+                  <CardContent>
+                    {group.description && (
+                      <p className="text-gray-600 mb-4">{group.description}</p>
                     )}
-                    <div className="flex justify-end">
-                      <Button variant="ghost" size="sm" className="text-blue-600">
-                        Manage Groups <ArrowRight className="ml-1 h-4 w-4" />
-                      </Button>
+                    <div className="flex items-center justify-between text-sm text-gray-500">
+                      <span>Created on {formatDate(group.created_at)}</span>
+                      <div className="flex items-center gap-4">
+                        <Button variant="ghost" size="sm" className="text-blue-600">
+                          <MessageSquare className="h-4 w-4 mr-1" />
+                          Messages
+                        </Button>
+                        <Button variant="ghost" size="sm" className="text-green-600">
+                          <ClipboardList className="h-4 w-4 mr-1" />
+                          Tasks
+                        </Button>
+                        <Button variant="ghost" size="sm" className="text-purple-600">
+                          <Award className="h-4 w-4 mr-1" />
+                          Grades
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
               </motion.div>
-            ))
-          )}
-        </div>
-      </AnimatePresence>
+            ))}
+          </div>
+        )}
+      </motion.div>
+
+      {/* Create Group Modal - We'll create this component */}
+      {showCreateModal && (
+        <CreateGroupModal 
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onSuccess={() => {
+            setShowCreateModal(false);
+            fetchGroups();
+          }}
+        />
+      )}
+
+      {/* Group Details Modal - We'll create this component */}
+      {selectedGroup && (
+        <GroupDetailsModal
+          group={selectedGroup}
+          isOpen={!!selectedGroup}
+          onClose={() => setSelectedGroup(null)}
+          onRefresh={fetchGroups}
+        />
+      )}
     </div>
-  )
+  );
 }

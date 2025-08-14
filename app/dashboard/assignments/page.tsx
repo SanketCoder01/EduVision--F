@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { createClient } from "@/lib/supabase/client";
 import { publishAssignment, getFacultyAssignments, getAssignmentSubmissions, gradeSubmission, Assignment, AssignmentSubmission } from "@/lib/assignments";
 import { useRealtimeAssignments, useRealtimeSubmissions } from "@/hooks/useRealtimeAssignments";
 import { uploadAssignmentFile } from "@/lib/storage";
@@ -34,46 +35,36 @@ export default function FacultyAssignmentsPage() {
   const [faculty, setFaculty] = useState<any>(null);
   const [facultyLoading, setFacultyLoading] = useState(true);
 
-  // Load faculty data from localStorage
+  // Fetch faculty data from Supabase
   useEffect(() => {
-    try {
-      // Try multiple localStorage keys for faculty data
-      let facultyData = localStorage.getItem("faculty") || 
-                       localStorage.getItem("facultySession") || 
-                       localStorage.getItem("faculty_session") ||
-                       localStorage.getItem("currentUser");
-      
-      if (!facultyData) {
-        // Create default faculty data if not found
-        const defaultFaculty = {
-          id: 'faculty_' + Date.now(),
-          name: 'Faculty User',
-          email: 'faculty@eduvision.com',
-          department: 'Computer Science'
-        };
-        setFaculty(defaultFaculty);
+    const fetchFaculty = async () => {
+      const supabase = createClient();
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        console.error('Authentication Error:', userError?.message);
+        toast({ title: "Authentication Error", description: "Please log in again to continue.", variant: "destructive" });
         setFacultyLoading(false);
         return;
       }
-      
-      const parsedFaculty = JSON.parse(facultyData);
-      if (!parsedFaculty?.id) {
-        // Add default id if missing
-        parsedFaculty.id = parsedFaculty.faculty_id || 'faculty_' + Date.now();
+
+      // Fetch faculty profile from the 'faculty' table
+      const { data: facultyProfile, error: profileError } = await supabase
+        .from('faculty')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError) {
+        console.error('Error fetching faculty profile:', profileError.message);
+        toast({ title: "Profile Error", description: "Could not fetch your faculty profile.", variant: "destructive" });
+      } else {
+        setFaculty(facultyProfile);
       }
-      
-      setFaculty(parsedFaculty);
-    } catch (error: any) {
-      console.error('Faculty authentication error:', error);
-      toast({
-        title: "Authentication Error",
-        description: error.message || "Failed to load faculty data. Please log in again.",
-        variant: "destructive"
-      });
-      // Don't redirect immediately, let user see the error
-    } finally {
       setFacultyLoading(false);
-    }
+    };
+
+    fetchFaculty();
   }, []);
 
   // Define the form data type
@@ -330,7 +321,7 @@ export default function FacultyAssignmentsPage() {
   const handleViewSubmissions = async (assignment: Assignment) => {
     setSelectedAssignment(assignment);
     try {
-      const assignmentId = assignment.id || assignment.assignment_id || '';
+      const assignmentId = assignment.id || '';
       if (!assignmentId) {
         throw new Error('Assignment ID not found');
       }

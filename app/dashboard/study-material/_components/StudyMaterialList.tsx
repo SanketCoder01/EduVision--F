@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { deleteStudyMaterial, type StudyMaterialEntry } from '../actions';
+import StudyMaterialViewer from './StudyMaterialViewer';
 
 interface StudyMaterialListProps {
   materials: StudyMaterialEntry[];
@@ -17,6 +18,7 @@ interface StudyMaterialListProps {
 export default function StudyMaterialList({ materials, onDelete }: StudyMaterialListProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [viewingMaterial, setViewingMaterial] = useState<StudyMaterialEntry | null>(null);
 
   const handleDelete = async (id: string) => {
     setError('');
@@ -163,7 +165,7 @@ export default function StudyMaterialList({ materials, onDelete }: StudyMaterial
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => window.open(material.file_url, '_blank')}
+                      onClick={() => setViewingMaterial(material)}
                     >
                       <Eye className="h-4 w-4 mr-1" />
                       View
@@ -208,6 +210,15 @@ export default function StudyMaterialList({ materials, onDelete }: StudyMaterial
           </Card>
         </motion.div>
       ))}
+
+      {/* Study Material Viewer Modal */}
+      {viewingMaterial && (
+        <StudyMaterialViewer
+          material={viewingMaterial}
+          isOpen={!!viewingMaterial}
+          onClose={() => setViewingMaterial(null)}
+        />
+      )}
     </motion.div>
   );
 }

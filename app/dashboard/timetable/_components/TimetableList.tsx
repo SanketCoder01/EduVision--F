@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Download, Trash2, Calendar, Users, Eye } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { FileText, Download, Trash2, Eye, Calendar, Users } from 'lucide-react';
 import { deleteTimetable, type TimetableEntry } from '../actions';
+import TimetableViewer from './TimetableViewer';
 
 interface TimetableListProps {
   timetables: TimetableEntry[];
@@ -16,7 +17,8 @@ interface TimetableListProps {
 
 export default function TimetableList({ timetables, onDelete }: TimetableListProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [viewingTimetable, setViewingTimetable] = useState<TimetableEntry | null>(null);
 
   const handleDelete = async (id: string) => {
     setError('');
@@ -28,6 +30,19 @@ export default function TimetableList({ timetables, onDelete }: TimetableListPro
       setError(result.error.message);
     } else {
       onDelete();
+      // Group timetables by department and year
+      const groupedTimetables = timetables.reduce((acc, timetable) => {
+        const key = `${timetable.department}-${timetable.year}`;
+        if (!acc[key]) {
+          acc[key] = {
+            department: timetable.department,
+            year: timetable.year,
+            timetables: []
+          };
+        }
+        acc[key].timetables.push(timetable);
+        return acc;
+      }, {} as Record<string, any>);
     }
 
     setDeletingId(null);
@@ -70,6 +85,20 @@ export default function TimetableList({ timetables, onDelete }: TimetableListPro
     );
   }
 
+  // Group timetables by department and year
+  const groupedTimetables = timetables.reduce((acc, timetable) => {
+    const key = `${timetable.department}-${timetable.year}`;
+    if (!acc[key]) {
+      acc[key] = {
+        department: timetable.department,
+        year: timetable.year,
+        timetables: []
+      };
+    }
+    acc[key].timetables.push(timetable);
+    return acc;
+  }, {} as Record<string, any>);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -84,95 +113,120 @@ export default function TimetableList({ timetables, onDelete }: TimetableListPro
       )}
 
       <div className="grid gap-4">
-        {timetables.map((timetable, index) => (
+        {Object.entries(groupedTimetables).map(([key, group], groupIndex) => (
           <motion.div
-            key={timetable.id}
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.3, delay: index * 0.1 }}
+            key={key}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: groupIndex * 0.1 }}
           >
-            <Card className="hover:shadow-md transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-4 flex-1">
-                    <div className="p-3 bg-blue-50 rounded-lg">
-                      <FileText className="h-6 w-6 text-blue-600" />
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-900 truncate">
-                        {timetable.file_name}
-                      </h3>
-                      
-                      <div className="flex items-center gap-2 mt-2">
-                        <Badge variant="outline" className="flex items-center gap-1">
-                          <Users className="h-3 w-3" />
-                          {timetable.department}
-                        </Badge>
-                        <Badge variant="outline" className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {timetable.year}{timetable.year === '1' ? 'st' : timetable.year === '2' ? 'nd' : timetable.year === '3' ? 'rd' : 'th'} Year
-                        </Badge>
-                        <Badge className={getFileTypeColor(timetable.file_type)}>
-                          {timetable.file_type.split('/')[1]?.toUpperCase() || 'FILE'}
-                        </Badge>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center justify-between text-lg">
+                  <span className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-blue-600" />
+                    {group.department}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs">
+                      <Users className="h-3 w-3 mr-1" />
+                      Year {group.year}
+                    </Badge>
+                    <Badge className="bg-blue-100 text-blue-800 text-xs">
+                      {group.timetables.length} file{group.timetables.length !== 1 ? 's' : ''}
+                    </Badge>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {group.timetables.map((timetable: TimetableEntry, index: number) => (
+                  <motion.div
+                    key={timetable.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.3, delay: index * 0.05 }}
+                    className="flex items-start justify-between p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors cursor-pointer"
+                    onClick={() => setViewingTimetable(timetable)}
+                  >
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      <div className="p-2 bg-white rounded-lg border">
+                        <FileText className="h-5 w-5 text-blue-600" />
                       </div>
                       
-                      <p className="text-sm text-gray-500 mt-2">
-                        Uploaded on {formatDate(timetable.uploaded_at)}
-                      </p>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-gray-900 truncate">
+                          {timetable.file_name}
+                        </h4>
+                        <div className="flex items-center gap-2 mt-2">
+                          <Badge className={`${getFileTypeColor(timetable.file_type)} text-xs`}>
+                            {timetable.file_type.split('/')[1]?.toUpperCase() || 'FILE'}
+                          </Badge>
+                          <span className="text-xs text-gray-500">
+                            {formatDate(timetable.uploaded_at)}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="flex items-center gap-2 ml-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => window.open(timetable.file_url, '_blank')}
-                    >
-                      <Eye className="h-4 w-4 mr-1" />
-                      View
-                    </Button>
-                    
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        const link = document.createElement('a');
-                        link.href = timetable.file_url;
-                        link.download = timetable.file_name;
-                        link.click();
-                      }}
-                    >
-                      <Download className="h-4 w-4 mr-1" />
-                      Download
-                    </Button>
-                    
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleDelete(timetable.id)}
-                      disabled={deletingId === timetable.id}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      {deletingId === timetable.id ? (
-                        <motion.div
-                          animate={{ rotate: 360 }}
-                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                        >
+                    <div className="flex items-center gap-2 ml-4" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setViewingTimetable(timetable)}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        View
+                      </Button>
+                      
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const link = document.createElement('a');
+                          link.href = timetable.file_url;
+                          link.download = timetable.file_name;
+                          link.click();
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-1" />
+                        Download
+                      </Button>
+                      
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(timetable.id)}
+                        disabled={deletingId === timetable.id}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        {deletingId === timetable.id ? (
+                          <motion.div
+                            animate={{ rotate: 360 }}
+                            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </motion.div>
+                        ) : (
                           <Trash2 className="h-4 w-4" />
-                        </motion.div>
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
+                        )}
+                      </Button>
+                    </div>
+                  </motion.div>
+                ))}
               </CardContent>
             </Card>
           </motion.div>
         ))}
       </div>
+
+      {/* Timetable Viewer Modal */}
+      {viewingTimetable && (
+        <TimetableViewer
+          timetable={viewingTimetable}
+          isOpen={!!viewingTimetable}
+          onClose={() => setViewingTimetable(null)}
+        />
+      )}
     </motion.div>
   );
 }

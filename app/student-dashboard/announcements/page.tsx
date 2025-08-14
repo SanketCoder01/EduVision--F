@@ -115,7 +115,7 @@ export default function AnnouncementsPage() {
           >
             <Card className="overflow-hidden hover:shadow-lg transition-shadow duration-300">
               <CardHeader className="bg-gray-50 dark:bg-gray-800 p-4 border-b">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                     <div className="flex items-center gap-3">
                         <div className="bg-green-100 p-2 rounded-full">
                             <Megaphone className="h-6 w-6 text-green-600" />
@@ -144,7 +144,7 @@ export default function AnnouncementsPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto">
-      <div className="flex items-center mb-6">
+      <div className="flex items-center mb-6 flex-wrap">
         <Button variant="ghost" size="icon" className="mr-2" onClick={() => window.history.back()}>
           <ArrowLeft className="h-5 w-5" />
         </Button>

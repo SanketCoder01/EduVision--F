@@ -1,26 +1,27 @@
-"use client"
+"use client";
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, Clock, BookOpen, Download, Eye, Bell } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
+import { Calendar, Clock, BookOpen, FileText, Download, Bell, Users, Eye } from 'lucide-react';
+import TimetableViewer from '@/app/dashboard/timetable/_components/TimetableViewer';
 import { getStudentTimetables, getTodaySchedule, type StudentTimetableEntry } from './actions';
 
 export default function StudentTimetablePage() {
   const [timetables, setTimetables] = useState<StudentTimetableEntry[]>([]);
   const [todaySchedule, setTodaySchedule] = useState<any[]>([]);
-  const [studentInfo, setStudentInfo] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [viewingTimetable, setViewingTimetable] = useState<StudentTimetableEntry | null>(null);
   const [currentDay, setCurrentDay] = useState('');
 
   const fetchData = async () => {
-    setIsLoading(true);
-    setError('');
+    setLoading(true);
+    setError(null);
 
     const [timetableResult, scheduleResult] = await Promise.all([
       getStudentTimetables(),
@@ -31,7 +32,6 @@ export default function StudentTimetablePage() {
       setError(timetableResult.error.message);
     } else {
       setTimetables(timetableResult.data || []);
-      setStudentInfo(timetableResult.studentProfile);
     }
 
     if (scheduleResult.error) {
@@ -41,7 +41,7 @@ export default function StudentTimetablePage() {
       setCurrentDay(scheduleResult.day || '');
     }
 
-    setIsLoading(false);
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -71,7 +71,12 @@ export default function StudentTimetablePage() {
     return 'bg-gray-100 text-gray-800';
   };
 
-  if (isLoading) {
+  const studentInfo = {
+    department: 'Computer Science',
+    year: '3'
+  };
+
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
@@ -198,7 +203,7 @@ export default function StudentTimetablePage() {
                   >
                     <Card className="hover:shadow-md transition-shadow">
                       <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                           <div className="flex items-center gap-3 flex-1 min-w-0">
                             <div className="p-2 bg-blue-50 rounded-lg">
                               <BookOpen className="h-5 w-5 text-blue-600" />

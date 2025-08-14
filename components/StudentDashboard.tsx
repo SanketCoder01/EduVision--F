@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { motion } from "framer-motion"
-import { BookOpen, Users, Calendar, Video, MessageCircle, Bell, Code, ChevronRight, Award } from "lucide-react"
+import { BookOpen, Users, Calendar, Video, MessageCircle, Bell, Code, ChevronRight, Award, FileText } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 
 export default function StudentDashboardPage() {
@@ -59,11 +59,22 @@ export default function StudentDashboardPage() {
       color: "from-red-500 to-red-700",
     },
     {
-      icon: <BookOpen className="h-8 w-8 text-purple-600" />,
+      icon: <FileText className="h-8 w-8 text-purple-600" />,
       title: "Study Material",
       href: "/student-dashboard/study-material",
-      description: "Access study materials from faculty",
-      color: "from-purple-500 to-purple-700",
+      description: "Access course materials and resources",
+      color: "from-purple-500 to-purple-600",
+      bgColor: "bg-purple-50",
+      iconColor: "text-purple-600"
+    },
+    {
+      icon: <Users className="h-8 w-8 text-orange-600" />,
+      title: "Study Groups",
+      href: "/student-dashboard/study-groups",
+      description: "Join collaborative learning groups",
+      color: "from-orange-500 to-orange-600",
+      bgColor: "bg-orange-50",
+      iconColor: "text-orange-600"
     },
     {
       icon: <Calendar className="h-8 w-8 text-orange-600" />,

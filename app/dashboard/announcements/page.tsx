@@ -63,12 +63,12 @@ export default function AnnouncementsPage() {
   const [scheduleDate, setScheduleDate] = useState("")
   const [isRecurring, setIsRecurring] = useState(false)
   const [recurringType, setRecurringType] = useState("weekly")
-  const [poster, setPoster] = useState(null)
+  const [poster, setPoster] = useState<string | null>(null)
 
-  const fileInputRef = useRef(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Mock announcements data
-  const [announcements, setAnnouncements] = useState([
+  const [announcements, setAnnouncements] = useState<any[]>([
     {
       id: 1,
       title: "Mid-Semester Examination Schedule",
@@ -243,7 +243,7 @@ export default function AnnouncementsPage() {
                     className="pt-4"
                   >
                     <Label className="mb-2 block">Select Class</Label>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                       {classes.map((cls) => (
                         <Button
                           key={cls.id}
@@ -267,7 +267,7 @@ export default function AnnouncementsPage() {
                     className="pt-4"
                   >
                     <Label className="mb-2 block">Select Year</Label>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                       {years.map((year) => (
                         <Button
                           key={year.id}
@@ -344,7 +344,7 @@ export default function AnnouncementsPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 lg:grid-cols-3 xl:grid-cols-3">
                   <div className="space-y-2">
                     <Label htmlFor="date">Date</Label>
                     <Input
@@ -601,18 +601,6 @@ export default function AnnouncementsPage() {
                             </div>
                           )}
                         </div>
-                      </div>
-                    </div>
-
-                    <p className="text-gray-600 mb-4 line-clamp-2">{announcement.description}</p>
-
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-                      <div className="bg-purple-50 p-3 rounded-lg">
-                        <div className="text-sm text-gray-500">Target</div>
-                        <div className="text-lg font-bold">{announcement.target}</div>
-                      </div>
-                      <div className="bg-blue-50 p-3 rounded-lg">
-                        <div className="text-sm text-gray-500">Read</div>
                         <div className="text-lg font-bold flex items-center">
                           {announcement.readCount}
                           <span className="text-xs text-gray-500 ml-1">/ {announcement.totalStudents}</span>
@@ -653,7 +641,7 @@ export default function AnnouncementsPage() {
   return (
     <div className="max-w-6xl mx-auto">
       <motion.h1
-        className="text-2xl font-bold mb-6 flex items-center"
+        className="text-2xl font-bold mb-6 flex flex-col md:flex-row md:items-center gap-4"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}

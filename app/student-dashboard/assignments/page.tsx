@@ -5,7 +5,23 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useDropzone } from 'react-dropzone';
 import { FileText, Clock, CheckCircle, Search, Filter, X, Upload, Download, Paperclip } from 'lucide-react';
 
-const statusConfig = {
+interface Assignment {
+  id: number;
+  title: string;
+  subject: string;
+  status: 'Pending' | 'Submitted' | 'Graded';
+  due_date: string;
+  score?: string | number;
+  faculty_name: string;
+  question: string;
+  instructions: string;
+  rules: string;
+  allowed_file_types?: string[];
+  report_url?: string;
+}
+
+
+const statusConfig: { [key: string]: { icon: React.ElementType; color: string; bg: string } } = {
   Pending: { icon: Clock, color: 'text-yellow-500', bg: 'bg-yellow-100' },
   Submitted: { icon: CheckCircle, color: 'text-blue-500', bg: 'bg-blue-100' },
   Graded: { icon: CheckCircle, color: 'text-green-500', bg: 'bg-green-100' },
@@ -13,11 +29,11 @@ const statusConfig = {
 
 const AssignmentsPage = () => {
   const [activeTab, setActiveTab] = useState('Pending');
-  const [selectedAssignment, setSelectedAssignment] = useState(null);
-  const [submittedFile, setSubmittedFile] = useState(null);
-  const [assignments, setAssignments] = useState([]);
+  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [submittedFile, setSubmittedFile] = useState<File | null>(null);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAssignments = async () => {
@@ -31,7 +47,7 @@ const AssignmentsPage = () => {
           throw new Error(result.message || 'Failed to fetch assignments');
         }
       } catch (err) {
-        setError(err.message);
+        setError((err as Error).message);
       } finally {
         setLoading(false);
       }
@@ -42,13 +58,13 @@ const AssignmentsPage = () => {
 
   const filteredAssignments = assignments.filter(a => a.status === activeTab);
 
-  const onDrop = useCallback(acceptedFiles => {
+  const onDrop = useCallback((acceptedFiles: File[]) => {
     setSubmittedFile(acceptedFiles[0]);
   }, []);
 
   const { getRootProps, getInputProps, isDragActive, fileRejections } = useDropzone({
       onDrop,
-      accept: selectedAssignment ? selectedAssignment.allowedFileTypes.reduce((acc, type) => ({ ...acc, [type]: [] }), {}) : {},
+      accept: selectedAssignment && selectedAssignment.allowed_file_types ? selectedAssignment.allowed_file_types.reduce((acc: {[key: string]: string[]}, type: string) => ({ ...acc, [type]: [] }), {}) : {},
       maxFiles: 1
   });
 
@@ -89,7 +105,7 @@ const AssignmentsPage = () => {
       {!loading && !error && (
         <>
           <div className="mb-6">
-            <div className="flex border-b border-gray-200">
+            <div className="flex flex-wrap border-b border-gray-200">
               {['Pending', 'Submitted', 'Graded'].map(tab => (
                 <button
                   key={tab}
@@ -181,7 +197,7 @@ const AssignmentsPage = () => {
                   <p className="text-sm text-gray-500">{selectedAssignment.subject} - Assigned by {selectedAssignment.faculty_name}</p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div className="bg-gray-50 p-3 rounded-lg">
                     <p className="font-semibold text-gray-600">Due Date</p>
                     <p className="text-gray-800">{new Date(selectedAssignment.due_date).toLocaleDateString()}</p>

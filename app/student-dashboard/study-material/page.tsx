@@ -207,7 +207,7 @@ export default function StudentStudyMaterialPage() {
               >
                 <Card className="hover:shadow-md transition-shadow">
                   <CardContent className="p-6">
-                    <div className="flex items-start justify-between">
+                    <div className="flex flex-col sm:flex-row items-start sm:justify-between gap-4">
                       <div className="flex items-start gap-4 flex-1 min-w-0">
                         <div className="p-3 bg-blue-50 rounded-lg">
                           <BookOpen className="h-6 w-6 text-blue-600" />
@@ -238,7 +238,7 @@ export default function StudentStudyMaterialPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 ml-4">
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:ml-4 mt-4 sm:mt-0">
                         <Button
                           variant="outline"
                           size="sm"
