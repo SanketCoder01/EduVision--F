@@ -21,30 +21,47 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${requestUrl.origin}/login?error=User not found`);
     }
 
-    // Check if user profile already exists
+    // Check if user profile already exists by email
     const tableName = userType === 'faculty' ? 'faculty' : 'students';
-    const { data: profile, error: profileError } = await supabase
+    const { data: existingProfile, error: profileError } = await supabase
       .from(tableName)
       .select('id')
-      .eq('id', user.id)
-      .single();
+      .eq('email', user.email)
+      .maybeSingle();
 
     if (profileError && profileError.code !== 'PGRST116') {
-        // PGRST116 is 'No rows found', which is not an actual error in this case.
-        console.error('Error fetching profile:', profileError);
+      console.error('Error fetching profile:', profileError);
     }
 
-    if (profile) {
-      // User exists, redirect to their dashboard
-      const dashboardUrl = userType === 'faculty' ? '/dashboard' : '/student-dashboard';
-      return NextResponse.redirect(requestUrl.origin + dashboardUrl);
-    } else {
-      // User does not exist, redirect to registration
-      const registrationUrl = userType === 'faculty' ? '/faculty-registration' : '/student-registration';
-      const name = encodeURIComponent(user.user_metadata.full_name || 'New User');
-      const email = encodeURIComponent(user.email || '');
-      return NextResponse.redirect(`${requestUrl.origin}${registrationUrl}?name=${name}&email=${email}`);
+    if (existingProfile) {
+      // User already registered: end the OAuth session and redirect to login
+      await supabase.auth.signOut();
+      return NextResponse.redirect(
+        `${requestUrl.origin}/login?message=${encodeURIComponent('You are already registered. Please try to login instead.')}&type=${userType}`
+      );
     }
+
+    // Validate email domain based on user type
+    const email = user.email || '';
+    const isValidDomain = userType === 'student' 
+      ? email.endsWith('@sanjivani.edu.in')
+      : email.endsWith('@set.ac.in') || email.endsWith('@sanjivani.org');
+
+    if (!isValidDomain) {
+      await supabase.auth.signOut();
+      return NextResponse.redirect(
+        `${requestUrl.origin}/login?error=${encodeURIComponent(`Invalid email domain for ${userType}. Please use appropriate institutional email.`)}`
+      );
+    }
+
+    // Redirect to registration form completion
+    const registrationUrl = userType === 'faculty' ? '/faculty-registration' : '/student-registration';
+    const url = new URL(requestUrl.origin + registrationUrl);
+    url.searchParams.set('type', userType);
+    url.searchParams.set('email', email);
+    url.searchParams.set('name', user.user_metadata?.full_name || user.user_metadata?.name || '');
+    url.searchParams.set('photo', user.user_metadata?.avatar_url || user.user_metadata?.picture || '');
+    return NextResponse.redirect(url.toString());
   }
 
   // Fallback for invalid requests

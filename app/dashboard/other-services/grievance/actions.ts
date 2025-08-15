@@ -13,8 +13,21 @@ export async function submitGrievance(formData: FormData) {
     return { error: 'You must be logged in to submit a grievance.' };
   }
 
+  // Get student's department and year for proper filtering
+  const { data: student, error: studentError } = await supabase
+    .from('students')
+    .select('department, year')
+    .eq('id', user.id)
+    .single();
+
+  if (studentError || !student) {
+    return { error: 'Unable to fetch student information.' };
+  }
+
   const grievanceData = {
     student_id: user.id,
+    student_department: student.department,
+    student_year: student.year,
     subject: formData.get('subject') as string,
     category: formData.get('category') as string,
     description: formData.get('description') as string,

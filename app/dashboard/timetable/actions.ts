@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
+import { createNotification } from '@/app/actions/notification-actions';
 
 export interface TimetableEntry {
   id: string;
@@ -63,6 +64,35 @@ export async function uploadTimetable(formData: FormData) {
 
     if (dbError) {
       return { error: { message: `Database error: ${dbError.message}` } };
+    }
+
+    // Notify relevant students
+    try {
+      const { data: students, error: studentsError } = await supabase
+        .from('students')
+        .select('user_id')
+        .eq('department', department)
+        .eq('year', year);
+
+      if (studentsError) {
+        throw studentsError;
+      }
+
+      if (students && students.length > 0) {
+        const notificationPromises = students.map(student => 
+          createNotification({
+            user_id: student.user_id,
+            title: 'New Timetable Uploaded',
+            message: `A new timetable for ${department} - Year ${year} has been published.`,
+            type: 'timetable',
+            link: '/student-dashboard/timetable'
+          })
+        );
+        await Promise.all(notificationPromises);
+      }
+    } catch (notificationError: any) {
+      // Log the error but don't fail the entire operation
+      console.error('Failed to send notifications:', notificationError.message);
     }
 
     revalidatePath('/dashboard/timetable');

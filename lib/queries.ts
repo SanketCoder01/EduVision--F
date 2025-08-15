@@ -1,6 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
-
-const supabase = createClient();
+import { createClient } from '@/lib/supabase/client';
 
 export interface Query {
   id?: string;
@@ -29,11 +27,13 @@ export interface QueryResponse {
 
 // Student: Send query to faculty
 export async function sendQuery(query: Query) {
+  const supabase = createClient();
   return supabase.from('queries').insert(query);
 }
 
 // Student: Get their queries
 export async function getStudentQueries(studentId: string) {
+  const supabase = createClient();
   return supabase
     .from('queries')
     .select(`
@@ -46,6 +46,7 @@ export async function getStudentQueries(studentId: string) {
 
 // Faculty: Get queries for their department
 export async function getFacultyQueries(facultyId: string) {
+  const supabase = createClient();
   return supabase
     .from('queries')
     .select(`
@@ -58,6 +59,7 @@ export async function getFacultyQueries(facultyId: string) {
 
 // Faculty: Get all queries in their department
 export async function getDepartmentQueries(department: string) {
+  const supabase = createClient();
   return supabase
     .from('queries')
     .select(`
@@ -70,11 +72,13 @@ export async function getDepartmentQueries(department: string) {
 
 // Respond to query
 export async function respondToQuery(response: QueryResponse) {
+  const supabase = createClient();
   return supabase.from('query_responses').insert(response);
 }
 
 // Update query status
 export async function updateQueryStatus(queryId: string, status: 'pending' | 'answered' | 'closed') {
+  const supabase = createClient();
   return supabase
     .from('queries')
     .update({ status })

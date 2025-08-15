@@ -1,8 +1,9 @@
 "use server"
 
-import { createServerSupabaseClient } from "@/lib/supabase"
+import { createClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 import { v4 as uuidv4 } from "uuid"
+import { createNotification } from "./notification-actions"
 
 // Mock assignments data
 const mockAssignments = [
@@ -40,20 +41,30 @@ const mockAssignments = [
 
 // Create a new assignment
 export async function createAssignment(formData: any) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     // Generate a UUID for the assignment
     const assignmentId = uuidv4()
 
-    // Create the assignment
+    // Get faculty department to ensure proper targeting
+    const { data: faculty, error: facultyError } = await supabase
+      .from("faculty")
+      .select("department")
+      .eq("id", formData.facultyId)
+      .single()
+
+    if (facultyError) throw facultyError
+
+    // Create the assignment with department-based targeting
     const { error } = await supabase.from("assignments").insert({
       id: assignmentId,
       title: formData.title,
       description: formData.description,
       instructions: formData.instructions,
-      class_id: formData.classId,
       faculty_id: formData.facultyId,
+      faculty_department: faculty.department,
+      target_years: formData.targetYears || [],
       assignment_type: formData.assignmentType,
       allowed_file_types: formData.allowedFileTypes,
       word_limit: formData.wordLimit,
@@ -90,6 +101,34 @@ export async function createAssignment(formData: any) {
     revalidatePath("/dashboard/assignments")
     revalidatePath("/student-dashboard/assignments")
 
+    // Send notifications to students if the assignment is published
+    if (formData.visibility) {
+      try {
+        const { data: students, error: studentsError } = await supabase
+          .from("students")
+          .select("id")
+          .eq("department", faculty.department)
+          .in("year", formData.targetYears)
+
+        if (studentsError) {
+          console.error("Error fetching students for notification:", studentsError)
+        } else if (students && students.length > 0) {
+          for (const student of students) {
+            await createNotification({
+              user_id: student.id,
+              title: `New Assignment: ${formData.title}`,
+              message: `A new assignment has been posted. Due: ${new Date(formData.dueDate).toLocaleDateString()}`,
+              type: "assignment",
+              link: `/student-dashboard/assignments/${assignmentId}`,
+            })
+          }
+        }
+      } catch (notificationError) {
+        console.error("Failed to send assignment notifications:", notificationError)
+        // Do not block assignment creation if notifications fail
+      }
+    }
+
     return { success: true, assignmentId }
   } catch (error: any) {
     console.error("Error creating assignment:", error)
@@ -106,7 +145,7 @@ export async function addAssignmentResources(
     fileUrl: string
   }[],
 ) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const { data, error } = await supabase.from("assignment_resources").insert(
@@ -130,7 +169,7 @@ export async function addAssignmentResources(
 // Get all assignments - Updated to handle facultyId properly
 export async function getAssignments(facultyId?: string, classId?: string) {
   try {
-    const supabase = createServerSupabaseClient()
+    const supabase = createClient()
     const { data, error } = await supabase.from("assignments").select("*").order("created_at", { ascending: false })
 
     if (error) {
@@ -158,7 +197,7 @@ export async function getAssignments(facultyId?: string, classId?: string) {
 
 // Get all assignments for a faculty
 export async function getFacultyAssignments(facultyId: string) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const { data, error } = await supabase
@@ -178,29 +217,41 @@ export async function getFacultyAssignments(facultyId: string) {
 
 // Get all assignments for a student
 export async function getStudentAssignments(studentId: string) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
-    // First get the student's class
+    // First get the student's department and year
     const { data: student, error: studentError } = await supabase
       .from("students")
-      .select("class_id")
+      .select("department, year")
       .eq("id", studentId)
       .single()
 
     if (studentError) throw studentError
 
-    // Then get all assignments for that class
+    // Get faculty from the same department
+    const { data: facultyList, error: facultyError } = await supabase
+      .from("faculty")
+      .select("id")
+      .eq("department", student.department)
+
+    if (facultyError) throw facultyError
+
+    const facultyIds = facultyList.map((f: any) => f.id)
+
+    // Get assignments from faculty in the same department targeting the student's year
     const { data, error } = await supabase
       .from("assignments")
-      .select("*, class:class_id(*), faculty:faculty_id(*)")
-      .eq("class_id", student.class_id)
+      .select("*, faculty:faculty_id(name, department)")
+      .in("faculty_id", facultyIds)
+      .contains("target_years", [student.year])
+      .eq("visibility", true)
       .order("due_date", { ascending: true })
 
     if (error) throw error
 
     // Get submission status for each assignment
-    const assignmentIds = data.map((assignment) => assignment.id)
+    const assignmentIds = data.map((assignment: any) => assignment.id)
 
     if (assignmentIds.length > 0) {
       const { data: submissions, error: submissionsError } = await supabase
@@ -213,7 +264,7 @@ export async function getStudentAssignments(studentId: string) {
 
       // Add submission status to each assignment
       const assignmentsWithStatus = data.map((assignment) => {
-        const submission = submissions.find((sub) => sub.assignment_id === assignment.id)
+        const submission = submissions.find((sub: any) => sub.assignment_id === assignment.id)
         return {
           ...assignment,
           submission: submission || null,
@@ -233,7 +284,7 @@ export async function getStudentAssignments(studentId: string) {
 // Get assignment by ID - Restored this function to maintain compatibility
 export async function getAssignmentById(id: string) {
   try {
-    const supabase = createServerSupabaseClient()
+    const supabase = createClient()
     const { data, error } = await supabase.from("assignments").select("*").eq("id", id).single()
 
     if (error) {
@@ -264,7 +315,7 @@ export async function getAssignmentById(id: string) {
 
 // Get a single assignment by ID
 export async function getAssignment(assignmentId: string) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const { data, error } = await supabase
@@ -289,7 +340,6 @@ export async function getAssignment(assignmentId: string) {
     return { success: false, error }
   }
 }
-
 // Update assignment
 export async function updateAssignment(
   id: string,
@@ -308,9 +358,12 @@ export async function updateAssignment(
     allowResubmission: boolean
     enablePlagiarismCheck: boolean
     allowGroupSubmission: boolean
+    targetYears: number[]
+    facultyId: string
   },
+  wasVisible: boolean,
 ) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const { data, error } = await supabase
@@ -342,6 +395,48 @@ export async function updateAssignment(
     revalidatePath("/dashboard/assignments")
     // Also revalidate student dashboard
     revalidatePath("/student-dashboard/assignments")
+
+    // Send notifications if the assignment is newly published
+    if (formData.visibility && !wasVisible) {
+      try {
+        const { data: faculty, error: facultyError } = await supabase
+          .from("faculty")
+          .select("department")
+          .eq("id", formData.facultyId)
+          .single()
+
+        if (facultyError) {
+          console.error("Error fetching faculty for notification:", facultyError)
+          throw facultyError
+        }
+
+        const { data: students, error: studentsError } = await supabase
+          .from("students")
+          .select("id")
+          .eq("department", faculty.department)
+          .in("year", formData.targetYears)
+
+        if (studentsError) {
+          console.error("Error fetching students for notification:", studentsError)
+        } else if (students && students.length > 0) {
+          for (const student of students) {
+            await createNotification({
+              user_id: student.id,
+              title: `Assignment Published: ${formData.title}`,
+              message: `An assignment has been published. Due: ${new Date(
+                formData.dueDate,
+              ).toLocaleDateString()}`,
+              type: "assignment",
+              link: `/student-dashboard/assignments/${id}`,
+            })
+          }
+        }
+      } catch (notificationError) {
+        console.error("Failed to send assignment update notifications:", notificationError)
+        // Do not block assignment update if notifications fail
+      }
+    }
+
     return { success: true, data }
   } catch (error) {
     console.error("Error updating assignment:", error)
@@ -351,7 +446,7 @@ export async function updateAssignment(
 
 // Delete assignment
 export async function deleteAssignment(id: string) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const { error } = await supabase.from("assignments").delete().eq("id", id)
@@ -370,7 +465,7 @@ export async function deleteAssignment(id: string) {
 
 // Get submissions for an assignment - Restored this function to maintain compatibility
 export async function getSubmissions(assignmentId: string) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const { data, error } = await supabase
@@ -423,25 +518,76 @@ export async function submitAssignment(formData: {
     fileUrl: string
     fileSize: number
   }[]
+  existingSubmissionId?: string
 }) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
-    // Create submission
-    const { data: submission, error: submissionError } = await supabase
-      .from("submissions")
-      .insert({
-        assignment_id: formData.assignmentId,
-        student_id: formData.studentId,
-        submission_type: formData.submissionType,
-        content: formData.content,
-        status: "submitted",
-        submitted_at: new Date().toISOString(),
-      })
-      .select()
+    // Fetch assignment to enforce due/late logic
+    const { data: assignment, error: assignmentError } = await supabase
+      .from("assignments")
+      .select("id, due_date, allow_late_submission, closed_at, enable_plagiarism_check")
+      .eq("id", formData.assignmentId)
       .single()
 
-    if (submissionError) throw submissionError
+    if (assignmentError) throw assignmentError
+
+    const nowIso = new Date().toISOString()
+    const isAfterDue = assignment?.due_date ? new Date(nowIso) > new Date(assignment.due_date) : false
+    const lateWindowOpen = assignment?.allow_late_submission && !assignment?.closed_at
+    const canSubmit = !isAfterDue || lateWindowOpen
+
+    if (!canSubmit) {
+      throw new Error("Submissions are closed for this assignment.")
+    }
+
+    const computedStatus = isAfterDue ? "late" : "submitted"
+
+    let submission: any;
+
+    if (formData.existingSubmissionId) {
+      // Update existing submission
+      const { data, error } = await supabase
+        .from("submissions")
+        .update({
+          submission_type: formData.submissionType,
+          content: formData.content,
+          status: computedStatus === "late" ? "late" : "resubmitted",
+          submitted_at: nowIso,
+        })
+        .eq("id", formData.existingSubmissionId)
+        .select()
+        .single()
+
+      if (error) throw error
+      submission = data
+
+      // Delete old files
+      const { error: deleteError } = await supabase
+        .from("submission_files")
+        .delete()
+        .eq("submission_id", formData.existingSubmissionId)
+
+      if (deleteError) throw deleteError
+
+    } else {
+      // Create new submission
+      const { data, error } = await supabase
+        .from("submissions")
+        .insert({
+          assignment_id: formData.assignmentId,
+          student_id: formData.studentId,
+          submission_type: formData.submissionType,
+          content: formData.content,
+          status: computedStatus,
+          submitted_at: nowIso,
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+      submission = data
+    }
 
     // Add files if any
     if (formData.files && formData.files.length > 0) {
@@ -458,6 +604,56 @@ export async function submitAssignment(formData: {
       if (filesError) throw filesError
     }
 
+    // Plagiarism processing
+    try {
+      if (assignment?.enable_plagiarism_check) {
+        if (formData.submissionType === "text" && formData.content) {
+          // Call internal plagiarism API for text submissions
+          const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/plagiarism`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: formData.content, title: `Submission ${submission.id}` }),
+          })
+          const result = await res.json().catch(() => ({}))
+          const score = typeof result?.plagiarismScore === "number" ? result.plagiarismScore : null
+          const reportUrl = result?.report_url || null
+
+          await supabase
+            .from("submissions")
+            .update({
+              plagiarism_score: score,
+              plagiarism_report_url: reportUrl,
+              plagiarism_status: "completed",
+              ocr_used: false,
+              processed_at: new Date().toISOString(),
+            })
+            .eq("id", submission.id)
+        } else if (formData.files && formData.files.length > 0) {
+          // Create a job for file-based submissions (OCR if needed handled by worker)
+          const primaryFile = formData.files[0]
+          await supabase.from("plagiarism_jobs").insert({
+            submission_id: submission.id,
+            vendor: "mock",
+            status: "pending",
+            input_type: "file",
+            file_url: primaryFile.fileUrl,
+          })
+          // Mark status as processing for now
+          await supabase
+            .from("submissions")
+            .update({ plagiarism_status: "processing" })
+            .eq("id", submission.id)
+        }
+      }
+    } catch (plagErr) {
+      console.error("Plagiarism processing error:", plagErr)
+      // Do not block submission; just record failure state
+      await supabase
+        .from("submissions")
+        .update({ plagiarism_status: "failed" })
+        .eq("id", submission.id)
+    }
+
     revalidatePath(`/student-dashboard/assignments`)
     return { success: true, data: submission }
   } catch (error) {
@@ -468,7 +664,7 @@ export async function submitAssignment(formData: {
 
 // Submit an assignment with the new schema
 export async function submitAssignmentNew(formData: any) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const { data, error } = await supabase
@@ -521,7 +717,7 @@ export async function saveDraft(formData: {
     fileSize: number
   }[]
 }) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     // Create draft
@@ -564,7 +760,7 @@ export async function saveDraft(formData: {
 
 // Grade submission - Restored this function to maintain compatibility
 export async function gradeSubmission(submissionId: string, grade: string, feedback: string) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const { data, error } = await supabase
@@ -588,9 +784,45 @@ export async function gradeSubmission(submissionId: string, grade: string, feedb
   }
 }
 
+// Close assignment (stops late submissions)
+export async function closeAssignment(assignmentId: string) {
+  const supabase = createClient()
+  try {
+    const { error } = await supabase
+      .from("assignments")
+      .update({ closed_at: new Date().toISOString() })
+      .eq("id", assignmentId)
+    if (error) throw error
+    revalidatePath("/dashboard/assignments")
+    revalidatePath(`/dashboard/assignments/manage/${assignmentId}`)
+    return { success: true }
+  } catch (e) {
+    console.error("Error closing assignment:", e)
+    return { success: false, error: e }
+  }
+}
+
+// Reopen assignment (re-enable late window)
+export async function reopenAssignment(assignmentId: string) {
+  const supabase = createClient()
+  try {
+    const { error } = await supabase
+      .from("assignments")
+      .update({ closed_at: null })
+      .eq("id", assignmentId)
+    if (error) throw error
+    revalidatePath("/dashboard/assignments")
+    revalidatePath(`/dashboard/assignments/manage/${assignmentId}`)
+    return { success: true }
+  } catch (e) {
+    console.error("Error reopening assignment:", e)
+    return { success: false, error: e }
+  }
+}
+
 // Get submissions for an assignment with the new schema
 export async function getAssignmentSubmissions(assignmentId: string) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const { data, error } = await supabase
@@ -633,7 +865,7 @@ export async function getAssignmentSubmissions(assignmentId: string) {
 
 // Grade a submission with the new schema
 export async function gradeSubmissionNew(formData: any) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const { data, error } = await supabase
@@ -660,7 +892,7 @@ export async function gradeSubmissionNew(formData: any) {
 
 // Return submission for resubmission
 export async function returnForResubmission(submissionId: string, feedback: string) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const { data, error } = await supabase
@@ -691,7 +923,7 @@ export async function sendNotification(formData: {
   type: string
   content: string
 }) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const notifications = formData.recipientIds.map((recipientId) => ({
@@ -720,7 +952,7 @@ export async function addComment(formData: {
   userType: "faculty" | "student"
   content: string
 }) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     const { data, error } = await supabase
@@ -746,7 +978,7 @@ export async function addComment(formData: {
 
 // Get comments for an assignment or submission
 export async function getComments(assignmentId: string, submissionId?: string) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     let query = supabase
@@ -772,7 +1004,7 @@ export async function getComments(assignmentId: string, submissionId?: string) {
 
 // Get student submissions for an assignment
 export async function getStudentSubmissions(studentId: string, assignmentId?: string) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     let query = supabase.from("submissions").select("*, assignment:assignments(*)").eq("student_id", studentId)
@@ -817,7 +1049,7 @@ export async function getStudentSubmissions(studentId: string, assignmentId?: st
 
 // Get assignments for a student - Restored this function to maintain compatibility
 export async function getStudentAssignmentsOld(studentId: string, classIds: string[]) {
-  const supabase = createServerSupabaseClient()
+  const supabase = createClient()
 
   try {
     // Get all visible assignments for the student's classes

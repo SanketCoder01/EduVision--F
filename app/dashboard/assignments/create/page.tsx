@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "@/hooks/use-toast"
-import { createAssignment, addAssignmentResources } from "@/lib/supabase"
+import { createAssignment, addAssignmentResources } from "@/app/actions/assignment-actions"
 import { uploadFile } from "@/lib/file-upload"
 
 const departments = [
@@ -100,42 +100,51 @@ export default function CreateAssignmentPage() {
       const assignmentData = {
         title: formData.title,
         description: formData.description,
-        faculty_id: currentUser.id,
-        department: formData.department,
-        year: formData.year as any,
-        assignment_type: formData.assignmentType as any,
-        allowed_file_types: formData.allowedFileTypes,
-        max_marks: formData.maxMarks,
-        due_date: new Date(`${formData.dueDate}T${formData.dueTime}`).toISOString(),
-        start_date: formData.startDate
+        facultyId: currentUser.id,
+        targetYears: formData.year ? [formData.year] : [],
+        assignmentType: formData.assignmentType,
+        allowedFileTypes: formData.allowedFileTypes,
+        maxMarks: formData.maxMarks,
+        dueDate: new Date(`${formData.dueDate}T${formData.dueTime}`).toISOString(),
+        startDate: formData.startDate
           ? new Date(`${formData.startDate}T${formData.startTime}`).toISOString()
           : new Date().toISOString(),
         visibility: status === "published" ? formData.visibility : false,
-        allow_late_submission: formData.allowLateSubmission,
-        allow_resubmission: formData.allowResubmission,
-        enable_plagiarism_check: formData.enablePlagiarismCheck,
-        allow_group_submission: formData.allowGroupSubmission,
+        allowLateSubmission: formData.allowLateSubmission,
+        allowResubmission: formData.allowResubmission,
+        enablePlagiarismCheck: formData.enablePlagiarismCheck,
+        allowGroupSubmission: formData.allowGroupSubmission,
+        instructions: formData.description,
         status: status,
       }
 
-      const assignment = await createAssignment(assignmentData)
+      const result = await createAssignment(assignmentData)
+      if (!result || !('success' in result) || !result.success || !result.assignmentId) {
+        throw new Error((result as any)?.error || 'Failed to create assignment')
+      }
+      const assignmentId: string = result.assignmentId
 
       // Upload resources if any
       if (resources.length > 0) {
-        const resourceData = []
+        const resourceData: { assignmentId: string; name: string; fileType: string; fileUrl: string }[] = []
 
         for (const file of resources) {
           try {
             const fileName = `${Date.now()}-${file.name}`
-            const filePath = `assignments/${assignment.id}/resources/${fileName}`
+            const filePath = `assignments/${assignmentId}/resources/${fileName}`
             const upload = await uploadFile(file, "assignment-resources", filePath)
 
-            resourceData.push({
-              assignment_id: assignment.id,
-              name: file.name,
-              file_type: file.type,
-              file_url: upload.fileUrl || (upload as any).url,
-            })
+            const url: string | undefined = (upload as any)?.fileUrl ?? (upload as any)?.url
+            if (!url) {
+              console.warn("Upload result missing file URL, skipping resource entry", upload)
+            } else {
+              resourceData.push({
+                assignmentId,
+                name: file.name,
+                fileType: file.type,
+                fileUrl: url,
+              })
+            }
           } catch (error) {
             console.error("Error uploading resource:", error)
           }

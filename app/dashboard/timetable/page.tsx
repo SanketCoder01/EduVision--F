@@ -36,7 +36,7 @@ export default function TimetablePage() {
     fetchTimetables();
   }, []);
 
-  const handleUploadSuccess = () => {
+  const handleUploadSuccessAction = () => {
     fetchTimetables();
     setIsUploadDialogOpen(false);
   };
@@ -85,7 +85,7 @@ export default function TimetablePage() {
               <DialogHeader>
                 <DialogTitle>Upload New Timetable</DialogTitle>
               </DialogHeader>
-              <TimetableUpload onUploadSuccess={handleUploadSuccess} />
+              <TimetableUpload onUploadSuccessAction={handleUploadSuccessAction} />
             </DialogContent>
           </Dialog>
         </div>

@@ -26,31 +26,33 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import SeatAssignmentInterface from "@/components/seat-assignment/SeatAssignmentInterface"
+import RealtimeSeatUpdates from "@/components/seat-assignment/RealtimeSeatUpdates"
+import { createEvent, getFacultyEvents, createSeatAssignment, updateSeatAssignment, deleteSeatAssignment, getEventRegistrations } from "./actions"
+import { createClient } from "@/lib/supabase/client"
 
-// Mock data for departments
-const departments = ["CSE", "IT", "ME", "EE", "CY", "AIML", "AIDS"]
+// Standardized departments
+const departments = [
+  "Computer Science and Engineering",
+  "Cyber Security", 
+  "Artificial Intelligence and Data Science",
+  "Artificial Intelligence and Machine Learning"
+]
 
 // Venue configurations
 const venueConfigs = {
   "seminar-hall": {
     name: "Seminar Hall",
-    totalSeats: 120,
-    rows: 8,
-    seatsPerRow: 15,
+    totalSeats: 160,
+    rows: 10,
+    seatsPerRow: 16,
     hasGenderSeparation: false,
-  },
-  classroom: {
-    name: "Classroom",
-    totalSeats: 60,
-    rows: 6,
-    seatsPerRow: 10,
-    hasGenderSeparation: true,
   },
   "solar-shade": {
     name: "Solar Shade",
-    totalSeats: 80,
-    rows: 8,
-    seatsPerRow: 10,
+    totalSeats: 250,
+    rows: 15,
+    seatsPerRow: 17,
     hasGenderSeparation: false,
   },
 }
@@ -60,21 +62,48 @@ export default function EventsPage() {
   const [activeTab, setActiveTab] = useState("create")
   const [currentStep, setCurrentStep] = useState(1)
   const [eventType, setEventType] = useState("")
-  const [selectedDepartments, setSelectedDepartments] = useState([])
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([])
   const [enablePayment, setEnablePayment] = useState(false)
   const [allowRegistration, setAllowRegistration] = useState(false)
   const [registrationFields, setRegistrationFields] = useState("")
   const [showAttendance, setShowAttendance] = useState(false)
   const [showSeatSelection, setShowSeatSelection] = useState(false)
   const [showRegistrations, setShowRegistrations] = useState(false)
-  const [selectedVenue, setSelectedVenue] = useState("")
+  const [selectedVenue, setSelectedVenue] = useState<string>("")
   const [genderSeparation, setGenderSeparation] = useState("")
-  const [selectedSeats, setSelectedSeats] = useState([])
-  const [seatAssignments, setSeatAssignments] = useState({})
+  const [selectedSeats, setSelectedSeats] = useState<number[]>([])
   const [currentAssignClass, setCurrentAssignClass] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
   const [isGeneratingForm, setIsGeneratingForm] = useState(false)
-  const [generatedFormFields, setGeneratedFormFields] = useState([])
+  const [generatedFormFields, setGeneratedFormFields] = useState<any[]>([])
+  const [registrationStart, setRegistrationStart] = useState("")
+  const [registrationEnd, setRegistrationEnd] = useState("")
+
+  const handleViewRegistrations = async (event: any) => {
+    setSelectedEventForRegistrations(event)
+    const result = await getEventRegistrations(event.id)
+    if (result.success && result.data) {
+      setRegistrations(result.data)
+    } else {
+      toast({
+        title: "Error",
+        description: result.error || "Failed to fetch registrations.",
+        variant: "destructive",
+      })
+    }
+    setShowRegistrations(true)
+  }
+
+  // Seat assignment types aligned with components
+  interface SeatAssignment {
+    id: string
+    department: string
+    year: string
+    gender?: string
+    seat_numbers: number[]
+    row_numbers: number[]
+    venue_type: string
+  }
 
   // Form states
   const [title, setTitle] = useState("")
@@ -84,17 +113,28 @@ export default function EventsPage() {
   const [venue, setVenue] = useState("")
   const [maxParticipants, setMaxParticipants] = useState("")
   const [paymentAmount, setPaymentAmount] = useState("")
-  const [poster, setPoster] = useState(null)
+  const [poster, setPoster] = useState<string | null>(null)
 
-  const fileInputRef = useRef(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Events state - load from localStorage on mount
-  const [events, setEvents] = useState([])
+  // Events state - load from Supabase on mount
+  const [events, setEvents] = useState<any[]>([])
+  const [seatAssignments, setSeatAssignments] = useState<SeatAssignment[]>([])
+  const [currentEventForSeats, setCurrentEventForSeats] = useState<string | null>(null)
+  const supabase = createClient()
 
-  // Load events from localStorage on component mount
+  // Load events from Supabase on component mount
   useEffect(() => {
-    const storedEvents = JSON.parse(localStorage.getItem("facultyEvents") || "[]")
-    setEvents(storedEvents)
+    const loadEvents = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const result = await getFacultyEvents(user.id)
+        if (result.success && result.data) {
+          setEvents(result.data)
+        }
+      }
+    }
+    loadEvents()
   }, [])
 
   // Save events to localStorage whenever events change
@@ -105,6 +145,10 @@ export default function EventsPage() {
       localStorage.setItem("events", JSON.stringify(events))
     }
   }, [events])
+
+  // Mock students data for attendance
+  const [registrations, setRegistrations] = useState<any[]>([])
+  const [selectedEventForRegistrations, setSelectedEventForRegistrations] = useState<any>(null)
 
   // Mock students data for attendance
   const [students, setStudents] = useState([
@@ -136,12 +180,32 @@ export default function EventsPage() {
     "TY-AIDS",
   ]
 
-  const toggleDepartment = (dept) => {
+  const toggleDepartment = (dept: string) => {
     setSelectedDepartments((prev) => (prev.includes(dept) ? prev.filter((d) => d !== dept) : [...prev, dept]))
   }
 
-  const handlePosterUpload = () => {
-    setPoster("/placeholder.svg?height=300&width=600")
+  const handlePosterUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const fileExt = file.name.split('.').pop()
+    const fileName = `${Math.random()}.${fileExt}`
+    const filePath = `${fileName}`
+
+    const { error } = await supabase.storage.from('posters').upload(filePath, file)
+
+    if (error) {
+      toast({
+        title: "Error uploading poster",
+        description: error.message,
+        variant: "destructive",
+      })
+      return
+    }
+
+    const { data } = supabase.storage.from('posters').getPublicUrl(filePath)
+
+    setPoster(data.publicUrl)
     toast({
       title: "Poster Uploaded",
       description: "Event poster has been uploaded successfully.",
@@ -196,14 +260,14 @@ export default function EventsPage() {
     }
   }
 
-  const parseFormFields = (fieldsText) => {
+  const parseFormFields = (fieldsText: string) => {
     const commonFields = fieldsText
       .toLowerCase()
       .split(/[,\n]+/)
       .map((field) => field.trim())
-    const fields = []
+    const fields: any[] = []
 
-    commonFields.forEach((field) => {
+    commonFields.forEach((field: string) => {
       if (field.includes("name")) {
         fields.push({
           name: "name",
@@ -270,19 +334,13 @@ export default function EventsPage() {
       return
     }
 
-    if (selectedVenue === "classroom" && !genderSeparation) {
-      toast({
-        title: "Select Gender Arrangement",
-        description: "Please select gender arrangement for classroom",
-        variant: "destructive",
-      })
-      return
-    }
-
+    // For now, we'll use a placeholder event ID. In a real implementation,
+    // this would be set when creating/editing an existing event
+    setCurrentEventForSeats('temp-event-id')
     setShowSeatSelection(true)
   }
 
-  const toggleAttendance = (id) => {
+  const toggleAttendance = (id: number) => {
     setStudents(students.map((student) => (student.id === id ? { ...student, present: !student.present } : student)))
   }
 
@@ -328,7 +386,7 @@ export default function EventsPage() {
     })
   }
 
-  const handleSeatSelection = (seatNumber) => {
+  const handleSeatSelection = (seatNumber: number) => {
     if (selectedSeats.includes(seatNumber)) {
       setSelectedSeats(selectedSeats.filter((seat) => seat !== seatNumber))
     } else {
@@ -337,37 +395,21 @@ export default function EventsPage() {
   }
 
   const assignSeatsToClass = () => {
-    if (!currentAssignClass || selectedSeats.length === 0) {
-      toast({
-        title: "Error",
-        description: "Please select a class and at least one seat",
-        variant: "destructive",
-      })
-      return
-    }
-
-    setSeatAssignments({
-      ...seatAssignments,
-      [currentAssignClass]: selectedSeats,
-    })
-
+    // Legacy helper no longer used with array-based assignments
     toast({
-      title: "Seats Assigned",
-      description: `${selectedSeats.length} seats assigned to ${currentAssignClass}`,
+      title: "Seat Assignment",
+      description: "Use the Assign Seats button in the dialog to create assignments.",
     })
-
-    setSelectedSeats([])
-    setCurrentAssignClass("")
   }
 
-  const isSeatAssigned = (seatNumber) => {
-    return Object.values(seatAssignments).some((seats) => seats.includes(seatNumber))
+  const isSeatAssigned = (seatNumber: number) => {
+    return seatAssignments.some((assignment) => assignment.seat_numbers.includes(seatNumber))
   }
 
-  const getSeatClass = (seatNumber) => {
-    for (const [className, seats] of Object.entries(seatAssignments)) {
-      if (seats.includes(seatNumber)) {
-        return className
+  const getSeatClass = (seatNumber: number) => {
+    for (const assignment of seatAssignments) {
+      if (assignment.seat_numbers.includes(seatNumber)) {
+        return `${assignment.department} • ${assignment.year}`
       }
     }
     return null
@@ -387,7 +429,7 @@ export default function EventsPage() {
     return filtered
   }
 
-  const createEvent = () => {
+  const handleCreateEvent = async () => {
     if (currentStep < 4) {
       setCurrentStep(currentStep + 1)
       return
@@ -402,59 +444,89 @@ export default function EventsPage() {
       return
     }
 
-    const newEvent = {
-      id: Date.now(), // Use timestamp for unique ID
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    // fetch faculty meta for name and department
+    let faculty_name = ""
+    let faculty_department = ""
+    try {
+      const { data: facultyRow } = await supabase
+        .from('faculty')
+        .select('name, department')
+        .eq('id', user.id)
+        .single()
+      faculty_name = facultyRow?.name || ""
+      faculty_department = facultyRow?.department || ""
+    } catch {}
+
+    const eventData = {
       title,
       description,
+      event_type: eventType,
       date,
       time,
       venue,
-      poster,
-      maxParticipants: maxParticipants ? Number.parseInt(maxParticipants) : undefined,
-      targetAudience: selectedDepartments,
-      onlinePayment: enablePayment,
-      paymentAmount,
-      allowRegistration,
-      registrationFields: generatedFormFields,
-      registeredStudents: 0,
-      paidStudents: 0,
-      attendedStudents: 0,
-      seatAssignments: seatAssignments,
-      venueType: selectedVenue,
-      genderSeparation,
-      registrations: [],
-      createdAt: new Date().toISOString(),
+      poster_url: poster,
+      max_participants: maxParticipants ? Number.parseInt(maxParticipants) : undefined,
+      target_departments: selectedDepartments,
+      target_years: ['1st Year', '2nd Year', '3rd Year', '4th Year'],
+      enable_payment: enablePayment,
+      payment_amount: paymentAmount ? Number.parseFloat(paymentAmount) : undefined,
+      allow_registration: allowRegistration,
+      registration_start: registrationStart || undefined,
+      registration_end: registrationEnd || new Date(`${date}T${time}`).toISOString(),
+      registration_fields: generatedFormFields,
+      venue_type: selectedVenue,
+      created_by: user.id,
+      faculty_name,
+      faculty_department
     }
 
-    const updatedEvents = [...events, newEvent]
-    setEvents(updatedEvents)
+    const result = await createEvent(eventData)
+    
+    if (result.success) {
+      // Reset form
+      setTitle("")
+      setDescription("")
+      setDate("")
+      setTime("")
+      setVenue("")
+      setMaxParticipants("")
+      setSelectedDepartments([])
+      setEnablePayment(false)
+      setAllowRegistration(false)
+      setRegistrationFields("")
+      setGeneratedFormFields([])
+      setPaymentAmount("")
+      setPoster(null)
+      setCurrentStep(1)
+      setEventType("")
+      setSeatAssignments([])
+      setSelectedVenue("")
+      setGenderSeparation("")
+      setRegistrationStart("")
+      setRegistrationEnd("")
 
-    // Reset form
-    setTitle("")
-    setDescription("")
-    setDate("")
-    setTime("")
-    setVenue("")
-    setMaxParticipants("")
-    setSelectedDepartments([])
-    setEnablePayment(false)
-    setAllowRegistration(false)
-    setRegistrationFields("")
-    setGeneratedFormFields([])
-    setPaymentAmount("")
-    setPoster(null)
-    setCurrentStep(1)
-    setEventType("")
-    setSeatAssignments({})
-    setSelectedVenue("")
-    setGenderSeparation("")
+      // Refresh events list
+      const eventsResult = await getFacultyEvents(user.id)
+      if (eventsResult.success && eventsResult.data) {
+        setEvents(eventsResult.data)
+      }
 
-    setActiveTab("manage")
+      setActiveTab("manage")
 
-    toast({
-      title: "Success",
-      description: "Event created successfully!",
-    })
+      toast({
+        title: "Success",
+        description: "Event created successfully!",
+      })
+    } else {
+      toast({
+        title: "Error",
+        description: result.error || "Failed to create event",
+        variant: "destructive",
+      })
+    }
   }
 
   const eventTypes = [
@@ -469,7 +541,7 @@ export default function EventsPage() {
   const renderSeatMap = () => {
     if (!selectedVenue) return null
 
-    const config = venueConfigs[selectedVenue]
+    const config = venueConfigs[selectedVenue as keyof typeof venueConfigs]
     const seats = []
 
     for (let row = 0; row < config.rows; row++) {
@@ -719,7 +791,7 @@ export default function EventsPage() {
                     <input
                       type="file"
                       ref={fileInputRef}
-                      onChange={handlePosterUpload}
+                      onChange={(e) => handlePosterUpload(e)}
                       className="hidden"
                       accept="image/*"
                     />
@@ -738,41 +810,25 @@ export default function EventsPage() {
 
                   <div className="space-y-2">
                     <Label>Select Venue Type</Label>
-                    <Select value={selectedVenue} onValueChange={setSelectedVenue}>
+                    <Select value={selectedVenue} onValueChange={(value: string) => setSelectedVenue(value)}>
                       <SelectTrigger>
                         <SelectValue placeholder="Choose venue type" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="seminar-hall">Seminar Hall (120 seats)</SelectItem>
-                        <SelectItem value="classroom">Classroom (60 seats)</SelectItem>
-                        <SelectItem value="solar-shade">Solar Shade (80 seats)</SelectItem>
+                        <SelectItem value="seminar-hall">Seminar Hall (160 seats)</SelectItem>
+                        <SelectItem value="solar-shade">Solar Shade (250 seats)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
-                  {selectedVenue === "classroom" && (
-                    <div className="space-y-2">
-                      <Label>Gender Arrangement</Label>
-                      <Select value={genderSeparation} onValueChange={setGenderSeparation}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select arrangement" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="girls">Girls Section</SelectItem>
-                          <SelectItem value="boys">Boys Section</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {Object.keys(seatAssignments).length > 0 && (
+                  {seatAssignments.length > 0 && (
                     <div className="mt-2 p-3 bg-gray-50 rounded-lg">
                       <h4 className="font-medium mb-2">Current Seat Assignments:</h4>
                       <div className="space-y-1">
-                        {Object.entries(seatAssignments).map(([className, seats]) => (
-                          <div key={className} className="flex justify-between text-sm">
-                            <span className="font-medium">{className}:</span>
-                            <span>{seats.length} seats</span>
+                        {seatAssignments.map((assignment) => (
+                          <div key={assignment.id} className="flex justify-between text-sm">
+                            <span className="font-medium">{assignment.department} • {assignment.year}</span>
+                            <span>{assignment.seat_numbers.length} seats</span>
                           </div>
                         ))}
                       </div>
@@ -811,7 +867,6 @@ export default function EventsPage() {
                   </div>
                   <Switch id="enablePayment" checked={enablePayment} onCheckedChange={setEnablePayment} />
                 </div>
-
                 {enablePayment && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
@@ -847,6 +902,26 @@ export default function EventsPage() {
                     animate={{ opacity: 1, height: "auto" }}
                     className="space-y-4 pt-2"
                   >
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="regStart">Registration Start</Label>
+                        <Input
+                          id="regStart"
+                          type="datetime-local"
+                          value={registrationStart}
+                          onChange={(e) => setRegistrationStart(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="regEnd">Registration End</Label>
+                        <Input
+                          id="regEnd"
+                          type="datetime-local"
+                          value={registrationEnd}
+                          onChange={(e) => setRegistrationEnd(e.target.value)}
+                        />
+                      </div>
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="registrationFields">Registration Information Required</Label>
                       <Textarea
@@ -921,7 +996,7 @@ export default function EventsPage() {
                       <div className="flex justify-between">
                         <span className="text-gray-500">Venue Type:</span>
                         <span className="font-medium">
-                          {venueConfigs[selectedVenue]?.name} ({venueConfigs[selectedVenue]?.totalSeats} seats)
+                          {venueConfigs[selectedVenue as keyof typeof venueConfigs]?.name} ({venueConfigs[selectedVenue as keyof typeof venueConfigs]?.totalSeats} seats)
                         </span>
                       </div>
                     )}
@@ -946,7 +1021,7 @@ export default function EventsPage() {
               <Button variant="outline" onClick={() => setCurrentStep(3)}>
                 <ChevronLeft className="mr-2 h-4 w-4" /> Back
               </Button>
-              <Button onClick={createEvent} disabled={enablePayment && !paymentAmount}>
+              <Button onClick={handleCreateEvent} disabled={enablePayment && !paymentAmount}>
                 <Check className="mr-2 h-4 w-4" /> Create Event
               </Button>
             </div>
@@ -954,70 +1029,48 @@ export default function EventsPage() {
         )}
       </AnimatePresence>
 
-      {/* Seat Selection Dialog */}
+      {/* Seat Assignment Dialog */}
       <Dialog open={showSeatSelection} onOpenChange={setShowSeatSelection}>
-        <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[1200px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Seat Assignment - {selectedVenue && venueConfigs[selectedVenue]?.name}</DialogTitle>
+            <DialogTitle>Seat Assignment - {selectedVenue && venueConfigs[selectedVenue as keyof typeof venueConfigs]?.name}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-500">Select seats and assign them to specific classes</div>
-
-              <div className="flex items-center space-x-2">
-                <select
-                  className="text-sm border rounded p-1"
-                  value={currentAssignClass}
-                  onChange={(e) => setCurrentAssignClass(e.target.value)}
-                >
-                  <option value="">Select Class</option>
-                  {availableClasses.map((cls) => (
-                    <option key={cls} value={cls}>
-                      {cls}
-                    </option>
-                  ))}
-                </select>
-
-                <Button
-                  size="sm"
-                  onClick={assignSeatsToClass}
-                  disabled={!currentAssignClass || selectedSeats.length === 0}
-                >
-                  Assign {selectedSeats.length} Seats
-                </Button>
-              </div>
-            </div>
-
-            <div className="border-t pt-4">
-              {renderSeatMap()}
-
-              <div className="mt-6 border-t pt-4">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h4 className="font-medium">Seat Assignment Legend</h4>
-                    <div className="flex items-center mt-2 space-x-4 text-sm">
-                      <div className="flex items-center">
-                        <div className="w-4 h-4 bg-white border border-gray-300 mr-1"></div>
-                        <span>Available</span>
-                      </div>
-                      <div className="flex items-center">
-                        <div className="w-4 h-4 bg-purple-600 mr-1"></div>
-                        <span>Selected</span>
-                      </div>
-                      <div className="flex items-center">
-                        <div className="w-4 h-4 bg-gray-800 mr-1"></div>
-                        <span>Assigned</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <Button onClick={() => setShowSeatSelection(false)} variant="outline">
-                    Close
-                  </Button>
-                </div>
-              </div>
-            </div>
+          <div className="py-4">
+            {currentEventForSeats && (
+              <RealtimeSeatUpdates
+                eventId={currentEventForSeats}
+                onAssignmentChangeAction={(assignments: any[]) => setSeatAssignments(assignments)}
+              >
+                <SeatAssignmentInterface
+                  eventId={currentEventForSeats}
+                  venueType={selectedVenue as 'seminar-hall' | 'solar-shade'}
+                  assignments={seatAssignments}
+                  onAssignmentCreateAction={async (assignment: any) => {
+                    const result = await createSeatAssignment({
+                      ...assignment,
+                      event_id: currentEventForSeats,
+                      venue_type: selectedVenue as 'seminar-hall' | 'solar-shade'
+                    })
+                    if (!result.success) {
+                      throw new Error(result.error || 'Failed to create assignment')
+                    }
+                  }}
+                  onAssignmentUpdateAction={async (assignmentId: string, seatNumbers: number[]) => {
+                    const result = await updateSeatAssignment(assignmentId, seatNumbers)
+                    if (!result.success) {
+                      throw new Error(result.error || 'Failed to update assignment')
+                    }
+                  }}
+                  onAssignmentDeleteAction={async (assignmentId: string) => {
+                    const result = await deleteSeatAssignment(assignmentId)
+                    if (!result.success) {
+                      throw new Error(result.error || 'Failed to delete assignment')
+                    }
+                  }}
+                />
+              </RealtimeSeatUpdates>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -1043,7 +1096,7 @@ export default function EventsPage() {
                 <div className="md:flex">
                   <div className="md:w-1/3">
                     <img
-                      src={event.poster || "/placeholder.svg"}
+                      src={event.poster_url || "/placeholder.svg"}
                       alt={event.title}
                       className="w-full h-48 md:h-full object-cover"
                     />
@@ -1055,21 +1108,20 @@ export default function EventsPage() {
                         <div className="flex flex-wrap gap-2 text-sm text-gray-500">
                           <div className="flex items-center">
                             <Calendar className="h-4 w-4 mr-1" />
-                            {event.date}
+                            {new Date(event.event_date).toLocaleDateString()}
                           </div>
                           <div className="flex items-center">
                             <Clock className="h-4 w-4 mr-1" />
-                            {event.time}
+                            {new Date(event.event_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </div>
                           <div className="flex items-center">
-                            <MapPin className="h-4 w-4 mr-1" />
-                            {event.venue}
+                            <div className="text-sm text-gray-600 mb-2">Venue: {event.venue}</div>
                           </div>
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        {event.allowRegistration && (
-                          <Button variant="outline" size="sm" onClick={() => setShowRegistrations(!showRegistrations)}>
+                        {event.allow_registration && (
+                          <Button variant="outline" size="sm" onClick={() => handleViewRegistrations(event)} >
                             View Registrations
                           </Button>
                         )}
@@ -1090,49 +1142,33 @@ export default function EventsPage() {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                           <div className="bg-purple-50 p-3 rounded-lg">
                             <div className="text-sm text-gray-500">Registered</div>
-                            <div className="text-xl font-bold">{event.registeredStudents}</div>
+                            <div className="text-xl font-bold">{event.event_registrations?.length || 0}</div>
                           </div>
                           <div className="bg-green-50 p-3 rounded-lg">
                             <div className="text-sm text-gray-500">Payments</div>
-                            <div className="text-xl font-bold">{event.paidStudents}</div>
+                            <div className="text-xl font-bold">{event.enable_payment ? (event.event_registrations?.length || 0) : 0}</div>
                           </div>
                           <div className="bg-blue-50 p-3 rounded-lg">
                             <div className="text-sm text-gray-500">Attended</div>
-                            <div className="text-xl font-bold">{event.attendedStudents}</div>
+                            <div className="text-xl font-bold">{(event.event_attendance || []).filter((a: any) => a.attendance_status === 'present').length}</div>
                           </div>
                           <div className="bg-yellow-50 p-3 rounded-lg">
                             <div className="text-sm text-gray-500">Revenue</div>
-                            <div className="text-xl font-bold">₹{event.paidStudents * (event.paymentAmount || 0)}</div>
+                            <div className="text-xl font-bold">₹{(event.enable_payment ? (event.payment_amount || 0) * (event.event_registrations?.length || 0) : 0)}</div>
                           </div>
                         </div>
 
                         <div className="flex flex-wrap gap-1 mb-4">
-                          {event.targetAudience.map((dept) => (
+                          {event.department?.map((dept: string) => (
                             <span key={dept} className="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded">
                               {dept}
                             </span>
                           ))}
                         </div>
 
-                        {event.venueType && (
-                          <div className="mb-4">
-                            <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                              {venueConfigs[event.venueType]?.name} - {venueConfigs[event.venueType]?.totalSeats} seats
-                            </Badge>
-                            {event.genderSeparation && (
-                              <Badge variant="outline" className="ml-2 bg-pink-50 text-pink-700">
-                                {event.genderSeparation === "girls" ? "Girls Section" : "Boys Section"}
-                              </Badge>
-                            )}
-                          </div>
-                        )}
-
-                        {Object.keys(event.seatAssignments || {}).length > 0 && (
-                          <div className="mt-4">
-                            <Button variant="outline" size="sm" onClick={() => setShowSeatSelection(true)}>
-                              <Users className="h-4 w-4 mr-1" />
-                              View Seat Assignments
-                            </Button>
+                        {event.venue_type && (
+                          <div className="text-sm text-gray-600">
+                            Venue Type: {venueConfigs[event.venue_type as keyof typeof venueConfigs]?.name} ({venueConfigs[event.venue_type as keyof typeof venueConfigs]?.totalSeats} seats)
                           </div>
                         )}
                       </>
@@ -1144,44 +1180,88 @@ export default function EventsPage() {
                             Close
                           </Button>
                         </div>
-
-                        <div className="border rounded-lg overflow-hidden">
-                          <div className="grid grid-cols-6 bg-gray-100 p-3 text-sm font-medium">
-                            <div>Name</div>
-                            <div>PRN</div>
-                            <div>Email</div>
-                            <div>Class</div>
-                            <div>Payment</div>
-                            <div>Status</div>
-                          </div>
-
-                          {(event.registrations || []).map((registration) => (
-                            <div key={registration.id} className="grid grid-cols-6 p-3 text-sm border-t">
-                              <div>{registration.name}</div>
-                              <div>{registration.prn}</div>
-                              <div>{registration.email}</div>
-                              <div>{registration.class}</div>
-                              <div>
-                                <Badge
-                                  className={
-                                    registration.paid ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                                  }
-                                >
-                                  {registration.paid ? "Paid" : "Unpaid"}
-                                </Badge>
-                              </div>
-                              <div>
-                                <Badge
-                                  className={
-                                    registration.attended ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"
-                                  }
-                                >
-                                  {registration.attended ? "Attended" : "Registered"}
-                                </Badge>
-                              </div>
+                        {/* Group by department and year */}
+                        {(() => {
+                          const groups: Record<string, any[]> = {}
+                          registrations.forEach((r: any) => {
+                            const key = `${r.students.department} • ${r.students.year}`
+                            groups[key] = groups[key] || []
+                            groups[key].push(r)
+                          })
+                          const entries = Object.entries(groups)
+                          return entries.length === 0 ? (
+                            <div className="text-sm text-gray-600">No registrations yet.</div>
+                          ) : (
+                            <div className="space-y-6">
+                              {entries.map(([group, regs]) => (
+                                <div key={group}>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <h5 className="font-medium">{group} <span className="text-gray-500">({(regs as any[]).length})</span></h5>
+                                  </div>
+                                  <div className="border rounded-lg overflow-hidden">
+                                    <div className="grid grid-cols-7 bg-gray-100 p-3 text-sm font-medium">
+                                      <div>Name</div>
+                                      <div>Email</div>
+                                      <div>Phone</div>
+                                      <div>Dept</div>
+                                      <div>Year</div>
+                                      <div>Status</div>
+                                      <div>Attendance</div>
+                                    </div>
+                                    {(regs as any[]).map((registration: any) => (
+                                      <div key={registration.id} className="grid grid-cols-7 p-3 text-sm border-t">
+                                        <div>{registration.students.name}</div>
+                                        <div>{registration.students.email}</div>
+                                        <div>{registration.students.phone || '-'}</div>
+                                        <div>{registration.students.department}</div>
+                                        <div>{registration.students.year}</div>
+                                        <div>
+                                          <Badge className={registration.status === 'registered' ? 'bg-gray-100 text-gray-800' : 'bg-blue-100 text-blue-800'}>
+                                            {registration.status}
+                                          </Badge>
+                                        </div>
+                                        <div className="flex gap-2">
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={async () => {
+                                              const { data: { user } } = await supabase.auth.getUser()
+                                              if (!user) return
+                                              const res = await (await import('./actions')).markEventAttendance(event.id, registration.student_id, 'present', user.id)
+                                              if (res.success) {
+                                                toast({ title: 'Marked present' })
+                                              } else {
+                                                toast({ title: 'Error', description: res.error, variant: 'destructive' })
+                                              }
+                                            }}
+                                          >
+                                            Present
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={async () => {
+                                              const { data: { user } } = await supabase.auth.getUser()
+                                              if (!user) return
+                                              const res = await (await import('./actions')).markEventAttendance(event.id, registration.student_id, 'absent', user.id)
+                                              if (res.success) {
+                                                toast({ title: 'Marked absent' })
+                                              } else {
+                                                toast({ title: 'Error', description: res.error, variant: 'destructive' })
+                                              }
+                                            }}
+                                          >
+                                            Absent
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
+                          )
+                        })()}
                       </div>
                     ) : (
                       <div className="mt-4">
@@ -1193,56 +1273,8 @@ export default function EventsPage() {
                           </Button>
                         </div>
                         <div className="bg-yellow-50 p-3 rounded-lg mb-4 text-sm">
-                          Check the box next to each student who attended the event. Only registered and paid students
-                          are shown.
+                          Use the Registrations view to mark present/absent in real-time. This legacy section remains for quick CSV download.
                         </div>
-
-                        <div className="mb-4">
-                          <Input
-                            placeholder="Search students by name, PRN, or class..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="mb-2"
-                          />
-                        </div>
-
-                        <div className="border rounded-lg overflow-hidden mb-4">
-                          <div className="grid grid-cols-12 bg-gray-100 p-3 text-sm font-medium">
-                            <div className="col-span-1">Present</div>
-                            <div className="col-span-4">Name</div>
-                            <div className="col-span-3">PRN</div>
-                            <div className="col-span-2">Class</div>
-                            <div className="col-span-2">Payment</div>
-                          </div>
-
-                          {getFilteredStudents()
-                            .filter((student) => student.paid)
-                            .map((student) => (
-                              <div
-                                key={student.id}
-                                className="grid grid-cols-12 p-3 text-sm border-t hover:bg-gray-50 cursor-pointer"
-                                onClick={() => toggleAttendance(student.id)}
-                              >
-                                <div className="col-span-1 flex items-center">
-                                  <div
-                                    className={`w-5 h-5 rounded border flex items-center justify-center ${
-                                      student.present ? "bg-purple-600 border-purple-600" : "border-gray-300"
-                                    }`}
-                                  >
-                                    {student.present && <Check className="h-3 w-3 text-white" />}
-                                  </div>
-                                </div>
-                                <div className="col-span-4">{student.name}</div>
-                                <div className="col-span-3">{student.prn}</div>
-                                <div className="col-span-2">{student.class}</div>
-                                <div className="col-span-2">
-                                  <Badge className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded">Paid</Badge>
-                                </div>
-                              </div>
-                            ))}
-                        </div>
-
-                        <Button onClick={submitAttendance}>Submit Attendance</Button>
                       </div>
                     )}
                   </div>

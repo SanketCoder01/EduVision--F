@@ -6,8 +6,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, User, LogOut, Home, BookOpen, FileText, Users, MessageSquare, Bell, Calendar, Code, Video, Heart } from 'lucide-react';
+import { Menu, User, LogOut, Home, BookOpen, FileText, Users, MessageSquare, Bell, Calendar, Code, Video, Heart, Armchair } from 'lucide-react';
 import { FirstTimeSetup } from '@/components/attendance/first-time-setup';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 
 export default function StudentDashboardLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
@@ -52,6 +53,7 @@ export default function StudentDashboardLayout({ children }: { children: ReactNo
     { icon: MessageSquare, label: 'Queries', href: '/student-dashboard/queries' },
     { icon: Bell, label: 'Announcements', href: '/student-dashboard/announcements' },
     { icon: Calendar, label: 'Events', href: '/student-dashboard/events' },
+    { icon: Armchair, label: 'Event Seating', href: '/student-dashboard/seating' },
     { icon: Code, label: 'Compiler', href: '/student-dashboard/compiler' },
     { icon: Video, label: 'Virtual Classroom', href: '/student-dashboard/virtual-classroom' },
     { icon: Heart, label: 'Mentorship', href: '/student-dashboard/mentorship' },
@@ -168,7 +170,8 @@ export default function StudentDashboardLayout({ children }: { children: ReactNo
               </h1>
             </div>
             <div className="flex-1"></div>
-            <div className="flex items-center">
+            <div className="flex items-center gap-4">
+              <NotificationBell />
               <button
                 type="button"
                 className="flex rounded-full bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"

@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createServerSupabaseClient } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 import fs from 'fs'
 import path from 'path'
 
 export async function POST() {
   try {
     console.log('Fixing database tables...')
-    const supabase = createServerSupabaseClient()
+    const supabase = createClient()
     
     // Read the SQL script
     const sqlPath = path.join(process.cwd(), 'scripts', 'fix-tables.sql')

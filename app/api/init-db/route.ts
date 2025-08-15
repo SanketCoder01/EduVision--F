@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase/server'
 
 export async function POST() {
   try {
     console.log('Initializing database tables...')
-    
+    const supabase = createClient()
+
     // Create students table
     const { error: studentsError } = await supabase.rpc('exec_sql', {
       sql: `

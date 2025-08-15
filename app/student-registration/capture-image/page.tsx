@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import Webcam from "react-webcam"
+import dynamic from "next/dynamic"
 import { motion } from "framer-motion"
 import { Camera, RefreshCw, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -17,10 +17,20 @@ const videoConstraints = {
   facingMode: "user",
 }
 
+// Lazy-load Webcam to avoid SSR/build-time dependency issues
+const Webcam = dynamic<any>(async () => (await import("react-webcam")).default as any, {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center text-sm text-gray-500 h-full">
+      Initializing camera…
+    </div>
+  ),
+})
+
 export default function CaptureImagePage() {
   const router = useRouter()
   const { toast } = useToast()
-  const webcamRef = useRef<Webcam>(null)
+  const webcamRef = useRef<any>(null)
   const [imgSrc, setImgSrc] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

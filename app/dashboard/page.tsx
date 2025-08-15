@@ -1,11 +1,7 @@
 "use client"
 
-import { FacultyHub } from "@/components/todays-hub/faculty-hub"
+import TodaysHubPage from "@/app/dashboard/todays-hub/page"
 
-export default function FacultyDashboardPage() {
-  return (
-    <div className="p-6">
-      <FacultyHub />
-    </div>
-  )
+export default function DashboardAsTodaysHub() {
+  return <TodaysHubPage />
 }

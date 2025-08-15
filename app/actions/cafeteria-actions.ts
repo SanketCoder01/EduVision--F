@@ -1,6 +1,6 @@
 "use server"
 
-import { createServerSupabaseClient } from "@/lib/supabase"
+import { createClient as createServerSupabaseClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache"
 
 // Types for cafeterias and menu items

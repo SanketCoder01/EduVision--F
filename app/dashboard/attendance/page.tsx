@@ -15,8 +15,10 @@ import {
 import { CreateAttendanceSession } from '@/components/attendance/create-session';
 import { AttendanceAnalytics } from '@/components/attendance/attendance-analytics';
 import { AttendanceRecords } from '@/components/attendance/attendance-records';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function FacultyAttendancePage() {
+  const { user, isLoading: authLoading } = useAuth();
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<AttendanceSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -24,15 +26,20 @@ export default function FacultyAttendancePage() {
   const [analytics, setAnalytics] = useState<any>(null);
 
   useEffect(() => {
-    loadSessions();
-  }, []);
+    if (!authLoading) {
+      loadSessions();
+    }
+  }, [authLoading]);
 
   const loadSessions = async () => {
     try {
       setLoading(true);
-      const facultyId = 'mock-faculty-id'; // In a real app, get from auth context
-      const sessionsData = await getFacultyAttendanceSessions(facultyId);
-      setSessions(sessionsData);
+      if (!user?.id) {
+        setSessions([]);
+        return;
+      }
+      const sessionsData = await getFacultyAttendanceSessions(user.id);
+      setSessions(sessionsData || []);
     } catch (error) {
       toast.error('Failed to load attendance sessions');
       console.error('Error loading sessions:', error);
@@ -78,10 +85,22 @@ export default function FacultyAttendancePage() {
     }
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-gray-900"></div>
+      </div>
+    );
+  }
+
+  if (!user?.id) {
+    return (
+      <div className="container mx-auto p-6">
+        <Card>
+          <CardContent className="py-10 text-center text-gray-600">
+            <p>You're not signed in. Please sign in to manage attendance sessions.</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }

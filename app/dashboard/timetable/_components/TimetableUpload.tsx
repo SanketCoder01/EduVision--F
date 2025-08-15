@@ -10,12 +10,13 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { uploadTimetable } from '../actions';
+import { DEPARTMENTS } from '@/lib/constants/departments';
 
 interface TimetableUploadProps {
-  onUploadSuccess: () => void;
+  onUploadSuccessAction: () => void;
 }
 
-export default function TimetableUpload({ onUploadSuccess }: TimetableUploadProps) {
+export default function TimetableUpload({ onUploadSuccessAction }: TimetableUploadProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [department, setDepartment] = useState('');
   const [year, setYear] = useState('');
@@ -23,12 +24,6 @@ export default function TimetableUpload({ onUploadSuccess }: TimetableUploadProp
   const [error, setError] = useState('');
   const [dragActive, setDragActive] = useState(false);
 
-  const departments = [
-    'Computer Science and Engineering (CSE)',
-    'Cyber Security',
-    'Artificial Intelligence and Data Science (AIDS)',
-    'Artificial Intelligence and Machine Learning (AIML)',
-  ];
 
   const years = ['1', '2', '3', '4'];
 
@@ -82,7 +77,7 @@ export default function TimetableUpload({ onUploadSuccess }: TimetableUploadProp
       setSelectedFile(null);
       setDepartment('');
       setYear('');
-      onUploadSuccess();
+      onUploadSuccessAction();
     }
 
     setIsUploading(false);
@@ -129,7 +124,7 @@ export default function TimetableUpload({ onUploadSuccess }: TimetableUploadProp
                     <SelectValue placeholder="Select Department" />
                   </SelectTrigger>
                   <SelectContent>
-                    {departments.map((dept) => (
+                    {DEPARTMENTS.map((dept) => (
                       <SelectItem key={dept} value={dept}>
                         {dept}
                       </SelectItem>

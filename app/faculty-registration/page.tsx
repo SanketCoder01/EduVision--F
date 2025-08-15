@@ -12,7 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useToast } from "@/components/ui/use-toast"
 import EduVisionLoader from "@/components/loaders/EduvisionLoader"
-import { createClient } from "@/lib/supabase/client"
+import { updateFacultyProfile } from "./actions";
+import { DEPARTMENTS } from "@/lib/constants/departments";
 
 function RegistrationForm() {
   const router = useRouter()
@@ -30,119 +31,56 @@ function RegistrationForm() {
   })
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [isChecking, setIsChecking] = useState(true)
-  const [isRegistered, setIsRegistered] = useState<boolean | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
-  useEffect(() => {
-    if (!userEmail) {
-      setIsChecking(false)
-      return
-    }
-
-    const checkUser = async () => {
-      const supabase = createClient()
-      const { data } = await supabase
-        .from('faculty')
-        .select('id')
-        .eq('email', userEmail)
-        .single()
-      
-      setIsRegistered(!!data)
-      setIsChecking(false)
-    }
-
-    checkUser()
-  }, [userEmail])
-
+  
   const handleInputChange = (name: string, value: string) => {
     setFormData((prev) => ({ ...prev, [name]: value }))
     setError("")
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
+    e.preventDefault();
+    setError("");
 
+    setIsLoading(true);
     if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match.")
-      return
-    }
-
-    if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters long.")
-      return
-    }
-
-    setIsLoading(true)
-
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
-    if (!user) {
-      setError("Could not identify user. Please try logging in again.")
-      setIsLoading(false)
-      return
-    }
-
-    const { error: updateUserError } = await supabase.auth.updateUser({ 
-      password: formData.password 
-    });
-
-    if (updateUserError) {
-      setError(`Password update failed: ${updateUserError.message}`);
+      setError("Passwords do not match.");
       setIsLoading(false);
       return;
     }
 
-    const { error: insertError } = await supabase.from('faculty').insert({
-      id: user.id,
-      email: user.email,
-      full_name: userName,
-      department: formData.department,
-      mobile_number: formData.mobileNumber,
-    })
-
-    if (insertError) {
-      setError(`Registration failed: ${insertError.message}`)
-      setIsLoading(false)
-      return
+    if (!formData.department) {
+      setError("Please select a department.");
+      setIsLoading(false);
+      return;
     }
 
-    toast({
-      title: "Details Saved!",
-      description: "Next, please capture your profile image for verification.",
-    })
+    try {
+      const result = await updateFacultyProfile({
+        ...formData,
+        fullName: userName,
+      });
 
-    router.push("/faculty-registration/capture-image")
-  }
+      if (result?.error) {
+        setError(result.error.message);
+        return;
+      }
 
-  if (isChecking) {
-    return <EduVisionLoader text="Checking your status..." />
-  }
+      toast({
+        title: "Details Saved!",
+        description: "Next, please capture your profile image for verification.",
+      });
+      router.push("/faculty-registration/capture-image");
+    } catch (err: any) {
+      setError(err?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setTimeout(() => setIsLoading(false), 800);
+    }
+  };
 
-  if (isRegistered) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle className="text-2xl font-bold text-center">Already Registered</CardTitle>
-            <CardDescription className="text-center pt-2">
-              An account with the email <span className="font-semibold">{userEmail}</span> already exists.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-center">
-            <p className="mb-6">Please proceed to login to access your dashboard.</p>
-            <Button onClick={() => router.push('/login')} className="w-full bg-purple-600 hover:bg-purple-700">
-              Go to Login
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
+  
   if (!userEmail) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -159,10 +97,6 @@ function RegistrationForm() {
     )
   }
 
-  if (isLoading) {
-    return <EduVisionLoader text="Saving your details..." />
-  }
-
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <motion.div
@@ -171,6 +105,11 @@ function RegistrationForm() {
         transition={{ duration: 0.5 }}
         className="w-full max-w-lg"
       >
+        {isLoading && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+            <EduVisionLoader />
+          </div>
+        )}
         <Card>
           <CardHeader>
             <CardTitle className="text-2xl font-bold">Complete Your Faculty Profile</CardTitle>
@@ -204,11 +143,11 @@ function RegistrationForm() {
                     <SelectValue placeholder="Select Department" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Computer Science">Computer Science</SelectItem>
-                    <SelectItem value="Electrical Engineering">Electrical Engineering</SelectItem>
-                    <SelectItem value="Mechanical Engineering">Mechanical Engineering</SelectItem>
-                    <SelectItem value="Civil Engineering">Civil Engineering</SelectItem>
-                    <SelectItem value="Administration">Administration</SelectItem>
+                    {DEPARTMENTS.map((dept) => (
+                      <SelectItem key={dept} value={dept}>
+                        {dept}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

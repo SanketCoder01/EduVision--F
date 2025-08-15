@@ -35,7 +35,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Checkbox } from "@/components/ui/checkbox"
-import { createServerSupabaseClient } from "@/lib/supabase"
+import { createClient } from '@/lib/supabase/client'
 
 export default function MentorshipDashboard() {
   const { toast } = useToast()
@@ -78,7 +78,7 @@ export default function MentorshipDashboard() {
     async function fetchData() {
       try {
         setIsLoading(true)
-        const supabase = createServerSupabaseClient()
+        const supabase = createClient()
 
         // Get current user
         const { data: userData } = await supabase.auth.getUser()
@@ -272,7 +272,7 @@ export default function MentorshipDashboard() {
     }
 
     try {
-      const supabase = createServerSupabaseClient()
+      const supabase = createClient()
 
       // Create mentorships for each selected student
       for (const studentId of selectedStudents) {
@@ -337,7 +337,7 @@ export default function MentorshipDashboard() {
     }
 
     try {
-      const supabase = createServerSupabaseClient()
+      const supabase = createClient()
 
       // Create the meeting
       const { data: meeting, error: meetingError } = await supabase
@@ -396,7 +396,7 @@ export default function MentorshipDashboard() {
     setSelectedMeeting(meeting)
 
     try {
-      const supabase = createServerSupabaseClient()
+      const supabase = createClient()
 
       // Fetch attendees with attendance data
       const { data: attendees, error: attendeesError } = await supabase
@@ -420,7 +420,7 @@ export default function MentorshipDashboard() {
 
   const handleUpdateAttendance = async (attendeeId, attended) => {
     try {
-      const supabase = createServerSupabaseClient()
+      const supabase = createClient()
 
       const { error } = await supabase.from("mentorship_meeting_attendees").update({ attended }).eq("id", attendeeId)
 
@@ -447,7 +447,7 @@ export default function MentorshipDashboard() {
 
   const handleAddFeedback = async (attendeeId, feedback) => {
     try {
-      const supabase = createServerSupabaseClient()
+      const supabase = createClient()
 
       const { error } = await supabase.from("mentorship_meeting_attendees").update({ feedback }).eq("id", attendeeId)
 
@@ -483,7 +483,7 @@ export default function MentorshipDashboard() {
     }
 
     try {
-      const supabase = createServerSupabaseClient()
+      const supabase = createClient()
 
       const { error } = await supabase.from("mentorship_notes").insert({
         faculty_id: currentUser.id,
@@ -514,7 +514,7 @@ export default function MentorshipDashboard() {
 
   const handleHelpRequestStatusChange = async (requestId, status) => {
     try {
-      const supabase = createServerSupabaseClient()
+      const supabase = createClient()
 
       const { error } = await supabase.from("mentorship_help_requests").update({ status }).eq("id", requestId)
 

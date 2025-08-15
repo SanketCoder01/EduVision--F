@@ -1,6 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
-
-const supabase = createClient();
+import { createClient } from '@/lib/supabase/client';
 
 /**
  * Fetches the message history between a student and a faculty member.
@@ -9,6 +7,7 @@ const supabase = createClient();
  * @returns A Supabase query builder instance for the messages.
  */
 export async function fetchMessages(studentId: string, facultyId: string) {
+  const supabase = createClient();
   return supabase
     .from('messages')
     .select('id, content, created_at, sender_id, message_type, attachment_url')
@@ -24,6 +23,7 @@ export async function fetchMessages(studentId: string, facultyId: string) {
  * @returns The Supabase real-time channel subscription.
  */
 export function subscribeToMessages(studentId: string, facultyId: string, callback: (payload: any) => void) {
+  const supabase = createClient();
   const channel = supabase
     .channel(`messages:${studentId}:${facultyId}`)
     .on(
@@ -42,6 +42,7 @@ export function subscribeToMessages(studentId: string, facultyId: string, callba
 }
 
 export async function sendMessage(sender_id: string, sender_role: string, receiver_id: string, receiver_role: string, content: string, message_type: string = 'text', attachment_url: string | null = null) {
+  const supabase = createClient();
   return supabase.from('messages').insert({
     sender_id,
     sender_role,

@@ -23,7 +23,12 @@ import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "@/hooks/use-toast"
-import { getAssignmentById, createSubmission, uploadFile, getStudentSubmissionForAssignment } from "@/lib/supabase"
+import {
+  getAssignmentById,
+  submitAssignment as createSubmission,
+  getStudentSubmissions as getStudentSubmissionForAssignment,
+} from "@/app/actions/assignment-actions";
+import { uploadFile } from "@/lib/file-upload";
 
 interface Assignment {
   id: string
@@ -85,9 +90,9 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
       setLoading(true)
 
       // Fetch assignment details
-      const assignmentData = await getAssignmentById(params.id)
+      const result = await getAssignmentById(params.id)
 
-      if (!assignmentData) {
+      if (!result.success || !result.data) {
         toast({
           title: "Assignment not found",
           description: "The assignment you're looking for doesn't exist.",
@@ -97,8 +102,10 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
         return
       }
 
+      const assignmentData = (result.data as any).assignment;
+
       // Check if assignment is for the student's department and year
-      if (assignmentData.department !== user.department || assignmentData.year !== user.year) {
+      if (assignmentData.department !== user.department || !assignmentData.target_years.includes(user.year)) {
         toast({
           title: "Access Denied",
           description: "This assignment is not available for your department/year.",
@@ -108,7 +115,7 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
         return
       }
 
-      setAssignment(assignmentData)
+      setAssignment(assignmentData as Assignment)
 
       // Set submission type based on assignment type
       if (assignmentData.assignment_type === "text_based") {
@@ -119,8 +126,9 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
 
       // Check for existing submission
       try {
-        const submission = await getStudentSubmissionForAssignment(user.id, params.id)
-        if (submission) {
+        const submissionResult = await getStudentSubmissionForAssignment(user.id, params.id)
+        if (submissionResult.success && submissionResult.data && submissionResult.data.length > 0) {
+          const submission = submissionResult.data[0];
           setExistingSubmission(submission)
           if (submission.content) {
             setTextSubmission(submission.content)
@@ -296,52 +304,63 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
     setShowConfirmDialog(false)
 
     try {
-      const fileUrls: string[] = []
-      const fileNames: string[] = []
+      const uploadedFileObjects: { name: string; fileType: string; fileUrl: string; fileSize: number }[] = []
 
-      // Upload files if any
+      // Upload files if submission type is 'file'
       if (submissionType === "file" && uploadedFiles.length > 0) {
         for (const file of uploadedFiles) {
           try {
-            const fileName = `${Date.now()}-${file.name}`
-            const filePath = `submissions/${assignment.id}/${currentUser.id}/${fileName}`
-            const { url } = await uploadFile(file, "assignment-submissions", filePath)
-            fileUrls.push(url)
-            fileNames.push(file.name)
+            const filePath = `${currentUser.id}/${params.id}/${Date.now()}-${file.name}`
+            const uploadResult = await uploadFile(file, "assignment-submissions", filePath)
+
+            if (uploadResult.success && uploadResult.fileUrl) {
+              uploadedFileObjects.push({
+                name: file.name,
+                fileType: file.type,
+                fileUrl: uploadResult.fileUrl,
+                fileSize: file.size,
+              })
+            } else {
+              throw new Error((uploadResult.error as any)?.message || `Failed to upload ${file.name}`)
+            }
           } catch (error) {
             console.error("Error uploading file:", error)
             toast({
               title: "Upload Error",
-              description: `Failed to upload ${file.name}`,
+              description: error instanceof Error ? error.message : `Failed to upload ${file.name}`,
               variant: "destructive",
             })
+            setSubmitting(false)
+            return // Stop submission process
           }
         }
       }
 
-      // Create submission
-      const submissionData = {
-        assignment_id: assignment.id,
-        student_id: currentUser.id,
-        content: submissionType === "text" ? textSubmission : null,
-        file_urls: fileUrls,
-        file_names: fileNames,
-        status: "submitted" as const,
+      // Create the submission record
+      const submissionResult = await createSubmission({
+        assignmentId: params.id,
+        studentId: currentUser.id,
+        submissionType: submissionType,
+        content: submissionType === "text" ? textSubmission : undefined,
+        files: submissionType === "file" ? uploadedFileObjects : [],
+        ...(existingSubmission && { existingSubmissionId: existingSubmission.id }),
+      })
+
+      if (!submissionResult.success) {
+        throw new Error(submissionResult.error?.toString() || "Failed to create submission")
       }
 
-      await createSubmission(submissionData)
-
       toast({
-        title: "Assignment submitted successfully!",
-        description: "Your submission has been recorded and sent to your instructor.",
+        title: `Assignment ${existingSubmission ? "updated" : "submitted"} successfully!`,
+        description: "Your submission has been recorded.",
       })
 
       router.push("/student-dashboard/assignments")
     } catch (error) {
       console.error("Error submitting assignment:", error)
       toast({
-        title: "Submission failed",
-        description: "There was an error submitting your assignment. Please try again.",
+        title: "Submission Failed",
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
         variant: "destructive",
       })
     } finally {

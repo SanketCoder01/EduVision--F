@@ -1,7 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
 
-const supabase = createClient();
-
 export interface ServiceRequest {
   id?: string;
   student_id: string;
@@ -28,11 +26,13 @@ export interface ServiceResponse {
 
 // Student: Submit service request
 export async function submitServiceRequest(request: ServiceRequest) {
+  const supabase = createClient();
   return supabase.from('service_requests').insert(request);
 }
 
 // Student: Get their service requests
 export async function getStudentServiceRequests(studentId: string) {
+  const supabase = createClient();
   return supabase
     .from('service_requests')
     .select(`
@@ -45,6 +45,7 @@ export async function getStudentServiceRequests(studentId: string) {
 
 // University: Get all service requests
 export async function getAllServiceRequests() {
+  const supabase = createClient();
   return supabase
     .from('service_requests')
     .select(`
@@ -56,6 +57,7 @@ export async function getAllServiceRequests() {
 
 // University: Get service requests by type
 export async function getServiceRequestsByType(serviceType: string) {
+  const supabase = createClient();
   return supabase
     .from('service_requests')
     .select(`
@@ -68,13 +70,15 @@ export async function getServiceRequestsByType(serviceType: string) {
 
 // Respond to service request
 export async function respondToServiceRequest(response: ServiceResponse) {
+  const supabase = createClient();
   return supabase.from('service_responses').insert(response);
 }
 
 // Update service request status
 export async function updateServiceRequestStatus(requestId: string, status: 'pending' | 'in_progress' | 'completed' | 'rejected') {
+  const supabase = createClient();
   return supabase
     .from('service_requests')
     .update({ status })
     .eq('id', requestId);
-} 
+}

@@ -1,18 +1,10 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
-import { createKysely } from '@vercel/postgres-kysely';
+import { createClient } from '@/lib/supabase/server';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-interface Database {
-  email_verifications: {
-    email: string;
-    code: string;
-    expires_at: Date;
-  };
-}
-
-const db = createKysely<Database>();
+// Uses Supabase instead of Vercel Postgres
 
 export async function POST(request: Request) {
   const { email, userType } = await request.json();
@@ -35,14 +27,12 @@ export async function POST(request: Request) {
   const expires_at = new Date(Date.now() + 15 * 60 * 1000); // Expires in 15 minutes
 
   try {
-    // Store the verification code in the database
-    await db
-      .insertInto('email_verifications')
-      .values({ email, code, expires_at })
-      .onConflict((oc) => oc
-        .column('email')
-        .doUpdateSet({ code, expires_at }))
-      .execute();
+    // Store the verification code in Supabase
+    const supabase = createClient();
+    const { error: upsertError } = await supabase
+      .from('email_verifications')
+      .upsert({ email, code, expires_at: expires_at.toISOString() }, { onConflict: 'email' });
+    if (upsertError) throw upsertError;
 
     // Send the verification code via email
     await resend.emails.send({

@@ -102,25 +102,20 @@ export async function createAttendanceSession(data: {
 export async function getFacultyAttendanceSessions(faculty_id: string) {
   const supabase = createClient();
 
+  // Avoid relational join which requires a defined FK; fetch flat rows only
   const { data: sessions, error } = await supabase
     .from('attendance_sessions')
-    .select(`
-      *,
-      classes (
-        id,
-        name,
-        description
-      )
-    `)
+    .select('*')
     .eq('faculty_id', faculty_id)
     .order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error fetching attendance sessions:', error);
-    throw new Error('Failed to fetch attendance sessions');
+    // Be resilient: return empty list so UI can render and show no sessions
+    return [] as any[];
   }
 
-  return sessions;
+  return sessions || [];
 }
 
 // Get attendance sessions for a student (based on their class)

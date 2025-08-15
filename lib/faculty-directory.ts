@@ -1,7 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
 
-const supabase = createClient();
-
 export interface FacultyDirectory {
   id: string;
   name: string;
@@ -13,6 +11,7 @@ export interface FacultyDirectory {
 
 // Get faculty by department for students
 export async function getFacultyByDepartment(department: string) {
+  const supabase = createClient();
   return supabase
     .from('faculty')
     .select('id, name, email, department, designation, phone')
@@ -22,9 +21,10 @@ export async function getFacultyByDepartment(department: string) {
 
 // Get all faculty for university admin
 export async function getAllFaculty() {
+  const supabase = createClient();
   return supabase
     .from('faculty')
     .select('*')
     .order('department', { ascending: true })
     .order('name', { ascending: true });
-} 
+}

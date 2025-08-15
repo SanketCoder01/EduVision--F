@@ -1,30 +1,14 @@
 "use server"
 
-import { createServerActionClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 
-export async function updateFacultyProfile(formData: { department: string; mobileNumber: string; password?: string; }) {
-  const supabase = createServerActionClient({ cookies });
+export async function updateFacultyProfile(formData: { department: string; mobileNumber: string; password?: string; fullName: string; }) {
+  const supabase = createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     return { error: { message: 'User not authenticated' } };
-  }
-
-  // Check if profile already exists
-  const { data: existingProfile, error: selectError } = await supabase
-    .from('faculty')
-    .select('id')
-    .eq('id', user.id)
-    .single();
-
-  if (selectError && selectError.code !== 'PGRST116') { // PGRST116 means no rows found, which is fine
-    return { error: selectError };
-  }
-
-  if (existingProfile) {
-    return { error: { message: 'A profile for this user already exists. Please try logging in.' } };
   }
 
   // Update password if provided
@@ -38,14 +22,16 @@ export async function updateFacultyProfile(formData: { department: string; mobil
     }
   }
 
-  // Insert new profile
-  const { error } = await supabase.from('faculty').insert({
-    id: user.id,
-    email: user.email,
-    full_name: user.user_metadata.full_name || user.email,
-    department: formData.department,
-    mobile_number: formData.mobileNumber,
-  });
+  // Upsert profile (id conflict tolerated)
+  const { error } = await supabase
+    .from('faculty')
+    .upsert({
+      id: user.id,
+      email: user.email, // Use email from the secure session
+      full_name: formData.fullName,
+      department: formData.department,
+      mobile_number: formData.mobileNumber,
+    }, { onConflict: 'id' });
 
   if (error) {
     return { error };

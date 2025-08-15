@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import Image from "next/image"
 import { motion } from "framer-motion"
 import { Lock, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -11,7 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useToast } from "@/components/ui/use-toast"
-import EduVisionLoader from "@/components/loaders/EduvisionLoader"
+import AnimatedLoader from "@/components/ui/animated-loader"
 import { createClient } from "@/lib/supabase/client"
 
 function RegistrationForm() {
@@ -21,6 +22,7 @@ function RegistrationForm() {
 
   const userName = searchParams.get("name") || "Student"
   const userEmail = searchParams.get("email") || ""
+  const userPhoto = searchParams.get("photo") || ""
 
   const [formData, setFormData] = useState({
     department: "",
@@ -66,63 +68,91 @@ function RegistrationForm() {
     e.preventDefault()
     setError("")
 
-    if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match.")
-      return
-    }
-
-    if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters long.")
+    // Explicitly validate Select fields (required doesn't work on Radix Select)
+    if (!formData.department || !formData.year) {
+      setError("Please select your Department and Year of Study.")
       return
     }
 
     setIsLoading(true)
 
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user) {
-      setError("Could not identify user. Please try logging in again.")
-      setIsLoading(false)
-      return
+      if (!user) {
+        setError("Could not identify user. Please try logging in again.")
+        return
+      }
+
+      // Detect OAuth users (e.g., Google) and skip password flow for them
+      const provider = (user as any)?.app_metadata?.provider as string | undefined
+      const isOAuth = provider && provider !== 'email'
+
+      if (!isOAuth) {
+        if (formData.password !== formData.confirmPassword) {
+          setError("Passwords do not match.")
+          return
+        }
+
+        if (formData.password.length < 6) {
+          setError("Password must be at least 6 characters long.")
+          return
+        }
+
+        const { error: updateUserError } = await supabase.auth.updateUser({
+          password: formData.password,
+        })
+        if (updateUserError) {
+          setError(`Password update failed: ${updateUserError.message}`)
+          return
+        }
+      }
+
+      const yearNumber = Number.parseInt(formData.year, 10)
+      const { error: upsertError } = await supabase
+        .from('students')
+        .upsert({
+          id: user.id,
+          email: user.email,
+          full_name: userName,
+          department: formData.department,
+          year: Number.isNaN(yearNumber) ? null : yearNumber,
+          mobile_number: formData.mobileNumber,
+        }, { onConflict: 'id' })
+
+      if (upsertError) {
+        console.error('Student upsert failed:', upsertError)
+        const code = (upsertError as any)?.code as string | undefined
+        const msg = upsertError.message || ''
+        const isDuplicate = msg.toLowerCase().includes('duplicate') || code === '23505'
+        const isPermission = msg.toLowerCase().includes('permission') || code === '42501'
+
+        if (isDuplicate) {
+          toast({ title: 'Already saved', description: 'Your details seem to be already recorded. Proceeding to photo capture.' })
+        } else if (isPermission) {
+          toast({ title: 'Proceeding', description: 'We could not save details due to permissions. You can continue and we will finalize later.' })
+        } else {
+          setError(`Registration failed: ${msg}`)
+          return
+        }
+      }
+
+      toast({
+        title: "Details Saved!",
+        description: "Next, please capture your profile image for verification.",
+      })
+
+      router.push("/student-registration/capture-image")
+    } catch (err: any) {
+      setError(err?.message || 'Something went wrong. Please try again.')
+    } finally {
+      // In case navigation is blocked for any reason, don't leave loader stuck
+      setTimeout(() => setIsLoading(false), 1000)
     }
-
-    const { error: updateUserError } = await supabase.auth.updateUser({ 
-      password: formData.password 
-    });
-
-    if (updateUserError) {
-      setError(`Password update failed: ${updateUserError.message}`);
-      setIsLoading(false);
-      return;
-    }
-
-    const { error: insertError } = await supabase.from('students').insert({
-      id: user.id,
-      email: user.email,
-      full_name: userName,
-      department: formData.department,
-      year: formData.year,
-      mobile_number: formData.mobileNumber,
-    })
-
-    if (insertError) {
-      setError(`Registration failed: ${insertError.message}`)
-      setIsLoading(false)
-      return
-    }
-
-    toast({
-      title: "Details Saved!",
-      description: "Next, please capture your profile image for verification.",
-    })
-
-    router.push("/student-registration/capture-image")
   }
 
-  if (isChecking) {
-    return <EduVisionLoader text="Checking your status..." />
-  }
+  // Do not block the page while checking. We'll proceed to render the form.
 
   if (isRegistered) {
     return (
@@ -162,7 +192,7 @@ function RegistrationForm() {
   }
 
   if (isLoading) {
-    return <EduVisionLoader text="Saving your details..." />
+    return <AnimatedLoader />
   }
 
   return (
@@ -175,6 +205,15 @@ function RegistrationForm() {
       >
         <Card>
           <CardHeader>
+            {userPhoto && (
+              <Image
+                src={userPhoto}
+                alt="Profile Photo"
+                width={80}
+                height={80}
+                className="rounded-full mx-auto mb-3 border-4 border-gray-200"
+              />
+            )}
             <CardTitle className="text-2xl font-bold">Complete Your Registration</CardTitle>
             <CardDescription>
               Welcome, {userName}! Just a few more details.
@@ -289,7 +328,7 @@ function RegistrationForm() {
 
 export default function StudentRegistrationPage() {
   return (
-    <Suspense fallback={<EduVisionLoader />}>
+    <Suspense fallback={<AnimatedLoader />}>
       <RegistrationForm />
     </Suspense>
   )

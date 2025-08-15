@@ -1,36 +1,90 @@
--- Drop existing policies if they exist
-DROP POLICY IF EXISTS "Enable read access for users based on sender/receiver" ON "public"."messages";
-DROP POLICY IF EXISTS "Enable insert for authenticated users only" ON "public"."messages";
-
--- Add new columns to the messages table
-ALTER TABLE public.messages
-ADD COLUMN IF NOT EXISTS message_type TEXT NOT NULL DEFAULT 'text',
-ADD COLUMN IF NOT EXISTS attachment_url TEXT;
-
--- Rename 'from_id' and 'to_id' to 'sender_id' and 'receiver_id' for consistency
-ALTER TABLE public.messages RENAME COLUMN from_id TO sender_id;
-ALTER TABLE public.messages RENAME COLUMN to_id TO receiver_id;
-ALTER TABLE public.messages RENAME COLUMN from_role TO sender_role;
-ALTER TABLE public.messages RENAME COLUMN to_role TO receiver_role;
-
--- Create new policies for row-level security
-CREATE POLICY "Enable read access for users based on sender/receiver" ON "public"."messages"
-AS PERMISSIVE FOR SELECT
-TO authenticated
-USING (((auth.uid() = sender_id) OR (auth.uid() = receiver_id)));
-
-CREATE POLICY "Enable insert for authenticated users only" ON "public"."messages"
-AS PERMISSIVE FOR INSERT
-TO authenticated
-WITH CHECK ((auth.uid() = sender_id));
-
--- Create a new bucket for chat attachments if it doesn't exist
-INSERT INTO storage.buckets (id, name, public)
-SELECT 'chat-attachments', 'chat-attachments', true
-WHERE NOT EXISTS (
-    SELECT 1 FROM storage.buckets WHERE id = 'chat-attachments'
+-- 1. Create conversations table
+CREATE TABLE IF NOT EXISTS public.conversations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id UUID NOT NULL REFERENCES public.students(id) ON DELETE CASCADE,
+    faculty_id UUID NOT NULL REFERENCES public.faculty(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    last_message_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT unique_conversation UNIQUE (student_id, faculty_id)
 );
 
--- Create policies for the chat-attachments bucket
-CREATE POLICY "Enable read access for all users" ON storage.objects FOR SELECT USING (bucket_id = 'chat-attachments');
-CREATE POLICY "Enable insert for authenticated users" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'chat-attachments' AND auth.role() = 'authenticated');
+-- 2. Create messages table
+CREATE TABLE IF NOT EXISTS public.messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    conversation_id UUID NOT NULL REFERENCES public.conversations(id) ON DELETE CASCADE,
+    sender_id UUID NOT NULL REFERENCES public.users(id),
+    receiver_id UUID NOT NULL REFERENCES public.users(id),
+    content TEXT,
+    attachment_url TEXT,
+    message_type TEXT NOT NULL DEFAULT 'text' CHECK (message_type IN ('text', 'image', 'file')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    is_read BOOLEAN DEFAULT FALSE
+);
+
+-- 3. Create a trigger to update conversation timestamp on new message
+CREATE OR REPLACE FUNCTION update_conversation_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE public.conversations
+    SET updated_at = NOW(),
+        last_message_at = NOW()
+    WHERE id = NEW.conversation_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER on_new_message
+    AFTER INSERT ON public.messages
+    FOR EACH ROW
+    EXECUTE FUNCTION update_conversation_updated_at();
+
+-- 4. Enable RLS
+ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+
+-- 5. Create RLS policies for conversations
+CREATE POLICY "Allow access to own conversations" ON public.conversations
+FOR SELECT
+USING (auth.uid() = student_id OR auth.uid() = faculty_id);
+
+CREATE POLICY "Allow creation of own conversations" ON public.conversations
+FOR INSERT
+WITH CHECK (auth.uid() = student_id);
+
+-- 6. Create RLS policies for messages
+CREATE POLICY "Allow access to messages in own conversations" ON public.messages
+FOR SELECT
+USING (
+    conversation_id IN (
+        SELECT id FROM public.conversations WHERE auth.uid() = student_id OR auth.uid() = faculty_id
+    )
+);
+
+CREATE POLICY "Allow insertion of messages in own conversations" ON public.messages
+FOR INSERT
+WITH CHECK (
+    auth.uid() = sender_id AND
+    conversation_id IN (
+        SELECT id FROM public.conversations WHERE auth.uid() = student_id OR auth.uid() = faculty_id
+    )
+);
+
+-- 7. Create Storage Bucket for Chat Attachments
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('chat_attachments', 'chat_attachments', false)
+ON CONFLICT (id) DO NOTHING;
+
+-- 8. Create Storage Policies for Chat Attachments
+CREATE POLICY "Allow authenticated users to upload attachments" ON storage.objects
+FOR INSERT TO authenticated
+WITH CHECK (bucket_id = 'chat_attachments');
+
+CREATE POLICY "Allow participants to view attachments" ON storage.objects
+FOR SELECT TO authenticated
+USING (
+    bucket_id = 'chat_attachments' AND
+    (storage.foldername(name))[1] IN (
+        SELECT id::text FROM public.conversations WHERE auth.uid() = student_id OR auth.uid() = faculty_id
+    )
+);

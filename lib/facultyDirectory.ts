@@ -1,6 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
-
-const supabase = createClient();
+import { createClient } from '@/lib/supabase/client';
 
 /**
  * Fetches a directory of faculty members for a given department.
@@ -8,6 +6,7 @@ const supabase = createClient();
  * @returns A Supabase query builder instance.
  */
 export async function fetchFacultyDirectory(department: string) {
+  const supabase = createClient();
   return supabase
     .from('faculty')
     .select('id, name, email, profile_pic_url, department, online_status')

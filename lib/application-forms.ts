@@ -1,6 +1,4 @@
 import { createClient } from '@/lib/supabase/server';
-
-const supabase = createClient();
 import { GeneratedForm, FormField } from "@/lib/ai-form-generator";
 
 export interface ApplicationSubmission {
@@ -16,11 +14,13 @@ export interface ApplicationSubmission {
 
 // Save generated form to database
 export async function saveGeneratedForm(form: GeneratedForm) {
+  const supabase = createClient();
   return supabase.from('application_forms').insert(form);
 }
 
 // Get all application forms
 export async function getAllApplicationForms() {
+  const supabase = createClient();
   return supabase
     .from('application_forms')
     .select('*')
@@ -29,6 +29,7 @@ export async function getAllApplicationForms() {
 
 // Get application form by ID
 export async function getApplicationForm(formId: string) {
+  const supabase = createClient();
   return supabase
     .from('application_forms')
     .select('*')
@@ -38,11 +39,13 @@ export async function getApplicationForm(formId: string) {
 
 // Submit application
 export async function submitApplication(submission: ApplicationSubmission) {
+  const supabase = createClient();
   return supabase.from('application_submissions').insert(submission);
 }
 
 // Get all submissions for a form
 export async function getFormSubmissions(formId: string) {
+  const supabase = createClient();
   return supabase
     .from('application_submissions')
     .select('*')
@@ -52,6 +55,7 @@ export async function getFormSubmissions(formId: string) {
 
 // Get all submissions for university admin
 export async function getAllSubmissions() {
+  const supabase = createClient();
   return supabase
     .from('application_submissions')
     .select(`
@@ -63,6 +67,7 @@ export async function getAllSubmissions() {
 
 // Update submission status
 export async function updateSubmissionStatus(submissionId: string, status: 'pending' | 'approved' | 'rejected', notes?: string) {
+  const supabase = createClient();
   return supabase
     .from('application_submissions')
     .update({ status, university_notes: notes })
@@ -71,8 +76,9 @@ export async function updateSubmissionStatus(submissionId: string, status: 'pend
 
 // Delete application form
 export async function deleteApplicationForm(formId: string) {
+  const supabase = createClient();
   return supabase
     .from('application_forms')
     .delete()
     .eq('id', formId);
-} 
+}
