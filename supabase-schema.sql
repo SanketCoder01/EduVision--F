@@ -4,6 +4,7 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+DROP TABLE IF EXISTS users CASCADE;
 -- Create users table for both students and faculty
 CREATE TABLE IF NOT EXISTS users (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
@@ -19,6 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Create assignments table
+DROP TABLE IF EXISTS assignments CASCADE;
 CREATE TABLE IF NOT EXISTS assignments (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   title VARCHAR(500) NOT NULL,
@@ -45,6 +47,7 @@ CREATE TABLE IF NOT EXISTS assignments (
 );
 
 -- Create assignment submissions table
+DROP TABLE IF EXISTS assignment_submissions CASCADE;
 CREATE TABLE IF NOT EXISTS assignment_submissions (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   assignment_id UUID NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
@@ -77,16 +80,24 @@ ALTER TABLE assignment_submissions ENABLE ROW LEVEL SECURITY;
 
 -- Create RLS policies
 -- Users can read their own data and faculty can read student data in their department
+DROP POLICY IF EXISTS "Users can view own data" ON users;
 CREATE POLICY "Users can view own data" ON users FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users can update own data" ON users;
 CREATE POLICY "Users can update own data" ON users FOR UPDATE USING (true);
+DROP POLICY IF EXISTS "Users can insert own data" ON users;
 CREATE POLICY "Users can insert own data" ON users FOR INSERT WITH CHECK (true);
 
 -- Assignments are visible to faculty who created them and students in the same department/year
-CREATE POLICY "Faculty can manage own assignments" ON assignments FOR ALL USING (true);
+DROP POLICY IF EXISTS "Faculty can manage their own assignments" ON assignments;
+CREATE POLICY "Faculty can manage their own assignments" ON assignments FOR ALL USING (true);
+DROP POLICY IF EXISTS "Students can view assignments for their department and year" ON assignments;
+CREATE POLICY "Students can view assignments for their department and year" ON assignments FOR SELECT USING (true);
 CREATE POLICY "Students can view published assignments" ON assignments FOR SELECT USING (status = 'published');
 
 -- Submissions are visible to the student who submitted and the faculty who assigned
+DROP POLICY IF EXISTS "Students can manage own submissions" ON assignment_submissions;
 CREATE POLICY "Students can manage own submissions" ON assignment_submissions FOR ALL USING (true);
+DROP POLICY IF EXISTS "Faculty can view submissions for their assignments" ON assignment_submissions;
 CREATE POLICY "Faculty can view submissions for their assignments" ON assignment_submissions FOR SELECT USING (true);
 
 -- Insert sample data (optional)

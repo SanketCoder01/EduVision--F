@@ -8,12 +8,30 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import EnhancedAuthSystem from '@/components/EnhancedAuthSystem';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
 
 
 // --- Main Login Page ---
 export default function LoginPage() {
-  const [userType, setUserType] = useState<'student' | 'faculty'>('student');
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const initialType = (searchParams.get('type') ?? searchParams.get('role') ?? 'student') as 'student' | 'faculty';
+  const [userType, setUserType] = useState<'student' | 'faculty'>(initialType);
+
+  // Keep tab in sync if query changes (e.g., from landing buttons)
+  React.useEffect(() => {
+    const nextType = (searchParams.get('type') ?? searchParams.get('role') ?? 'student') as 'student' | 'faculty';
+    if (nextType !== userType) setUserType(nextType);
+  }, [searchParams]);
+
+  const onTabChange = (v: string) => {
+    const t = (v as 'student' | 'faculty');
+    setUserType(t);
+    // Replace to avoid polluting history on tab switches
+    router.replace(`${pathname}?type=${t}`);
+  };
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-gray-50 to-gray-200 p-4">
@@ -42,7 +60,7 @@ export default function LoginPage() {
           </motion.p>
         </div>
 
-        <Tabs value={userType} onValueChange={(v) => setUserType(v as 'student' | 'faculty')} className="w-full">
+        <Tabs value={userType} onValueChange={onTabChange} className="w-full">
           <TabsList className="grid h-12 w-full grid-cols-2 rounded-xl bg-gray-200/80 p-1">
             <TabsTrigger value="student" className="h-full rounded-lg font-semibold data-[state=active]:bg-white data-[state=active]:text-purple-700 data-[state=active]:shadow-md">Student</TabsTrigger>
             <TabsTrigger value="faculty" className="h-full rounded-lg font-semibold data-[state=active]:bg-white data-[state=active]:text-purple-700 data-[state=active]:shadow-md">Faculty</TabsTrigger>

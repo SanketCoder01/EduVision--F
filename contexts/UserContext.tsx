@@ -42,14 +42,20 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
+    console.log('UserProvider: Initializing');
     const getInitialSession = async () => {
       setIsLoading(true);
+      console.log('UserProvider: Getting initial session...');
       const { data: { session } } = await supabase.auth.getSession();
+      console.log('UserProvider: Initial session object:', session);
       setSession(session);
       const currentUser = session?.user;
       setUser(currentUser ?? null);
       if (currentUser) {
+        console.log('UserProvider: Fetching profile for initial user:', currentUser.id);
         await fetchUserProfile(currentUser);
+      } else {
+        console.log('UserProvider: No initial user found.');
       }
       setIsLoading(false);
     };
@@ -57,15 +63,21 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     getInitialSession();
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      console.log('UserProvider: Auth state changed. New session:', session);
       setSession(session);
       const currentUser = session?.user;
       setUser(currentUser ?? null);
       if (currentUser) {
+        console.log('UserProvider: Fetching profile for user from auth change:', currentUser.id);
         await fetchUserProfile(currentUser);
+      } else {
+        console.log('UserProvider: No user found after auth change.');
+        setProfile(null);
       }
     });
 
     return () => {
+      console.log('UserProvider: Unsubscribing from auth listener.');
       authListener.subscription.unsubscribe();
     };
   }, []);

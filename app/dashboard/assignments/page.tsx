@@ -10,12 +10,13 @@ import { useToast } from "@/hooks/use-toast";
 import { createClient } from "@/lib/supabase/client";
 import { getFacultyAssignments, getAssignmentSubmissions, gradeSubmission, Assignment, AssignmentSubmission } from "@/lib/assignments";
 import { useRealtimeAssignments, useRealtimeSubmissions } from "@/hooks/useRealtimeAssignments";
-import { X, Paperclip } from "lucide-react";
+import { X, Paperclip, FileCheck, AlertTriangle, Download, Zap } from "lucide-react";
 import SimplifiedAssignmentModule from "@/components/SimplifiedAssignmentModule";
 import { motion } from "framer-motion";
 import { DEPARTMENTS } from '@/lib/constants/departments';
 import { createAssignment } from './actions';
 import { MultiSelect } from '@/components/ui/multi-select';
+import PlagiarismReport from '@/components/PlagiarismReport';
 
 export default function FacultyAssignmentsPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -25,6 +26,9 @@ export default function FacultyAssignmentsPage() {
   const [assignmentMode, setAssignmentMode] = useState<'manual' | 'ai'>('manual');
   const [currentStep, setCurrentStep] = useState<'create' | 'settings' | 'preview'>('create');
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [showPlagiarismReport, setShowPlagiarismReport] = useState<any>(null);
+  const [autoGrading, setAutoGrading] = useState(false);
+  const [maxMarksForGrading, setMaxMarksForGrading] = useState(100);
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
 
@@ -204,6 +208,63 @@ export default function FacultyAssignmentsPage() {
     }
   };
 
+  const handlePlagiarismCheck = async (submission: AssignmentSubmission) => {
+    try {
+      const response = await fetch('/api/plagiarism', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: submission.submission_text || submission.content,
+          title: selectedAssignment?.title,
+          assignmentId: selectedAssignment?.id,
+          studentId: submission.student_id
+        })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        setShowPlagiarismReport({
+          ...result.report,
+          submissionId: submission.id,
+          studentName: submission.student_name
+        });
+        toast({ title: "Plagiarism Check Complete", description: `${result.plagiarismScore}% similarity detected` });
+      }
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to check plagiarism", variant: "destructive" });
+    }
+  };
+
+  const handleAutoGrade = async () => {
+    if (!selectedAssignment?.id) return;
+    
+    setAutoGrading(true);
+    try {
+      const response = await fetch('/api/auto-grade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignmentId: selectedAssignment.id,
+          maxMarks: maxMarksForGrading
+        })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        toast({ 
+          title: "Auto-grading Complete", 
+          description: `${result.gradedCount} submissions graded automatically` 
+        });
+        // Refresh submissions
+        handleViewSubmissions(selectedAssignment);
+      }
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to auto-grade submissions", variant: "destructive" });
+    } finally {
+      setAutoGrading(false);
+    }
+  };
+
   const handleAIGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!aiPrompt.trim()) return;
@@ -315,8 +376,31 @@ export default function FacultyAssignmentsPage() {
             className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden"
           >
             <div className="flex justify-between items-center p-6 border-b border-gray-200 bg-gray-50 rounded-t-2xl">
-              <h2 className="text-2xl font-bold text-gray-800">Submissions for {selectedAssignment.title}</h2>
-              <Button variant="ghost" size="icon" onClick={() => setSelectedAssignment(null)}><X className="h-6 w-6" /></Button>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">Submissions for {selectedAssignment.title}</h2>
+                <p className="text-sm text-gray-600 mt-1">{submissions.length} submissions</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Max marks"
+                    value={maxMarksForGrading}
+                    onChange={(e) => setMaxMarksForGrading(Number(e.target.value))}
+                    className="w-24 h-8"
+                  />
+                  <Button
+                    onClick={handleAutoGrade}
+                    disabled={autoGrading}
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    <Zap className="h-4 w-4" />
+                    {autoGrading ? 'Grading...' : 'Auto Grade All'}
+                  </Button>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setSelectedAssignment(null)}><X className="h-6 w-6" /></Button>
+              </div>
             </div>
             <div className="p-6 flex-1 overflow-y-auto">
               {submissions.length > 0 ? (
@@ -329,13 +413,89 @@ export default function FacultyAssignmentsPage() {
                             <p className="font-semibold text-lg text-gray-800">{submission.student_name || 'Student'}</p>
                             <p className="text-sm text-gray-500">{submission.student_email || ''}</p>
                             <p className="text-sm text-gray-500">Submitted on: {submission.submitted_at ? new Date(submission.submitted_at).toLocaleString() : '—'}</p>
+                            {submission.plagiarism_score !== undefined && (
+                              <div className="flex items-center gap-2 mt-1">
+                                <AlertTriangle className={`h-4 w-4 ${
+                                  submission.plagiarism_score > 20 ? 'text-red-500' :
+                                  submission.plagiarism_score > 10 ? 'text-yellow-500' : 'text-green-500'
+                                }`} />
+                                <span className="text-sm font-medium">
+                                  Plagiarism: {submission.plagiarism_score}%
+                                </span>
+                              </div>
+                            )}
                           </div>
-                          <Badge className={submission.grade != null ? 'bg-green-100 text-green-800' : ''}>
-                            {submission.grade != null ? `Graded: ${submission.grade}` : 'Not Graded'}
-                          </Badge>
+                          <div className="flex items-center gap-2">
+                            {submission.plagiarism_score !== undefined && (
+                              <Badge className={`${
+                                submission.plagiarism_score > 20 ? 'bg-red-100 text-red-800' :
+                                submission.plagiarism_score > 10 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'
+                              }`}>
+                                {submission.plagiarism_score > 20 ? 'High Risk' :
+                                 submission.plagiarism_score > 10 ? 'Medium Risk' : 'Low Risk'}
+                              </Badge>
+                            )}
+                            <Badge className={submission.grade != null ? 'bg-green-100 text-green-800' : ''}>
+                              {submission.grade != null ? `Graded: ${submission.grade}` : 'Not Graded'}
+                            </Badge>
+                          </div>
                         </div>
                         <div className="mt-4 pt-4 border-t border-gray-200">
-                          <h4 className="font-semibold text-gray-700 mb-2">Submission Details</h4>
+                          <div className="flex justify-between items-center mb-2">
+                            <h4 className="font-semibold text-gray-700">Submission Details</h4>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                onClick={() => handlePlagiarismCheck(submission)}
+                                size="sm"
+                                variant="outline"
+                                className="flex items-center gap-2"
+                              >
+                                <FileCheck className="h-4 w-4" />
+                                Check Plagiarism
+                              </Button>
+                              {submission.plagiarism_score !== undefined && (
+                                <Button
+                                  onClick={() => setShowPlagiarismReport({
+                                    id: `report_${submission.id}`,
+                                    appName: 'EduVision',
+                                    assignment: {
+                                      name: selectedAssignment?.title || 'Assignment',
+                                      dateGiven: selectedAssignment?.created_at || new Date().toISOString(),
+                                      dateSubmitted: submission.submitted_at || new Date().toISOString(),
+                                      dueDate: selectedAssignment?.due_date || new Date().toISOString(),
+                                      maxMarks: selectedAssignment?.max_marks || 100
+                                    },
+                                    student: {
+                                      name: submission.student_name || 'Student',
+                                      email: submission.student_email || '',
+                                      department: submission.student?.department || '',
+                                      year: submission.student?.year || ''
+                                    },
+                                    plagiarism: {
+                                      percentage: submission.plagiarism_score,
+                                      status: submission.plagiarism_score > 20 ? 'High Risk' :
+                                              submission.plagiarism_score > 10 ? 'Medium Risk' : 'Low Risk',
+                                      checkedAt: submission.processed_at || new Date().toISOString(),
+                                      sources: submission.plagiarism_sources || []
+                                    },
+                                    grading: {
+                                      grade: submission.grade,
+                                      feedback: submission.feedback,
+                                      gradedAt: submission.graded_at,
+                                      autoGrade: submission.auto_grade
+                                    },
+                                    generatedAt: new Date().toISOString()
+                                  })}
+                                  size="sm"
+                                  variant="outline"
+                                  className="flex items-center gap-2"
+                                >
+                                  <Download className="h-4 w-4" />
+                                  View Report
+                                </Button>
+                              )}
+                            </div>
+                          </div>
                           {submission.attachment_url && (
                             <a href={submission.attachment_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-blue-600 hover:underline font-medium">
                               <Paperclip className="h-4 w-4" /> View Submitted File
@@ -369,6 +529,33 @@ export default function FacultyAssignmentsPage() {
                   <p className="text-gray-500">No submissions yet for this assignment.</p>
                 </div>
               )}
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Plagiarism Report Modal */}
+      {showPlagiarismReport && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden"
+          >
+            <div className="flex justify-between items-center p-4 border-b border-gray-200 bg-gray-50">
+              <h2 className="text-xl font-bold text-gray-800">Plagiarism Report</h2>
+              <Button variant="ghost" size="icon" onClick={() => setShowPlagiarismReport(null)}>
+                <X className="h-6 w-6" />
+              </Button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <PlagiarismReport 
+                report={showPlagiarismReport} 
+                onDownload={() => {
+                  toast({ title: "Report Downloaded", description: "Plagiarism report has been downloaded successfully" });
+                }}
+              />
             </div>
           </motion.div>
         </div>

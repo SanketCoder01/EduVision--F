@@ -9,14 +9,37 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { getGrievances, submitGrievance } from "./actions"
+import { createClient } from '@/lib/supabase/client'
 import { Grievance } from "@/lib/types"
 import { format } from "date-fns"
-import { Search, PlusCircle } from "lucide-react"
+import { Search, PlusCircle, ChevronsUpDown, X } from "lucide-react"
+import { AnimatePresence, motion } from "framer-motion"
+import Link from "next/link"
 
 export default function GrievancePage() {
   const [view, setView] = useState<'list' | 'submit'>('list')
   const [grievances, setGrievances] = useState<Grievance[]>([])
   const [isPending, startTransition] = useTransition()
+  const [userRole, setUserRole] = useState<'faculty' | 'student' | null>(null)
+  const [selectedGrievance, setSelectedGrievance] = useState<Grievance | null>(null)
+
+  useEffect(() => {
+    const checkUserRole = async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: faculty } = await supabase
+          .from('faculty')
+          .select('id')
+          .eq('id', user.id)
+          .single();
+        setUserRole(faculty ? 'faculty' : 'student');
+      } else {
+        setUserRole(null); // Or handle unauthenticated state
+      }
+    };
+    checkUserRole();
+  }, []);
 
   const fetchGrievances = () => {
     startTransition(() => {
@@ -39,7 +62,6 @@ export default function GrievancePage() {
         if (result.success) {
           setView('list');
         } else {
-          // A more user-friendly error notification would be better here
           alert(result.error);
         }
     });
@@ -52,19 +74,20 @@ export default function GrievancePage() {
       case "In Progress":
         return <Badge className="bg-yellow-500 text-white hover:bg-yellow-600">In Progress</Badge>
       case "Pending":
-        return <Badge variant="outline">Pending</Badge>
       default:
-        return <Badge>{status}</Badge>
+        return <Badge variant="outline">Pending</Badge>
     }
   }
 
-  return (
-    <div className="container mx-auto p-4 md:p-6">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Grievance Portal</h1>
-          <p className="text-muted-foreground">Submit and track your grievances.</p>
-        </div>
+  const renderHeader = () => (
+    <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+      <div>
+        <h1 className="text-2xl font-bold">{userRole === 'faculty' ? 'Grievance Submissions' : 'Grievance Portal'}</h1>
+        <p className="text-muted-foreground">
+          {userRole === 'faculty' ? 'Review grievances submitted by students in your department.' : 'Submit and track your grievances.'}
+        </p>
+      </div>
+      {userRole === 'student' && (
         <div className="flex gap-2 flex-wrap">
           <Button onClick={() => setView('list')} variant={view === 'list' ? 'default' : 'outline'}>
             View Grievances
@@ -74,36 +97,20 @@ export default function GrievancePage() {
             Submit New Grievance
           </Button>
         </div>
-      </header>
+      )}
+    </header>
+  )
 
+  const renderStudentView = () => (
+    <>
       {view === 'list' ? (
         <Card>
           <CardHeader>
             <CardTitle>My Submitted Grievances</CardTitle>
             <CardDescription>Here is a list of grievances you have submitted.</CardDescription>
-            <div className="flex flex-col md:flex-row gap-4 pt-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search by subject..." className="pl-8" />
-              </div>
-              <Select>
-                <SelectTrigger className="w-full md:w-[200px]">
-                  <SelectValue placeholder="Filter by category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  <SelectItem value="academic">Academic</SelectItem>
-                  <SelectItem value="administrative">Administrative</SelectItem>
-                  <SelectItem value="faculty">Faculty</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </CardHeader>
           <CardContent>
-            {isPending ? (
-              <p>Loading grievances...</p>
-            ) : grievances.length > 0 ? (
+            {isPending ? <p>Loading...</p> : grievances.length > 0 ? (
               <div className="grid gap-4">
                 {grievances.map((g) => (
                   <Card key={g.id}>
@@ -116,18 +123,14 @@ export default function GrievancePage() {
                         {getStatusBadge(g.status)}
                       </div>
                     </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">{g.description}</p>
-                    </CardContent>
+                    <CardContent><p className="text-sm text-muted-foreground">{g.description}</p></CardContent>
                     <CardFooter className="text-xs text-muted-foreground">
                       <p>Submitted on: {format(new Date(g.submittedAt), "PPP")}</p>
                     </CardFooter>
                   </Card>
                 ))}
               </div>
-            ) : (
-              <p>You have not submitted any grievances yet.</p>
-            )}
+            ) : <p>You have not submitted any grievances yet.</p>}
           </CardContent>
         </Card>
       ) : (
@@ -138,16 +141,11 @@ export default function GrievancePage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleFormSubmit} className="space-y-4">
-              <div className="grid gap-2">
-                <Label htmlFor="subject">Subject</Label>
-                <Input id="subject" name="subject" placeholder="e.g., Issue with course registration" required />
-              </div>
+              <div className="grid gap-2"><Label htmlFor="subject">Subject</Label><Input id="subject" name="subject" required /></div>
               <div className="grid gap-2">
                 <Label htmlFor="category">Category</Label>
                 <Select name="category" required defaultValue="academic">
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a category" />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="academic">Academic</SelectItem>
                     <SelectItem value="administrative">Administrative</SelectItem>
@@ -156,15 +154,83 @@ export default function GrievancePage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea id="description" name="description" placeholder="Please describe your grievance in detail." required rows={6} />
-              </div>
+              <div className="grid gap-2"><Label htmlFor="description">Description</Label><Textarea id="description" name="description" required rows={6} /></div>
               <Button type="submit" disabled={isPending} className="w-full md:w-auto">
                 {isPending ? 'Submitting...' : 'Submit Grievance'}
               </Button>
             </form>
           </CardContent>
+        </Card>
+      )}
+    </>
+  )
+
+  const renderFacultyView = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle>Department Grievances</CardTitle>
+        <CardDescription>List of grievances from students in your department.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isPending ? <p>Loading...</p> : grievances.length > 0 ? (
+          <div className="space-y-3">
+            {grievances.map((g) => (
+              <Card key={g.id} className="overflow-hidden">
+                <div className="p-4 cursor-pointer hover:bg-muted/50" onClick={() => setSelectedGrievance(selectedGrievance?.id === g.id ? null : g)}>
+                  <div className="flex justify-between items-center">
+                    <div className="font-medium">{g.subject}</div>
+                    <div className="flex items-center gap-4">
+                      {getStatusBadge(g.status)}
+                      <ChevronsUpDown className={`h-4 w-4 transition-transform ${selectedGrievance?.id === g.id ? 'rotate-180' : ''}`} />
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    <span>{g.studentName}</span> • <span>{g.studentDepartment}</span> • <span>{g.studentYear} Year</span>
+                  </div>
+                </div>
+                <AnimatePresence>
+                  {selectedGrievance?.id === g.id && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
+                      <div className="p-4 border-t bg-muted/20">
+                        <h4 className="font-semibold text-sm mb-2">Full Details</h4>
+                        <div className="space-y-2 text-sm">
+                          <p><span className="font-medium">Category:</span> {g.category}</p>
+                          <p className="whitespace-pre-wrap"><span className="font-medium">Description:</span> {g.description}</p>
+                          <p className="text-xs text-muted-foreground pt-2">Submitted on: {format(new Date(g.submittedAt), "PPP p")}</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </Card>
+            ))}
+          </div>
+        ) : <p>No grievances found for your department.</p>}
+      </CardContent>
+    </Card>
+  )
+
+  return (
+    <div className="container mx-auto p-4 md:p-6">
+      {renderHeader()}
+      {userRole === 'student' ? (
+        renderStudentView()
+      ) : userRole === 'faculty' ? (
+        renderFacultyView()
+      ) : (
+        <Card className="max-w-md mx-auto">
+          <CardHeader>
+            <CardTitle>Login Required</CardTitle>
+            <CardDescription>Please log in to access the grievance portal.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">Use your student or faculty account to continue.</p>
+          </CardContent>
+          <CardFooter>
+            <Button asChild className="w-full">
+              <Link href="/login">Go to Login</Link>
+            </Button>
+          </CardFooter>
         </Card>
       )}
     </div>

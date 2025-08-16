@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { Grievance } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
 
+
 export async function submitGrievance(formData: FormData) {
   const supabase = createClient();
 
@@ -52,14 +53,38 @@ export async function getGrievances(): Promise<Grievance[]> {
 
   if (!user) return [];
 
-  // This logic will need to be adjusted based on roles.
-  // For now, students can only see their own grievances.
-  // Faculty would see all grievances.
-  const { data, error } = await supabase
-    .from('grievances')
-    .select('*')
-    .eq('student_id', user.id)
-    .order('submitted_at', { ascending: false });
+  // Check if the user is a faculty member and get their department
+  const { data: faculty, error: facultyError } = await supabase
+    .from('faculty')
+    .select('department')
+    .eq('id', user.id)
+    .single();
+
+  let query = supabase.from('grievances').select(`
+    id,
+    student_id,
+    subject,
+    category,
+    description,
+    status,
+    submitted_at,
+    is_private,
+    students (
+      full_name,
+      department,
+      year
+    )
+  `);
+
+  // If the user is a faculty member, filter by their department
+  if (faculty && faculty.department) {
+    query = query.eq('student_department', faculty.department);
+  } else {
+    // If not a faculty or no department, assume student and show only their own
+    query = query.eq('student_id', user.id);
+  }
+
+  const { data, error } = await query.order('submitted_at', { ascending: false });
 
   if (error) {
     console.error('Error fetching grievances:', error);
@@ -69,7 +94,12 @@ export async function getGrievances(): Promise<Grievance[]> {
   return data.map((item: any) => ({
     id: item.id,
     studentId: item.student_id,
-    studentName: 'N/A', // Will be fetched from profiles table later
+    // @ts-ignore
+    studentName: item.students?.full_name || 'N/A',
+    // @ts-ignore
+    studentDepartment: item.students?.department || 'N/A',
+    // @ts-ignore
+    studentYear: item.students?.year || 'N/A',
     subject: item.subject,
     category: item.category,
     description: item.description,

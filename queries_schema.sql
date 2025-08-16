@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS public.conversations (
 CREATE TABLE IF NOT EXISTS public.messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     conversation_id UUID NOT NULL REFERENCES public.conversations(id) ON DELETE CASCADE,
-    sender_id UUID NOT NULL REFERENCES public.users(id),
-    receiver_id UUID NOT NULL REFERENCES public.users(id),
+    sender_id UUID NOT NULL REFERENCES auth.users(id),
+    receiver_id UUID NOT NULL REFERENCES auth.users(id),
     content TEXT,
     attachment_url TEXT,
     message_type TEXT NOT NULL DEFAULT 'text' CHECK (message_type IN ('text', 'image', 'file')),

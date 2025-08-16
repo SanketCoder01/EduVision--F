@@ -51,10 +51,36 @@ export async function POST(req: NextRequest) {
       console.error('Face upload exception', e)
     }
 
-    // Upsert user row
-    const tableName = userType === 'faculty' ? 'faculty' : 'students'
+    // Determine correct table name based on department and year
+    let tableName = 'faculty'
+    if (userType === 'student' && profile.department && profile.year) {
+      // Map to specific department-year table
+      const deptMap: { [key: string]: string } = {
+        'Computer Science and Engineering': 'cse',
+        'Cyber Security': 'cyber',
+        'Artificial Intelligence and Data Science': 'aids',
+        'Artificial Intelligence and Machine Learning': 'aiml'
+      }
+      const yearMap: { [key: string]: string } = {
+        '1st Year': '1st_year',
+        '2nd Year': '2nd_year',
+        '3rd Year': '3rd_year',
+        '4th Year': '4th_year'
+      }
+      
+      const deptCode = deptMap[profile.department]
+      const yearCode = yearMap[profile.year]
+      
+      if (deptCode && yearCode) {
+        tableName = `students_${deptCode}_${yearCode}`
+      } else {
+        // Fallback to general students table if mapping fails
+        tableName = 'students'
+      }
+    }
+
     const userRecord: any = {
-      id: user.id,
+      user_id: user.id,
       name: profile.name,
       email: profile.email,
       department: profile.department,
@@ -63,11 +89,12 @@ export async function POST(req: NextRequest) {
       face_registered: Boolean(publicUrl),
     }
     if (userType === 'student' && profile.year) userRecord.year = profile.year
+    if (profile.mobile) userRecord.phone = profile.mobile
 
-    // Try upserting into students/faculty with common columns only
+    // Try upserting into correct department-year table
     let upsertError = null as any
     try {
-      const res = await supabase.from(tableName).upsert([userRecord], { onConflict: 'id' })
+      const res = await supabase.from(tableName).upsert([userRecord], { onConflict: 'user_id' })
       upsertError = res.error
     } catch (e) {
       upsertError = e

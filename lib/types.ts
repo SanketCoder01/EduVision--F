@@ -2,6 +2,8 @@ export interface Grievance {
   id: string;
   studentId: string;
   studentName: string;
+  studentDepartment?: string;
+  studentYear?: string;
   subject: string;
   category: 'academic' | 'administrative' | 'faculty' | 'other';
   description: string;

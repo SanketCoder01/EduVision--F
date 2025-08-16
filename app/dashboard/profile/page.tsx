@@ -249,13 +249,6 @@ export default function ProfilePage() {
         </div>
         <div className="flex gap-2">
           <Button
-            onClick={() => setShowPasswordUpdate(true)}
-            variant="outline"
-          >
-            <Lock className="mr-2 h-4 w-4" />
-            Change Password
-          </Button>
-          <Button
             onClick={() => (isEditing ? handleSave() : setIsEditing(true))}
             variant={isEditing ? "default" : "outline"}
           >
@@ -396,6 +389,17 @@ export default function ProfilePage() {
           </div>
         </CardContent>
       </Card>
+
+      <div className="mt-6 flex flex-col gap-4">
+          <Button
+            onClick={() => setShowPasswordUpdate(true)}
+            variant="outline"
+            className="w-full justify-center"
+          >
+            <Lock className="mr-2 h-4 w-4" />
+            Change Password
+          </Button>
+      </div>
 
       {showPhotoEditor && (
         <div className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">

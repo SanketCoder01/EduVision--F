@@ -48,6 +48,14 @@ export type LostFoundComment = {
   }
 }
 
+export type LostFoundReaction = {
+  id: string
+  item_id: string
+  user_id: string
+  reaction_type: 'helpful' | 'found_it' | 'interested' | 'thumbs_up'
+  created_at: string
+}
+
 // Get all lost and found items
 export async function getAllLostFoundItems() {
   try {
@@ -357,6 +365,86 @@ export async function filterLostFoundItems(filters: {
     return { success: true, data }
   } catch (error) {
     console.error("Error filtering lost and found items:", error)
+    return { success: false, error }
+  }
+}
+
+// Add reaction to lost and found item
+export async function addLostFoundReaction(
+  itemId: string,
+  userId: string,
+  reactionType: 'helpful' | 'found_it' | 'interested' | 'thumbs_up'
+) {
+  try {
+    const supabase = createServerSupabaseClient()
+    
+    const { data, error } = await supabase
+      .from("lost_found_reactions")
+      .insert({
+        item_id: itemId,
+        user_id: userId,
+        reaction_type: reactionType
+      })
+      .select()
+    
+    if (error) throw error
+    
+    revalidatePath("/university/other-services/lost-found")
+    revalidatePath("/student-dashboard/other-services/lost-found")
+    revalidatePath("/dashboard/other-services/lost-found")
+    
+    return { success: true, data }
+  } catch (error) {
+    console.error("Error adding lost and found reaction:", error)
+    return { success: false, error }
+  }
+}
+
+// Remove reaction from lost and found item
+export async function removeLostFoundReaction(
+  itemId: string,
+  userId: string,
+  reactionType: 'helpful' | 'found_it' | 'interested' | 'thumbs_up'
+) {
+  try {
+    const supabase = createServerSupabaseClient()
+    
+    const { error } = await supabase
+      .from("lost_found_reactions")
+      .delete()
+      .eq("item_id", itemId)
+      .eq("user_id", userId)
+      .eq("reaction_type", reactionType)
+    
+    if (error) throw error
+    
+    revalidatePath("/university/other-services/lost-found")
+    revalidatePath("/student-dashboard/other-services/lost-found")
+    revalidatePath("/dashboard/other-services/lost-found")
+    
+    return { success: true }
+  } catch (error) {
+    console.error("Error removing lost and found reaction:", error)
+    return { success: false, error }
+  }
+}
+
+// Get reactions for a lost and found item
+export async function getLostFoundReactions(itemId: string) {
+  try {
+    const supabase = createServerSupabaseClient()
+    
+    const { data, error } = await supabase
+      .from("lost_found_reactions")
+      .select("*")
+      .eq("item_id", itemId)
+      .order("created_at", { ascending: false })
+    
+    if (error) throw error
+    
+    return { success: true, data }
+  } catch (error) {
+    console.error("Error fetching lost and found reactions:", error)
     return { success: false, error }
   }
 }
