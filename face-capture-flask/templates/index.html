@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EduVision Face Capture</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            max-width: 600px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .header {
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            padding: 10px 20px;
+            border-radius: 25px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+            border: 2px solid #ffeaa7;
+        }
+
+        .status-capturing {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 2px solid #bee5eb;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+            border: 2px solid #c3e6cb;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 2px solid #f5c6cb;
+        }
+
+        .button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 1.1em;
+            cursor: pointer;
+            margin: 10px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        .button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .button.secondary {
+            background: linear-gradient(45deg, #f093fb, #f5576c);
+        }
+
+        .button.success {
+            background: linear-gradient(45deg, #4facfe, #00f2fe);
+        }
+
+        .button.manual {
+            background: linear-gradient(45deg, #ff9a9e, #fecfef);
+        }
+
+        .captured-image {
+            max-width: 100%;
+            border-radius: 10px;
+            margin: 20px 0;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .instructions {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .instructions h3 {
+            color: #333;
+            margin-top: 0;
+        }
+
+        .instructions ul {
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .face-circle {
+            position: absolute;
+            border: 3px solid #00ff00;
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .face-detection-info {
+            background: #e8f5e8;
+            border: 2px solid #4caf50;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .face-detection-info h4 {
+            color: #2e7d32;
+            margin: 0 0 10px 0;
+        }
+
+        .face-detection-info p {
+            color: #388e3c;
+            margin: 5px 0;
+            font-size: 1.1em;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(45deg, #4caf50, #8bc34a);
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎓 EduVision Face Capture</h1>
+            <p>Capture your profile image for attendance and verification</p>
+        </div>
+
+        <div id="status" class="status-indicator status-pending">
+            Ready to capture
+        </div>
+
+        <div class="instructions">
+            <h3>📋 Instructions:</h3>
+            <ul>
+                <li>Position yourself in front of the camera</li>
+                <li>Ensure good lighting and a clear background</li>
+                <li>Look directly at the camera</li>
+                <li>The system will automatically detect your face and capture the image</li>
+                <li>Stay still for 1 second after face detection</li>
+                <li>If auto-capture doesn't work, use the manual capture button</li>
+            </ul>
+        </div>
+
+        <div id="controls">
+            <button id="startBtn" class="button" onclick="startCapture()">
+                <span id="startBtnText">Start Capture</span>
+            </button>
+            <button id="stopBtn" class="button secondary hidden" onclick="stopCapture()">
+                Stop Capture
+            </button>
+        </div>
+
+        <div id="captureControls" class="hidden">
+            <div class="face-detection-info">
+                <h4>🎯 Face Detection Status</h4>
+                <div id="faceStatus">Waiting for face detection...</div>
+                <div class="progress-bar">
+                    <div id="progressFill" class="progress-fill" style="width: 0%"></div>
+                </div>
+                <p id="captureCountdown">Position your face in the camera view</p>
+            </div>
+            
+            <button id="manualCaptureBtn" class="button manual" onclick="manualCapture()">
+                📸 Manual Capture
+            </button>
+        </div>
+
+        <div id="capturedSection" class="hidden">
+            <h3>Captured Image</h3>
+            <img id="capturedImage" class="captured-image" alt="Captured face">
+            
+            <div style="margin-top: 20px;">
+                <button id="retakeBtn" class="button secondary" onclick="retakePhoto()">
+                    Retake Photo
+                </button>
+                <button id="uploadBtn" class="button success" onclick="uploadToWebApp()">
+                    <span id="uploadBtnText">Upload to EduVision</span>
+                </button>
+            </div>
+        </div>
+
+        <div id="userInfo" class="hidden">
+            <h3>User Information</h3>
+            <div style="margin: 20px 0;">
+                <label for="userType">User Type:</label>
+                <select id="userType" style="margin-left: 10px; padding: 5px; border-radius: 5px;">
+                    <option value="student">Student</option>
+                    <option value="faculty">Faculty</option>
+                </select>
+            </div>
+            <div style="margin: 20px 0;">
+                <label for="userEmail">Email:</label>
+                <input type="email" id="userEmail" placeholder="Enter your email" 
+                       style="margin-left: 10px; padding: 5px; border-radius: 5px; border: 1px solid #ccc;">
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    <script>
+        let capturedImageData = null;
+        let isCapturing = false;
+
+        function updateStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status-indicator status-${type}`;
+        }
+
+        function showLoading(buttonId, text) {
+            const button = document.getElementById(buttonId);
+            const textSpan = document.getElementById(buttonId + 'Text');
+            textSpan.innerHTML = `<span class="loading"></span>${text}`;
+            button.disabled = true;
+        }
+
+        function hideLoading(buttonId, text) {
+            const button = document.getElementById(buttonId);
+            const textSpan = document.getElementById(buttonId + 'Text');
+            textSpan.textContent = text;
+            button.disabled = false;
+        }
+
+        function updateFaceDetectionStatus(faceDetected, detectionCount) {
+            const faceStatus = document.getElementById('faceStatus');
+            const progressFill = document.getElementById('progressFill');
+            const captureCountdown = document.getElementById('captureCountdown');
+            
+            if (faceDetected) {
+                faceStatus.innerHTML = '✅ Face Detected!';
+                faceStatus.style.color = '#2e7d32';
+                
+                // Calculate progress (10 frames = 100%)
+                const progress = Math.min((detectionCount / 10) * 100, 100);
+                progressFill.style.width = progress + '%';
+                
+                if (detectionCount >= 10) {
+                    captureCountdown.innerHTML = '🎉 Capturing image...';
+                    captureCountdown.style.color = '#2e7d32';
+                } else {
+                    const remaining = 10 - detectionCount;
+                    captureCountdown.innerHTML = `Stay still... ${remaining} frames remaining`;
+                    captureCountdown.style.color = '#388e3c';
+                }
+            } else {
+                faceStatus.innerHTML = '❌ No Face Detected';
+                faceStatus.style.color = '#d32f2f';
+                progressFill.style.width = '0%';
+                captureCountdown.innerHTML = 'Position your face in the camera view';
+                captureCountdown.style.color = '#d32f2f';
+            }
+        }
+
+        async function startCapture() {
+            try {
+                showLoading('startBtn', 'Starting...');
+                updateStatus('Initializing camera...', 'capturing');
+
+                const response = await fetch('/start_capture', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    isCapturing = true;
+                    document.getElementById('startBtn').classList.add('hidden');
+                    document.getElementById('stopBtn').classList.remove('hidden');
+                    document.getElementById('captureControls').classList.remove('hidden');
+                    updateStatus('Camera active - Position your face in the frame', 'capturing');
+                    
+                    // Start polling for status
+                    pollStatus();
+                } else {
+                    throw new Error(data.error || 'Failed to start capture');
+                }
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'error');
+                console.error('Start capture error:', error);
+            } finally {
+                hideLoading('startBtn', 'Start Capture');
+            }
+        }
+
+        async function manualCapture() {
+            try {
+                showLoading('manualCaptureBtn', 'Capturing...');
+                updateStatus('Manual capture initiated...', 'capturing');
+
+                const response = await fetch('/manual_capture', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    updateStatus('Manual capture successful!', 'success');
+                    await getCapturedImage();
+                } else {
+                    throw new Error(data.error || 'Manual capture failed');
+                }
+            } catch (error) {
+                updateStatus(`Manual capture error: ${error.message}`, 'error');
+                console.error('Manual capture error:', error);
+            } finally {
+                hideLoading('manualCaptureBtn', '📸 Manual Capture');
+            }
+        }
+
+        async function stopCapture() {
+            try {
+                const response = await fetch('/stop_capture', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    isCapturing = false;
+                    document.getElementById('startBtn').classList.remove('hidden');
+                    document.getElementById('stopBtn').classList.add('hidden');
+                    document.getElementById('captureControls').classList.add('hidden');
+                    updateStatus('Capture stopped', 'pending');
+                } else {
+                    throw new Error(data.error || 'Failed to stop capture');
+                }
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'error');
+                console.error('Stop capture error:', error);
+            }
+        }
+
+        async function pollStatus() {
+            if (!isCapturing) return;
+
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+
+                if (data.has_captured_image) {
+                    await getCapturedImage();
+                    return;
+                }
+
+                // Update face detection status
+                updateFaceDetectionStatus(data.face_detected, data.face_detection_count);
+
+                if (data.face_detected) {
+                    updateStatus('Face detected - Stay still for capture...', 'capturing');
+                } else {
+                    updateStatus('Position your face in the camera view', 'capturing');
+                }
+
+                // Continue polling
+                setTimeout(pollStatus, 1000);
+            } catch (error) {
+                console.error('Status polling error:', error);
+                setTimeout(pollStatus, 2000);
+            }
+        }
+
+        async function getCapturedImage() {
+            try {
+                const response = await fetch('/get_captured_image');
+                const data = await response.json();
+
+                if (response.ok) {
+                    capturedImageData = data.image;
+                    document.getElementById('capturedImage').src = `data:image/jpeg;base64,${data.image}`;
+                    document.getElementById('capturedSection').classList.remove('hidden');
+                    document.getElementById('userInfo').classList.remove('hidden');
+                    document.getElementById('captureControls').classList.add('hidden');
+                    
+                    isCapturing = false;
+                    document.getElementById('startBtn').classList.remove('hidden');
+                    document.getElementById('stopBtn').classList.add('hidden');
+                    
+                    updateStatus('Image captured successfully!', 'success');
+                } else {
+                    throw new Error(data.error || 'Failed to get captured image');
+                }
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'error');
+                console.error('Get captured image error:', error);
+            }
+        }
+
+        function retakePhoto() {
+            capturedImageData = null;
+            document.getElementById('capturedSection').classList.add('hidden');
+            document.getElementById('userInfo').classList.add('hidden');
+            updateStatus('Ready to capture', 'pending');
+        }
+
+        async function uploadToWebApp() {
+            if (!capturedImageData) {
+                updateStatus('No image to upload', 'error');
+                return;
+            }
+
+            const userType = document.getElementById('userType').value;
+            const userEmail = document.getElementById('userEmail').value;
+
+            if (!userEmail) {
+                updateStatus('Please enter your email', 'error');
+                return;
+            }
+
+            try {
+                showLoading('uploadBtn', 'Uploading...');
+                updateStatus('Uploading to EduVision...', 'capturing');
+
+                const response = await fetch('/upload_to_webapp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        image: `data:image/jpeg;base64,${capturedImageData}`,
+                        user_type: userType,
+                        user_email: userEmail
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    updateStatus('Upload successful! Redirecting to EduVision...', 'success');
+                    
+                    // Redirect to EduVision after a short delay
+                    setTimeout(() => {
+                        window.location.href = 'http://localhost:3000/auth/pending-approval';
+                    }, 2000);
+                } else {
+                    throw new Error(data.error || 'Upload failed');
+                }
+            } catch (error) {
+                updateStatus(`Upload error: ${error.message}`, 'error');
+                console.error('Upload error:', error);
+            } finally {
+                hideLoading('uploadBtn', 'Upload to EduVision');
+            }
+        }
+
+        // Auto-start capture when page loads (optional)
+        // window.addEventListener('load', () => {
+        //     setTimeout(startCapture, 2000);
+        // });
+    </script>
+</body>
+</html>

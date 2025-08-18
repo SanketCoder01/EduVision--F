@@ -33,30 +33,11 @@ function RegistrationForm() {
   })
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [isChecking, setIsChecking] = useState(true)
-  const [isRegistered, setIsRegistered] = useState<boolean | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   useEffect(() => {
-    if (!userEmail) {
-      setIsChecking(false)
-      return
-    }
-
-    const checkUser = async () => {
-      const supabase = createClient()
-      const { data } = await supabase
-        .from('students')
-        .select('id')
-        .eq('email', userEmail)
-        .single()
-      
-      setIsRegistered(!!data)
-      setIsChecking(false)
-    }
-
-    checkUser()
+    // no pre-check against students; approval workflow handles uniqueness
   }, [userEmail])
 
   const handleInputChange = (name: string, value: string) => {
@@ -109,33 +90,25 @@ function RegistrationForm() {
         }
       }
 
-      const yearNumber = Number.parseInt(formData.year, 10)
-      const { error: upsertError } = await supabase
-        .from('students')
-        .upsert({
-          id: user.id,
+      // Submit to secure registration API -> creates pending_registrations row
+      const res = await fetch('/api/auth/secure-registration', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           email: user.email,
-          full_name: userName,
           department: formData.department,
-          year: Number.isNaN(yearNumber) ? null : yearNumber,
-          mobile_number: formData.mobileNumber,
-        }, { onConflict: 'id' })
+          year: formData.year,
+          userType: 'student',
+          phone: formData.mobileNumber,
+          name: userName,
+        }),
+      })
 
-      if (upsertError) {
-        console.error('Student upsert failed:', upsertError)
-        const code = (upsertError as any)?.code as string | undefined
-        const msg = upsertError.message || ''
-        const isDuplicate = msg.toLowerCase().includes('duplicate') || code === '23505'
-        const isPermission = msg.toLowerCase().includes('permission') || code === '42501'
-
-        if (isDuplicate) {
-          toast({ title: 'Already saved', description: 'Your details seem to be already recorded. Proceeding to photo capture.' })
-        } else if (isPermission) {
-          toast({ title: 'Proceeding', description: 'We could not save details due to permissions. You can continue and we will finalize later.' })
-        } else {
-          setError(`Registration failed: ${msg}`)
-          return
-        }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        const msg = data?.message || 'Registration submission failed'
+        setError(msg)
+        return
       }
 
       toast({
@@ -152,28 +125,7 @@ function RegistrationForm() {
     }
   }
 
-  // Do not block the page while checking. We'll proceed to render the form.
-
-  if (isRegistered) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle className="text-2xl font-bold text-center">Already Registered</CardTitle>
-            <CardDescription className="text-center pt-2">
-              An account with the email <span className="font-semibold">{userEmail}</span> already exists.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-center">
-            <p className="mb-6">Please proceed to login to access your dashboard.</p>
-            <Button onClick={() => router.push('/login')} className="w-full bg-purple-600 hover:bg-purple-700">
-              Go to Login
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
+  // No pre-block; allow registration form to render
 
   if (!userEmail) {
     return (

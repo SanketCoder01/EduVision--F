@@ -45,6 +45,38 @@ export default function ProfilePage() {
 
   useEffect(() => {
     loadProfile()
+    
+    // Set up real-time subscription for profile updates
+    const { data: { user } } = supabase.auth.getUser()
+    if (user) {
+      const channel = supabase
+        .channel('profile_updates')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_cse_1st_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_cse_2nd_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_cse_3rd_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_cse_4th_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_aids_1st_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_aids_2nd_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_aids_3rd_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_aids_4th_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_aiml_1st_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_aiml_2nd_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_aiml_3rd_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_aiml_4th_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_cy_1st_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_cy_2nd_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_cy_3rd_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students_cy_4th_year' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'faculty_cse' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'faculty_aids' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'faculty_aiml' }, () => loadProfile())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'faculty_cy' }, () => loadProfile())
+        .subscribe()
+
+      return () => {
+        supabase.removeChannel(channel)
+      }
+    }
   }, [])
 
   const loadProfile = async () => {
@@ -59,49 +91,68 @@ export default function ProfilePage() {
         return
       }
 
-      // Try to get from students table first
-      let { data: studentData } = await supabase
-        .from('students')
+      // First check if user has a pending registration to get their type and department
+      const { data: pendingReg } = await supabase
+        .from('pending_registrations')
         .select('*')
-        .eq('id', user.id)
+        .eq('user_id', user.id)
+        .eq('status', 'approved')
         .single()
 
-      if (studentData) {
-        setUserType('student')
-        setProfile({
-          id: studentData.id,
-          name: studentData.name || studentData.full_name || '',
-          email: studentData.email || '',
-          department: studentData.department || '',
-          year: (studentData.year ?? '') as any,
-          designation: '',
-          employee_id: '',
-          phone: studentData.mobile || studentData.mobile_number || '',
-          photoUrl: studentData.photo || studentData.face_url || null,
-          face_url: studentData.face_url || null,
-        })
-      } else {
-        // Try faculty table
-        let { data: facultyData } = await supabase
-          .from('faculty')
-          .select('*')
-          .eq('id', user.id)
-          .single()
+      if (pendingReg) {
+        if (pendingReg.user_type === 'student') {
+          // Query the specific department-year table for students
+          const dept = pendingReg.department.toLowerCase()
+          const year = pendingReg.year.toLowerCase().replace(' year', 'th_year').replace('st_year', '1st_year').replace('nd_year', '2nd_year').replace('rd_year', '3rd_year')
+          const tableName = `students_${dept}_${year}`
+          
+          const { data: studentData } = await supabase
+            .from(tableName)
+            .select('*')
+            .eq('user_id', user.id)
+            .single()
 
-        if (facultyData) {
-          setUserType('faculty')
-          setProfile({
-            id: facultyData.id,
-            name: facultyData.name || facultyData.full_name || '',
-            email: facultyData.email || '',
-            department: facultyData.department || '',
-            year: '',
-            designation: facultyData.designation || '',
-            employee_id: facultyData.employee_id || '',
-            phone: facultyData.mobile || facultyData.mobile_number || '',
-            photoUrl: facultyData.photo || facultyData.face_url || null,
-            face_url: facultyData.face_url || null,
-          })
+          if (studentData) {
+            setUserType('student')
+            setProfile({
+              id: studentData.id,
+              name: studentData.name || '',
+              email: studentData.email || '',
+              department: studentData.department || '',
+              year: studentData.year || '',
+              designation: '',
+              employee_id: studentData.prn || '',
+              phone: studentData.phone || '',
+              photoUrl: studentData.face_url || null,
+              face_url: studentData.face_url || null,
+            })
+          }
+        } else if (pendingReg.user_type === 'faculty') {
+          // Query the department-specific faculty table
+          const dept = pendingReg.department.toLowerCase()
+          const tableName = `faculty_${dept}`
+          
+          const { data: facultyData } = await supabase
+            .from(tableName)
+            .select('*')
+            .eq('user_id', user.id)
+            .single()
+
+          if (facultyData) {
+            setUserType('faculty')
+            setProfile({
+              id: facultyData.id,
+              name: facultyData.name || '',
+              email: facultyData.email || '',
+              department: facultyData.department || '',
+              year: '',
+              designation: facultyData.designation || '',
+              employee_id: facultyData.employee_id || '',
+              phone: facultyData.phone || '',
+              photoUrl: facultyData.face_url || null,
+              face_url: facultyData.face_url || null,
+            })
+          }
         }
       }
     } catch (error) {
@@ -126,34 +177,54 @@ export default function ProfilePage() {
 
   const handleSave = async () => {
     try {
-      const tableName = userType === 'faculty' ? 'faculty' : 'students'
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Get user's registration info to determine correct table
+      const { data: pendingReg } = await supabase
+        .from('pending_registrations')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'approved')
+        .single()
+
+      if (!pendingReg) return
+
       const updateData: any = {
-        // write both canonical and legacy columns for compatibility
         name: profile.name,
-        full_name: profile.name,
         department: profile.department,
-        mobile: profile.phone,
-        mobile_number: profile.phone,
+        phone: profile.phone,
       }
       
       if (userType === 'student') {
-        updateData.year = profile.year ? Number(profile.year) : null
+        updateData.year = profile.year
+        
+        // Update both specific department-year table and general department table
+        const dept = pendingReg.department.toLowerCase()
+        const year = pendingReg.year.toLowerCase().replace(' year', 'th_year').replace('st_year', '1st_year').replace('nd_year', '2nd_year').replace('rd_year', '3rd_year')
+        const specificTableName = `students_${dept}_${year}`
+        const generalTableName = `students_${dept}`
+
+        // Update specific table
+        await supabase.from(specificTableName).update(updateData).eq('user_id', user.id)
+        // Update general table
+        await supabase.from(generalTableName).update(updateData).eq('user_id', user.id)
       } else {
         updateData.designation = profile.designation
         updateData.employee_id = profile.employee_id
+        
+        // Update both department-specific and general faculty tables
+        const dept = pendingReg.department.toLowerCase()
+        const deptTableName = `faculty_${dept}`
+
+        // Update department table
+        await supabase.from(deptTableName).update(updateData).eq('user_id', user.id)
+        // Update general table
+        await supabase.from('faculty').update(updateData).eq('user_id', user.id)
       }
 
-      const { error } = await supabase
-        .from(tableName)
-        .update(updateData)
-        .eq('id', profile.id)
-
-      if (error) throw error
-
       setIsEditing(false)
-      // refresh shared profile so header/avatar reflect changes
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) await fetchUserProfile(user)
+      if (fetchUserProfile) await fetchUserProfile(user)
       toast({
         title: "Profile Updated",
         description: "Your profile has been updated successfully.",

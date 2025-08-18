@@ -21,26 +21,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${requestUrl.origin}/login?error=User not found`);
     }
 
-    // Check if user profile already exists by email
-    const tableName = userType === 'faculty' ? 'faculty' : 'students';
-    const { data: existingProfile, error: profileError } = await supabase
-      .from(tableName)
-      .select('id')
-      .eq('email', user.email)
-      .maybeSingle();
-
-    if (profileError && profileError.code !== 'PGRST116') {
-      console.error('Error fetching profile:', profileError);
-    }
-
-    if (existingProfile) {
-      // User already registered: end the OAuth session and redirect to login
-      await supabase.auth.signOut();
-      return NextResponse.redirect(
-        `${requestUrl.origin}/login?message=${encodeURIComponent('You are already registered. Please try to login instead.')}&type=${userType}`
-      );
-    }
-
     // Validate email domain based on user type
     const email = user.email || '';
     const isValidDomain = userType === 'student' 

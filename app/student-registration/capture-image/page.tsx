@@ -55,16 +55,39 @@ export default function CaptureImagePage() {
     }
     setIsLoading(true)
 
-    // Simulate API call to save the image
-    await new Promise((resolve) => setTimeout(resolve, 2500))
+    try {
+      // Convert base64 to blob
+      const response = await fetch(imgSrc)
+      const blob = await response.blob()
+      
+      // Create form data for upload
+      const formData = new FormData()
+      formData.append('face_image', blob, 'face_capture.jpg')
 
-    toast({
-      title: "Registration Complete!",
-      description: "Welcome to EduVision! Redirecting you to your dashboard.",
-    })
+      // Upload face image and complete registration
+      const uploadResponse = await fetch('/api/student/complete-registration', {
+        method: 'POST',
+        body: formData,
+      })
 
-    // Redirect to the student dashboard
-    router.push("/student-dashboard")
+      const result = await uploadResponse.json()
+
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to complete registration')
+      }
+
+      toast({
+        title: "Registration Complete!",
+        description: "Welcome to EduVision! Redirecting you to your dashboard.",
+      })
+
+      // Redirect to the student dashboard
+      router.push("/student-dashboard")
+    } catch (error: any) {
+      setError(error.message || 'Failed to complete registration')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   if (isLoading) {
