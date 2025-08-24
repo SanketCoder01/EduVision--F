@@ -74,20 +74,19 @@ export default function EnhancedAuthSystem({ userType }: EnhancedAuthSystemProps
     setError('');
 
     try {
-      if (userType === 'faculty') {
-        const faculty = await authenticateFaculty(email, password);
-        // TODO: Implement 'Remember Me' functionality with Supabase session
-        router.push('/faculty-dashboard');
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+      // Use the same authentication method for both student and faculty
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-        if (error) throw error;
+      if (error) throw error;
 
-        if (data.user) {
-          // On successful student login, redirect to their dashboard
+      if (data.user) {
+        // Redirect based on user type
+        if (userType === 'faculty') {
+          router.push('/dashboard');
+        } else {
           router.push('/student-dashboard');
         }
       }

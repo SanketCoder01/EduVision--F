@@ -9,9 +9,15 @@ import requests
 from datetime import datetime
 import threading
 import time
+import mediapipe as mp
 
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:3000"])
+
+# Initialize MediaPipe Face Detection for better accuracy
+mp_face_detection = mp.solutions.face_detection
+mp_drawing = mp.solutions.drawing_utils
+face_detection = mp_face_detection.FaceDetection(model_selection=0, min_detection_confidence=0.7)
 
 # Configuration
 UPLOAD_FOLDER = 'static/captures'
@@ -36,14 +42,34 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def detect_faces(frame):
-    """Detect faces in the frame and return face coordinates"""
+    """Detect faces using MediaPipe for better accuracy"""
     try:
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+        # Convert BGR to RGB for MediaPipe
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = face_detection.process(rgb_frame)
+        
+        faces = []
+        if results.detections:
+            for detection in results.detections:
+                bboxC = detection.location_data.relative_bounding_box
+                ih, iw, _ = frame.shape
+                x = int(bboxC.xmin * iw)
+                y = int(bboxC.ymin * ih)
+                w = int(bboxC.width * iw)
+                h = int(bboxC.height * ih)
+                faces.append((x, y, w, h))
+        
         return faces
     except Exception as e:
-        print(f"Face detection error: {e}")
-        return []
+        print(f"MediaPipe face detection error, falling back to OpenCV: {e}")
+        # Fallback to OpenCV Haar Cascade
+        try:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+            return faces
+        except Exception as e2:
+            print(f"OpenCV face detection error: {e2}")
+            return []
 
 def draw_face_circle(frame, faces):
     """Draw circular overlay around detected faces"""
@@ -491,7 +517,7 @@ def auto_detect_and_capture():
                         'success': True,
                         'captured': True,
                         'message': 'Face captured and saved successfully!',
-                        'redirect_to': '/auth/pending-approval',
+                        'redirect_to': 'http://localhost:3000/auth/check-email',
                         'image_url': img_data_url
                     })
                 else:

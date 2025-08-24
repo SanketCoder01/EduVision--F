@@ -49,6 +49,7 @@ const sidebarItems = [
   { icon: MessageSquare, label: "Student Queries", href: "/dashboard/queries", color: "text-indigo-600" },
   { icon: FileText, label: "Study Material", href: "/dashboard/study-material", color: "text-pink-600" },
   { icon: Bell, label: "Announcements", href: "/dashboard/announcements", color: "text-yellow-600" },
+  { icon: GraduationCap, label: "Faculty Hub", href: "/dashboard/faculty-hub", color: "text-purple-600" },
   { icon: Code, label: "Compiler", href: "/dashboard/compiler", color: "text-teal-600" },
   { icon: Settings, label: "Other Services", href: "/dashboard/other-services", color: "text-purple-600" },
 ]
@@ -60,7 +61,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const searchParams = useSearchParams()
   const [showFaceSetup, setShowFaceSetup] = useState(false)
   const [submittingFace, setSubmittingFace] = useState(false)
-  const { profile } = useUser()
+  // Mock profile data since authentication is disabled
+  const profile = { name: "Demo User", avatar_url: "/placeholder-user.jpg" }
 
   // One-time onboarding for face setup
   useEffect(() => {

@@ -11,6 +11,11 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import AnimatedLoader from '@/components/ui/animated-loader'
 
+interface SupabaseRealtimePayload {
+  new: PendingRegistration;
+  [key: string]: any;
+}
+
 interface PendingRegistration {
   id: string
   email: string
@@ -90,34 +95,32 @@ export default function PendingApprovalPage() {
   }, [supabase, router])
 
   useEffect(() => {
-    checkStatus()
-  }, [checkStatus])
+    checkStatus(); // Initial check
 
-  useEffect(() => {
-    if (status !== 'approved') return
-
-    const timer = setTimeout(() => {
-      if (pendingReg?.user_type === 'student') {
-        router.push('/dashboard')
-      } else {
-        router.push('/dashboard')
-      }
-    }, 3000)
-
-    return () => clearTimeout(timer)
-  }, [status, router, pendingReg])
-  
-  useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-        if (event === 'SIGNED_IN') {
-            checkStatus();
+    const channel = supabase
+      .channel('pending_registrations')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'pending_registrations', filter: `email=eq.${pendingReg?.email}` },
+        (payload: SupabaseRealtimePayload) => {
+                    const updatedReg = payload.new;
+          setPendingReg(updatedReg);
+          if (updatedReg.status === 'approved') {
+            setStatus('approved');
+            const dashboardUrl = updatedReg.user_type === 'student' ? '/student-dashboard' : '/dashboard';
+            router.push(dashboardUrl);
+          } else if (updatedReg.status === 'rejected') {
+            setRejectionReason(updatedReg.rejection_reason || null);
+            setStatus('rejected');
+          }
         }
-    });
+      )
+      .subscribe();
 
     return () => {
-        authListener.subscription.unsubscribe();
+      supabase.removeChannel(channel);
     };
-  }, [supabase, checkStatus]);
+  }, [checkStatus, supabase, router, pendingReg?.email]);
 
 
   if (status === 'loading') {

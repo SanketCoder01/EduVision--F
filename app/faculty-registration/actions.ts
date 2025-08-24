@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 
-export async function updateFacultyProfile(formData: { department: string; mobileNumber: string; password?: string; fullName: string; }) {
+export async function updateFacultyProfile(formData: { field: string; course: string; department: string; mobileNumber: string; password?: string; fullName: string; }) {
   const supabase = createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
@@ -29,6 +29,8 @@ export async function updateFacultyProfile(formData: { department: string; mobil
       id: user.id,
       email: user.email, // Use email from the secure session
       full_name: formData.fullName,
+      field: formData.field,
+      course: formData.course,
       department: formData.department,
       mobile_number: formData.mobileNumber,
     }, { onConflict: 'id' });

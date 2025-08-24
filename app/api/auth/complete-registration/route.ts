@@ -8,17 +8,17 @@ export async function POST(request: NextRequest) {
     const { userType, profile, faceImageData, password } = await request.json()
 
     // Validate required fields
-    if (!profile.email || !profile.name || !profile.department || !password) {
+    if (!profile.email || !profile.name || !profile.field || !profile.course || !profile.department || !password) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: 'Missing required fields: email, name, field, course, department, and password are required' },
         { status: 400 }
       )
     }
 
     // Validate email domain
-    if (!profile.email.endsWith('@sanjivani.edu.in')) {
+    if (!profile.email.endsWith('@sanjivani.edu.in') && !profile.email.endsWith('@sanjivani.ac.in')) {
       return NextResponse.json(
-        { error: 'Only emails ending with @sanjivani.edu.in are allowed' },
+        { error: 'Only emails ending with @sanjivani.edu.in or @sanjivani.ac.in are allowed' },
         { status: 403 }
       )
     }
@@ -75,6 +75,8 @@ export async function POST(request: NextRequest) {
         email: profile.email,
         user_type: userType,
         name: profile.name,
+        field: profile.field,
+        course: profile.course,
         department: profile.department,
         year: userType === 'student' ? profile.year : null,
         mobile_number: profile.mobile,

@@ -1,196 +1,306 @@
 "use client"
 
-import { useState, useEffect, ReactNode } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
-import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, User, LogOut, Home, BookOpen, FileText, Users, MessageSquare, Bell, Calendar, Code, Video, Heart, Armchair, Utensils } from 'lucide-react';
-import { FirstTimeSetup } from '@/components/attendance/first-time-setup';
-import { NotificationBell } from '@/components/notifications/notification-bell';
+import type React from "react"
+import { useState, useEffect } from "react"
+import { useRouter, usePathname, useSearchParams } from "next/navigation"
+import Link from "next/link"
+import { motion, AnimatePresence } from "framer-motion"
+import {
+  BookOpen,
+  Users,
+  Calendar,
+  MessageSquare,
+  Bell,
+  Code,
+  Home,
+  Menu,
+  X,
+  LogOut,
+  User,
+  Settings,
+  ChevronRight,
+  GraduationCap,
+  Camera,
+  FileText,
+  Brain,
+  Sparkles,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Badge } from "@/components/ui/badge"
+import { toast } from "@/hooks/use-toast"
+import ChatbotWidget from "@/components/ChatbotWidget"
+import SelfieCapture from "@/components/SelfieCapture"
+import RealtimeToasts from "@/components/RealtimeToasts"
 
-export default function StudentDashboardLayout({ children }: { children: ReactNode }) {
-  const { user, logout } = useAuth();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [showSetup, setShowSetup] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const router = useRouter();
-  const pathname = usePathname();
+const sidebarItems = [
+  { icon: Home, label: "Dashboard", href: "/student-dashboard", color: "text-blue-600" },
+  { icon: BookOpen, label: "Assignments", href: "/student-dashboard/assignments", color: "text-green-600" },
+  { icon: Camera, label: "Attendance", href: "/student-dashboard/attendance", color: "text-emerald-600" },
+  { icon: Users, label: "Study Groups", href: "/student-dashboard/study-groups", color: "text-blue-600" },
+  { icon: Calendar, label: "Events", href: "/student-dashboard/events", color: "text-orange-600" },
+  { icon: Calendar, label: "Timetable", href: "/student-dashboard/timetable", color: "text-red-600" },
+  { icon: MessageSquare, label: "Queries", href: "/student-dashboard/queries", color: "text-indigo-600" },
+  { icon: FileText, label: "Study Material", href: "/student-dashboard/study-material", color: "text-pink-600" },
+  { icon: Bell, label: "Announcements", href: "/student-dashboard/announcements", color: "text-yellow-600" },
+  { icon: Code, label: "Compiler", href: "/student-dashboard/compiler", color: "text-teal-600" },
+  { icon: Brain, label: "AI Tutor", href: "/student-dashboard/ai-tutor", color: "text-purple-600" },
+  { icon: Sparkles, label: "AI Assistant", href: "/student-dashboard/ai-assistant", color: "text-indigo-600" },
+]
 
+export default function StudentDashboardLayout({ children }: { children: React.ReactNode }) {
+  const [isSidebarOpen, setSidebarOpen] = useState(false)
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [showFaceSetup, setShowFaceSetup] = useState(false)
+  const [submittingFace, setSubmittingFace] = useState(false)
+  // Mock profile data since authentication is disabled
+  const profile = { name: "Demo Student", avatar_url: "/placeholder-user.jpg" }
+
+  // One-time onboarding for face setup
   useEffect(() => {
-    if (user === undefined) {
-      setIsLoading(true);
-      return;
+    const onboarding = searchParams?.get("onboarding")
+    const alreadyDone = typeof window !== 'undefined' && localStorage.getItem("faceSetupDone") === 'true'
+    if (onboarding === 'face-setup' && !alreadyDone) {
+      setShowFaceSetup(true)
     }
-    if (user === null) {
-      router.push('/login');
-      return;
-    }
+  }, [searchParams])
 
-    setIsLoading(false);
-    const isSetupComplete = localStorage.getItem('isFirstTimeSetupComplete') === 'true';
-    if (!isSetupComplete) {
-      setShowSetup(true);
-    }
-  }, [user, router]);
+  // Auto-close sidebar on route change
+  useEffect(() => {
+    if (isSidebarOpen) setSidebarOpen(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname])
 
-  const handleSetupComplete = () => {
-    localStorage.setItem('isFirstTimeSetupComplete', 'true');
-    setShowSetup(false);
-  };
+  const handleFaceCaptured = async (photoData: string) => {
+    try {
+      setSubmittingFace(true)
+      const res = await fetch('/api/face', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64: photoData }) })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to save face')
+      toast({ title: 'Face registered', description: 'Your profile photo has been saved.' })
+      // Mark done locally and remove onboarding query param
+      localStorage.setItem('faceSetupDone', 'true')
+      setShowFaceSetup(false)
+      const url = new URL(window.location.href)
+      url.searchParams.delete('onboarding')
+      router.replace(url.pathname + (url.search ? `?${url.searchParams.toString()}` : ''))
+    } catch (e: any) {
+      toast({ title: 'Unable to save', description: e.message || 'Try again', variant: 'destructive' })
+    } finally {
+      setSubmittingFace(false)
+    }
+  }
+
+  const handleFaceBack = () => {
+    setShowFaceSetup(false)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('onboarding')
+    router.replace(url.pathname + (url.search ? `?${url.searchParams.toString()}` : ''))
+  }
 
   const handleLogout = () => {
-    logout();
-    router.push('/');
-  };
-
-  const navigation = [
-    { icon: Home, label: 'Dashboard', href: '/student-dashboard' },
-    { icon: BookOpen, label: 'Attendance', href: '/student-dashboard/attendance' },
-    { icon: FileText, label: 'Assignments', href: '/student-dashboard/assignments' },
-    { icon: Users, label: 'Study Groups', href: '/student-dashboard/study-groups' },
-    { icon: MessageSquare, label: 'Queries', href: '/student-dashboard/queries' },
-    { icon: Bell, label: 'Announcements', href: '/student-dashboard/announcements' },
-    { icon: Calendar, label: 'Events', href: '/student-dashboard/events' },
-    { icon: Armchair, label: 'Event Seating', href: '/student-dashboard/seating' },
-    { icon: Utensils, label: 'Cafeteria & Mess', href: '/student-dashboard/cafeteria' },
-    { icon: Code, label: 'Compiler', href: '/student-dashboard/compiler' },
-    { icon: Video, label: 'Virtual Classroom', href: '/student-dashboard/virtual-classroom' },
-    { icon: Heart, label: 'Mentorship', href: '/student-dashboard/mentorship' },
-  ];
-
-  if (isLoading) {
-    return <div className="flex h-screen items-center justify-center">Loading...</div>;
-  }
-
-  // After loading, if there is no user, we are being redirected. Render nothing.
-  if (!user) {
-    return null;
-  }
-
-  if (showSetup) {
-    return (
-      <FirstTimeSetup
-        user_id={user.id}
-        user_name={user.name || 'Student'}
-        user_type='student'
-        onComplete={handleSetupComplete}
-      />
-    );
+    localStorage.removeItem("studentSession")
+    localStorage.removeItem("currentUser")
+    localStorage.removeItem("userType")
+    toast({
+      title: "Logged out successfully",
+      description: "You have been logged out of your account.",
+    })
+    router.push("/")
   }
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Mobile sidebar */}
-      <div className="lg:hidden">
-        <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="fixed top-4 left-4 z-50">
-              <Menu className="h-6 w-6" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="w-[280px] p-0">
-            <div className="flex flex-col h-full">
-              <div className="flex items-center justify-between p-4 border-b">
-                <h2 className="text-xl font-semibold">EduVision</h2>
-              </div>
-              <nav className="flex-1 p-4 space-y-2">
-                {navigation.map((item) => (
-                  <a
-                    key={item.href}
+    <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Sidebar (off-canvas for all breakpoints) */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.aside
+            initial={{ x: -256, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -256, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            className="fixed inset-y-0 left-0 z-50 bg-white dark:bg-gray-800 w-64 shadow-2xl"
+          >
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="p-4 flex items-center justify-between"
+            >
+              <Link href="/student-dashboard" className="flex items-center gap-2 group">
+                <motion.div
+                  whileHover={{ rotate: 360 }}
+                  transition={{ duration: 0.6 }}
+                >
+                  <GraduationCap className="h-8 w-8 text-primary" />
+                </motion.div>
+                <h1 className="text-xl font-bold text-gray-800 dark:text-white group-hover:text-primary transition-colors">EduVision</h1>
+              </Link>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="md:hidden hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" 
+                onClick={() => setSidebarOpen(false)}
+              >
+                <X className="h-6 w-6" />
+              </Button>
+            </motion.div>
+            <nav className="mt-4 px-2 space-y-1 overflow-y-auto flex-1">
+              {sidebarItems.map((item, index) => (
+                <motion.div
+                  key={item.label}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.1 + index * 0.05 }}
+                >
+                  <Link
                     href={item.href}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-100',
-                      pathname === item.href ? 'bg-gray-100' : ''
-                    )}
-                    onClick={() => setIsMobileMenuOpen(false)}
+                    onClick={() => setSidebarOpen(false)}
+                    className={`group flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-all duration-200 hover:scale-105 ${pathname === item.href ? "bg-primary/10 text-primary shadow-sm" : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"}`}
                   >
-                    <item.icon className='h-5 w-5' />
-                    {item.label}
-                  </a>
-                ))}
-              </nav>
-              <div className="p-4 border-t">
-                <button
-                  onClick={handleLogout}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
-                >
-                  <LogOut className="h-5 w-5" />
-                  Logout
-                </button>
-              </div>
-            </div>
-          </SheetContent>
-        </Sheet>
-      </div>
-
-      {/* Desktop sidebar */}
-      <div className="hidden lg:flex lg:flex-shrink-0">
-        <div className="flex w-64 flex-col border-r border-gray-200 bg-white">
-          <div className="flex h-16 flex-shrink-0 items-center px-6">
-            <h1 className="text-xl font-semibold">EduVision</h1>
-          </div>
-          <div className="flex flex-1 flex-col overflow-y-auto">
-            <nav className="flex-1 space-y-1 px-2 py-4">
-              {navigation.map((item) => (
-                <a
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    'group flex items-center rounded-md px-3 py-2 text-sm font-medium',
-                    pathname === item.href
-                      ? 'bg-gray-100 text-gray-900'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  )}
-                >
-                  <item.icon className='mr-3 h-5 w-5 flex-shrink-0' aria-hidden="true" />
-                  {item.label}
-                </a>
+                    <motion.div
+                      whileHover={{ scale: 1.15, rotate: pathname === item.href ? 0 : 10 }}
+                      whileTap={{ scale: 0.9 }}
+                      className="relative z-10"
+                    >
+                      <item.icon className={`mr-3 h-5 w-5 ${pathname === item.href ? item.color : 'group-hover:' + item.color} transition-colors`} />
+                    </motion.div>
+                    <span className="group-hover:translate-x-1 transition-transform duration-200">{item.label}</span>
+                    {pathname === item.href && (
+                      <motion.div
+                        layoutId="activeIndicator"
+                        className="ml-auto relative z-10"
+                        initial={{ scale: 0, rotate: -90 }}
+                        animate={{ scale: 1, rotate: 0 }}
+                        transition={{ type: "spring", stiffness: 400 }}
+                      >
+                        <ChevronRight className="h-4 w-4 text-primary" />
+                      </motion.div>
+                    )}
+                  </Link>
+                </motion.div>
               ))}
             </nav>
-            <div className="flex flex-shrink-0 border-t border-gray-200 p-4">
-              <button onClick={handleLogout} className="group block w-full flex-shrink-0">
-                <div className="flex items-center">
-                  <LogOut className="h-5 w-5 text-red-600 group-hover:text-red-700" />
-                  <span className="ml-3 text-sm font-medium text-red-600 group-hover:text-red-700">Logout</span>
-                </div>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
 
-      {/* Main content */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="bg-white shadow-sm">
-          <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center lg:hidden">
-              <h1 className="text-lg font-semibold">
-                {navigation.find((item) => item.href === pathname)?.label || 'Dashboard'}
-              </h1>
-            </div>
-            <div className="flex-1"></div>
-            <div className="flex items-center gap-4">
-              <NotificationBell />
-              <button
-                type="button"
-                className="flex rounded-full bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                onClick={() => router.push('/student-dashboard/profile')}
+      {/* Screen overlay when sidebar is open */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <motion.header 
+          initial={{ y: -20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className="sticky top-0 z-30 bg-white/90 dark:bg-gray-800/80 backdrop-blur supports-[backdrop-filter]:backdrop-blur flex items-center justify-between px-4 py-3 shadow-sm border-b border-gray-200/60 dark:border-gray-700/60"
+        >
+          <div className="flex items-center gap-3">
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => setSidebarOpen(true)}
+                className="hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               >
-                <span className="sr-only">Open user menu</span>
-                <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
-                  <User className="h-5 w-5 text-blue-600" />
-                </div>
-              </button>
-            </div>
+                <motion.div
+                  animate={{ rotate: isSidebarOpen ? 90 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <Menu className="h-6 w-6" />
+                </motion.div>
+              </Button>
+            </motion.div>
+            <Link href="/student-dashboard" className="flex items-center gap-2 group">
+              <motion.div
+                whileHover={{ rotate: 360 }}
+                transition={{ duration: 0.6 }}
+              >
+                <GraduationCap className="h-6 w-6 text-primary" />
+              </motion.div>
+              <span className="font-semibold group-hover:text-primary transition-colors">EduVision</span>
+            </Link>
           </div>
-        </header>
-
-        <main className="flex-1 overflow-y-auto bg-gray-50 p-4 sm:p-6 lg:p-8">
-          {children}
+          <div className="flex-1" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button variant="ghost" className="relative h-10 w-10 rounded-full hover:ring-2 hover:ring-primary/20 transition-all">
+                  <Avatar className="ring-2 ring-transparent hover:ring-primary/30 transition-all">
+                    <AvatarImage src={(profile as any)?.avatar_url || (profile as any)?.face_url || "/placeholder-user.jpg"} alt="User avatar" />
+                    <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/10">S</AvatarFallback>
+                  </Avatar>
+                </Button>
+              </motion.div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem asChild>
+                <Link href="/student-dashboard/profile">
+                  <User className="mr-2 h-4 w-4" />
+                  <span>Profile</span>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout}>
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Logout</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </motion.header>
+        <main className="flex-1 overflow-y-auto">
+          <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-6 pb-28">
+            {/* Page transition animation */}
+            <motion.div 
+              key={pathname}
+              initial={{ opacity: 0, y: 20, scale: 0.98 }} 
+              animate={{ opacity: 1, y: 0, scale: 1 }} 
+              exit={{ opacity: 0, y: -20, scale: 0.98 }}
+              transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+            >
+              {children}
+            </motion.div>
+          </div>
+          <ChatbotWidget />
+          <RealtimeToasts />
+          {/* Face setup modal */}
+          {showFaceSetup && (
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+              <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-2xl overflow-hidden">
+                <div className="p-2">
+                  <SelfieCapture onCapture={handleFaceCaptured} onBack={handleFaceBack} />
+                </div>
+                {submittingFace && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/70 dark:bg-black/50">
+                    <div className="h-10 w-10 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>
-  );
+  )
 }

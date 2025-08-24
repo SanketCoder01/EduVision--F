@@ -6,11 +6,12 @@ export async function GET(request: NextRequest) {
     // Create Supabase client inside the request handler
     const supabase = createClient()
 
-    // Get all pending registrations
+    // Get only essential fields to improve performance
     const { data: registrations, error } = await supabase
       .from('pending_registrations')
-      .select('*')
+      .select('id, email, user_type, department, year, status, submitted_at, name, rejection_reason, reviewed_at, reviewed_by')
       .order('submitted_at', { ascending: false })
+      .limit(100)
 
     if (error) {
       console.error('Error fetching pending registrations:', error)

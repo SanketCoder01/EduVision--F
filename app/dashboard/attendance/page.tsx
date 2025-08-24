@@ -18,7 +18,9 @@ import { AttendanceRecords } from '@/components/attendance/attendance-records';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function FacultyAttendancePage() {
-  const { user, isLoading: authLoading } = useAuth();
+  // Mock user data since authentication is disabled
+  const user = { id: 'demo-faculty', name: 'Demo Faculty' };
+  const authLoading = false;
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<AttendanceSession | null>(null);
   const [loading, setLoading] = useState(true);

@@ -7,12 +7,14 @@ interface StudentProfile {
   id: string;
   email: string | undefined;
   full_name: string | null;
+  field: string;
+  course: string;
   department: string;
   year_of_study: string;
   mobile_number: string;
 }
 
-export async function updateStudentProfile(formData: { department: string; year: string; mobileNumber: string; password?: string; confirmPassword?: string; }) {
+export async function updateStudentProfile(formData: { field: string; course: string; department: string; year: string; mobileNumber: string; password?: string; confirmPassword?: string; }) {
   const supabase = createClient();
 
   const { data: { user }, error: userErr } = await supabase.auth.getUser();
@@ -51,6 +53,8 @@ export async function updateStudentProfile(formData: { department: string; year:
     id: user.id,
     email: user.email,
     full_name: user.user_metadata.full_name || user.email,
+    field: formData.field,
+    course: formData.course,
     department: formData.department,
     year_of_study: formData.year,
     mobile_number: formData.mobileNumber,

@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Image from "next/image"
 import { motion } from "framer-motion"
-import { Lock, Eye, EyeOff } from "lucide-react"
+import { Lock, Eye, EyeOff, GraduationCap, User, Phone, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,6 +14,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useToast } from "@/components/ui/use-toast"
 import AnimatedLoader from "@/components/ui/animated-loader"
 import { createClient } from "@/lib/supabase/client"
+import CourseSelector from "@/components/ui/course-selector"
+import { getDepartmentByCourse } from "@/lib/constants/fields-courses"
 
 function RegistrationForm() {
   const router = useRouter()
@@ -25,12 +27,25 @@ function RegistrationForm() {
   const userPhoto = searchParams.get("photo") || ""
 
   const [formData, setFormData] = useState({
+    field: "",
+    course: "",
     department: "",
     year: "",
     mobileNumber: "",
     password: "",
     confirmPassword: "",
   })
+
+  // Auto-update department when course changes
+  const handleCourseChange = (course: string) => {
+    const department = getDepartmentByCourse(course)
+    setFormData(prev => ({
+      ...prev,
+      course,
+      department
+    }))
+    setError("")
+  }
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -50,8 +65,20 @@ function RegistrationForm() {
     setError("")
 
     // Explicitly validate Select fields (required doesn't work on Radix Select)
-    if (!formData.department || !formData.year) {
-      setError("Please select your Department and Year of Study.")
+    if (!formData.field || !formData.course || !formData.department || !formData.year) {
+      setError("Please select your Field, Course, Department and Year of Study.")
+      return
+    }
+
+    // Validate password match
+    if (formData.password !== formData.confirmPassword) {
+      setError("Passwords do not match. Please check and try again.")
+      return
+    }
+
+    // Validate password length
+    if (formData.password.length < 6) {
+      setError("Password must be at least 6 characters long.")
       return
     }
 
@@ -71,16 +98,6 @@ function RegistrationForm() {
       const isOAuth = provider && provider !== 'email'
 
       if (!isOAuth) {
-        if (formData.password !== formData.confirmPassword) {
-          setError("Passwords do not match.")
-          return
-        }
-
-        if (formData.password.length < 6) {
-          setError("Password must be at least 6 characters long.")
-          return
-        }
-
         const { error: updateUserError } = await supabase.auth.updateUser({
           password: formData.password,
         })
@@ -96,6 +113,8 @@ function RegistrationForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: user.email,
+          field: formData.field,
+          course: formData.course,
           department: formData.department,
           year: formData.year,
           user_type: 'student',
@@ -113,10 +132,11 @@ function RegistrationForm() {
 
       toast({
         title: "Registration Submitted!",
-        description: "Your registration is now pending admin approval.",
+        description: "Redirecting to face capture for verification...",
       })
-      // Redirect to face capture page
-      router.push("/student-registration/capture-image");
+      
+      // Redirect immediately to face capture component
+      router.push(`/auth/face-capture?email=${encodeURIComponent(user.email!)}&name=${encodeURIComponent(userName)}&type=student`)
     } catch (err: any) {
       setError(err?.message || 'Something went wrong. Please try again.')
     } finally {
@@ -148,128 +168,236 @@ function RegistrationForm() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="w-full max-w-lg"
+        className="w-full max-w-2xl"
       >
-        <Card>
-          <CardHeader>
-            {userPhoto && (
+        <Card className="shadow-2xl border-0 bg-white/80 backdrop-blur-sm">
+          <CardHeader className="text-center pb-6">
+            <div className="relative inline-block">
               <Image
-                src={userPhoto}
+                src={userPhoto || "/images/default-avatar.png"}
                 alt="Profile Photo"
-                width={80}
-                height={80}
-                className="rounded-full mx-auto mb-3 border-4 border-gray-200"
+                width={96}
+                height={96}
+                className="rounded-full mx-auto mb-4 border-4 border-blue-200 shadow-lg"
               />
-            )}
-            <CardTitle className="text-2xl font-bold">Complete Your Registration</CardTitle>
-            <CardDescription>
-              Welcome, {userName}! Just a few more details.
+              <div className="absolute -top-2 -right-2 bg-blue-500 text-white p-2 rounded-full shadow-lg">
+                <GraduationCap className="h-5 w-5" />
+              </div>
+            </div>
+            <CardTitle className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+              Student Registration
+            </CardTitle>
+            <CardDescription className="text-lg text-gray-600">
+              Welcome, {userName}! Let's complete your academic profile.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+          <CardContent className="px-8 pb-8">
+            <form onSubmit={handleSubmit} className="space-y-6">
               {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <Alert variant="destructive" className="border-red-200 bg-red-50">
+                    <AlertDescription className="text-red-800">{error}</AlertDescription>
+                  </Alert>
+                </motion.div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Full Name</Label>
-                  <Input value={userName} readOnly disabled />
+              {/* Personal Information */}
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 }}
+                className="bg-gradient-to-r from-gray-50 to-gray-100 p-6 rounded-xl border border-gray-200"
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="bg-gray-500 text-white p-2 rounded-lg">
+                    <User className="h-5 w-5" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-800">Personal Information</h3>
                 </div>
-                <div className="space-y-2">
-                  <Label>Email Address</Label>
-                  <Input value={userEmail} readOnly disabled />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-gray-700 font-medium">Full Name</Label>
+                    <Input value={userName} readOnly disabled className="bg-white/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-gray-700 font-medium">Email Address</Label>
+                    <Input value={userEmail} readOnly disabled className="bg-white/50" />
+                  </div>
                 </div>
-              </div>
+              </motion.div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="department">Department</Label>
-                  <Select onValueChange={(value) => handleInputChange("department", value)} required>
-                    <SelectTrigger id="department">
-                      <SelectValue placeholder="Select Department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Computer Science and Engineering (CSE)">Computer Science and Engineering (CSE)</SelectItem>
-                      <SelectItem value="Cyber Security">Cyber Security</SelectItem>
-                      <SelectItem value="Artificial Intelligence and Data Science (AIDS)">Artificial Intelligence and Data Science (AIDS)</SelectItem>
-                      <SelectItem value="Artificial Intelligence and Machine Learning (AIML)">Artificial Intelligence and Machine Learning (AIML)</SelectItem>
-                    </SelectContent>
-                  </Select>
+              {/* Academic Information Section */}
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.2 }}
+                className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-200 shadow-sm"
+              >
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="bg-blue-500 text-white p-2 rounded-lg shadow-md">
+                    <GraduationCap className="h-5 w-5" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-blue-800">Academic Information</h3>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="year">Year of Study</Label>
-                  <Select onValueChange={(value) => handleInputChange("year", value)} required>
-                    <SelectTrigger id="year">
-                      <SelectValue placeholder="Select Year" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1">1st Year</SelectItem>
-                      <SelectItem value="2">2nd Year</SelectItem>
-                      <SelectItem value="3">3rd Year</SelectItem>
-                      <SelectItem value="4">4th Year</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="mobileNumber">Mobile Number</Label>
-                <Input
-                  id="mobileNumber"
-                  type="tel"
-                  placeholder="Enter your mobile number"
-                  value={formData.mobileNumber}
-                  onChange={(e) => handleInputChange("mobileNumber", e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Create a password"
-                    value={formData.password}
-                    onChange={(e) => handleInputChange("password", e.target.value)}
-                    required
+                
+                {/* Field and Course Selection */}
+                <div className="mb-6">
+                  <CourseSelector
+                    selectedField={formData.field}
+                    selectedCourse={formData.course}
+                    onFieldChangeAction={(field: string) => handleInputChange('field', field)}
+                    onCourseChangeAction={handleCourseChange}
                   />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <div className="relative">
+                {/* Department and Year Selection */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="department" className="text-blue-800 font-medium">Department</Label>
+                    <Input
+                      id="department"
+                      value={formData.department}
+                      readOnly
+                      disabled
+                      placeholder="Auto-selected based on course"
+                      className="bg-white/50 border-blue-200 text-blue-800 font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="year" className="text-blue-800 font-medium">Year of Study</Label>
+                    <Select onValueChange={(value) => handleInputChange("year", value)} required>
+                      <SelectTrigger id="year" className="bg-white/80 border-blue-200 focus:border-blue-400">
+                        <SelectValue placeholder="Select Year" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1st Year">1st Year</SelectItem>
+                        <SelectItem value="2nd Year">2nd Year</SelectItem>
+                        <SelectItem value="3rd Year">3rd Year</SelectItem>
+                        <SelectItem value="4th Year">4th Year</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Contact Information */}
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.3 }}
+                className="bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-xl border border-green-200"
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="bg-green-500 text-white p-2 rounded-lg">
+                    <Phone className="h-5 w-5" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-green-800">Contact Information</h3>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="mobileNumber" className="text-green-800 font-medium">Mobile Number</Label>
                   <Input
-                    id="confirmPassword"
-                    type={showConfirmPassword ? "text" : "password"}
-                    placeholder="Confirm your password"
-                    value={formData.confirmPassword}
-                    onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
+                    id="mobileNumber"
+                    type="tel"
+                    placeholder="Enter your mobile number"
+                    value={formData.mobileNumber}
+                    onChange={(e) => handleInputChange("mobileNumber", e.target.value)}
                     required
+                    className="bg-white/80 border-green-200 focus:border-green-400"
                   />
-                  <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
-                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
                 </div>
-              </div>
+              </motion.div>
 
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                Save and Continue
-              </Button>
+              {/* Security Information */}
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.4 }}
+                className="bg-gradient-to-r from-purple-50 to-violet-50 p-6 rounded-xl border border-purple-200"
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="bg-purple-500 text-white p-2 rounded-lg">
+                    <Shield className="h-5 w-5" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-purple-800">Security Information</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="password" className="text-purple-800 font-medium">Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="Create a password"
+                        value={formData.password}
+                        onChange={(e) => handleInputChange("password", e.target.value)}
+                        required
+                        className="bg-white/80 border-purple-200 focus:border-purple-400 pr-10"
+                      />
+                      <button 
+                        type="button" 
+                        onClick={() => setShowPassword(!showPassword)} 
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-purple-500 hover:text-purple-700 transition-colors"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirmPassword" className="text-purple-800 font-medium">Confirm Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="confirmPassword"
+                        type={showConfirmPassword ? "text" : "password"}
+                        placeholder="Confirm your password"
+                        value={formData.confirmPassword}
+                        onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
+                        required
+                        className="bg-white/80 border-purple-200 focus:border-purple-400 pr-10"
+                      />
+                      <button 
+                        type="button" 
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)} 
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-purple-500 hover:text-purple-700 transition-colors"
+                      >
+                        {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+              >
+                <Button 
+                  type="submit" 
+                  className="w-full h-12 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02]" 
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <div className="flex items-center gap-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Processing...
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <GraduationCap className="h-5 w-5" />
+                      Complete Registration
+                    </div>
+                  )}
+                </Button>
+              </motion.div>
             </form>
           </CardContent>
         </Card>

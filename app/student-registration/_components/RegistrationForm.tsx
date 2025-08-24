@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/components/ui/use-toast';
 import { updateStudentProfile } from '../actions';
 import { DEPARTMENTS } from '@/lib/constants/departments';
+import CourseSelector from '@/components/ui/course-selector';
 
 export default function RegistrationForm() {
   const router = useRouter();
@@ -27,6 +28,8 @@ export default function RegistrationForm() {
   const [formData, setFormData] = useState({
     fullName: name,
     email: email,
+    field: '',
+    course: '',
     department: '',
     year: '',
     mobileNumber: '',
@@ -47,8 +50,8 @@ export default function RegistrationForm() {
     setError('');
 
     // Validate Radix Select fields explicitly (don't use required on Select)
-    if (!formData.department || !formData.year) {
-      setError('Please select your Department and Year of Study.');
+    if (!formData.field || !formData.course || !formData.department || !formData.year) {
+      setError('Please select your Field, Course, Department and Year of Study.');
       return;
     }
 
@@ -107,35 +110,51 @@ export default function RegistrationForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="department">Department</Label>
-                <Select onValueChange={(value) => handleInputChange('department', value)}>
-                  <SelectTrigger id="department">
-                    <SelectValue placeholder="Select Department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DEPARTMENTS.map((dept) => (
-                      <SelectItem key={dept} value={dept}>
-                        {dept}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            {/* Academic Information Section */}
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+              <h3 className="text-lg font-semibold text-blue-900 mb-4">Academic Information</h3>
+              
+              {/* Field and Course Selection */}
+              <div className="mb-4">
+                <CourseSelector
+                  selectedField={formData.field}
+                  selectedCourse={formData.course}
+                  onFieldChangeAction={(field: string) => handleInputChange('field', field)}
+                  onCourseChangeAction={(course: string) => handleInputChange('course', course)}
+                />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="year">Year of Study</Label>
-                <Select onValueChange={(value) => handleInputChange('year', value)}>
-                  <SelectTrigger id="year">
-                    <SelectValue placeholder="Select Year" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">1st Year</SelectItem>
-                    <SelectItem value="2">2nd Year</SelectItem>
-                    <SelectItem value="3">3rd Year</SelectItem>
-                    <SelectItem value="4">4th Year</SelectItem>
-                  </SelectContent>
-                </Select>
+
+              {/* Department and Year Selection */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="department">Department</Label>
+                  <Select onValueChange={(value) => handleInputChange('department', value)}>
+                    <SelectTrigger id="department">
+                      <SelectValue placeholder="Select Department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DEPARTMENTS.map((dept) => (
+                        <SelectItem key={dept} value={dept}>
+                          {dept}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="year">Year of Study</Label>
+                  <Select onValueChange={(value) => handleInputChange('year', value)}>
+                    <SelectTrigger id="year">
+                      <SelectValue placeholder="Select Year" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1st Year</SelectItem>
+                      <SelectItem value="2">2nd Year</SelectItem>
+                      <SelectItem value="3">3rd Year</SelectItem>
+                      <SelectItem value="4">4th Year</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
 

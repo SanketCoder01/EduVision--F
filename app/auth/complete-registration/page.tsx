@@ -68,9 +68,15 @@ function CompleteRegistrationContent() {
     }
 
     // Password requirements (Supabase default: at least one lowercase, uppercase, number, and 8+ chars)
-    const strongPw = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/
-    if (!userData.password || !strongPw.test(userData.password)) {
-      newErrors.password = 'Password must be 8+ chars and include lowercase, uppercase, and a number'
+    if (!userData.password) {
+      newErrors.password = 'Password is required'
+    } else if (userData.password.length < 8) {
+      newErrors.password = 'Password must be at least 8 characters long'
+    } else {
+      const strongPw = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/
+      if (!strongPw.test(userData.password)) {
+        newErrors.password = 'Password must include uppercase, lowercase, and a number'
+      }
     }
     if (userData.password !== userData.confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match'
@@ -82,8 +88,18 @@ function CompleteRegistrationContent() {
 
   const handleDetailsSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    console.log('Form submitted, validating...', userData)
+    
     if (validateForm()) {
+      console.log('Validation passed, moving to selfie step')
       setStep('selfie')
+    } else {
+      console.log('Validation failed, errors:', errors)
+      toast({
+        title: 'Please fix the following errors',
+        description: 'Check all required fields and ensure passwords match.',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -123,13 +139,8 @@ function CompleteRegistrationContent() {
         keepalive: true,
       }).catch(() => undefined).finally(() => clearTimeout(timeout))
 
-      // Navigate immediately; also show welcome momentarily
-      const dashboardUrl = userType === 'faculty' ? '/dashboard' : '/student-dashboard'
+      // Show welcome step with manual navigation buttons
       setStep('welcome')
-      // Let the request start, then navigate
-      Promise.race([postPromise, new Promise((r) => setTimeout(r, 600))]).finally(() => {
-        router.replace(dashboardUrl)
-      })
 
     } catch (error: any) {
       console.error('Registration error:', error)
@@ -165,12 +176,10 @@ function CompleteRegistrationContent() {
       className="w-full max-w-md mx-auto px-4"
     >
       <Card>
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">Complete Your Registration</CardTitle>
-          <CardDescription>
-            Please fill in your details to complete the registration process
-          </CardDescription>
-        </CardHeader>
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Complete Your Registration</h1>
+          <p className="text-gray-600">Fill in your details to get started</p>
+        </div>
         <CardContent>
           <form onSubmit={handleDetailsSubmit} className="space-y-4">
             <div className="space-y-2">
@@ -183,7 +192,7 @@ function CompleteRegistrationContent() {
                   placeholder="Enter your full name"
                   value={userData.name}
                   onChange={(e) => setUserData({ ...userData, name: e.target.value })}
-                  className="pl-10"
+                  className={`pl-10 ${errors.name ? "border-red-500" : ""}`}
                 />
               </div>
               {errors.name && <p className="text-sm text-red-500">{errors.name}</p>}
@@ -208,7 +217,7 @@ function CompleteRegistrationContent() {
               <div className="relative">
                 <Building className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4 z-10" />
                 <Select value={userData.department} onValueChange={(value) => setUserData({ ...userData, department: value })}>
-                  <SelectTrigger className="pl-10">
+                  <SelectTrigger className={`pl-10 ${errors.department ? "border-red-500" : ""}`}>
                     <SelectValue placeholder="Select your department" />
                   </SelectTrigger>
                   <SelectContent>
@@ -227,7 +236,7 @@ function CompleteRegistrationContent() {
                 <div className="relative">
                   <GraduationCap className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4 z-10" />
                   <Select value={userData.year} onValueChange={(value) => setUserData({ ...userData, year: value })}>
-                    <SelectTrigger className="pl-10">
+                    <SelectTrigger className={`pl-10 ${errors.year ? "border-red-500" : ""}`}>
                       <SelectValue placeholder="Select your year" />
                     </SelectTrigger>
                     <SelectContent>
@@ -251,7 +260,7 @@ function CompleteRegistrationContent() {
                   placeholder="Enter your mobile number"
                   value={userData.mobile}
                   onChange={(e) => setUserData({ ...userData, mobile: e.target.value })}
-                  className="pl-10"
+                  className={`pl-10 ${errors.mobile ? "border-red-500" : ""}`}
                 />
               </div>
               {errors.mobile && <p className="text-sm text-red-500">{errors.mobile}</p>}
@@ -266,8 +275,12 @@ function CompleteRegistrationContent() {
                   placeholder="Create a password (min 8 characters)"
                   value={userData.password}
                   onChange={(e) => setUserData({ ...userData, password: e.target.value })}
+                  className={errors.password ? "border-red-500" : ""}
                 />
               </div>
+              <p className="text-xs text-gray-500">
+                Must be 8+ characters with uppercase, lowercase, and a number
+              </p>
               {errors.password && <p className="text-sm text-red-500">{errors.password}</p>}
             </div>
 
@@ -280,6 +293,7 @@ function CompleteRegistrationContent() {
                   placeholder="Re-enter password"
                   value={userData.confirmPassword}
                   onChange={(e) => setUserData({ ...userData, confirmPassword: e.target.value })}
+                  className={errors.confirmPassword ? "border-red-500" : ""}
                 />
               </div>
               {errors.confirmPassword && <p className="text-sm text-red-500">{errors.confirmPassword}</p>}
@@ -353,15 +367,36 @@ function CompleteRegistrationContent() {
     >
       <Card>
         <CardContent className="pt-6">
-          <div className="text-center space-y-4">
+          <div className="text-center space-y-6">
             <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
-            <h3 className="text-2xl font-bold text-green-600">Registration Complete!</h3>
+            <h3 className="text-2xl font-bold text-orange-600">Registration Submitted!</h3>
             <p className="text-gray-600">
-              Welcome to EduVision, {userData.name}! Your account has been successfully created.
+              Thank you, {userData.name}! Your registration has been submitted for approval.
             </p>
-            <p className="text-sm text-gray-500">
-              Redirecting to your dashboard...
-            </p>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-sm text-yellow-800">
+                <strong>Pending Approval:</strong> Your account is being reviewed by administrators. 
+                You'll be notified once approved.
+              </p>
+            </div>
+            
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600 font-medium">Access dashboards directly:</p>
+              <div className="space-y-2">
+                <a 
+                  href="/student-dashboard" 
+                  className="w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors text-center block text-sm"
+                >
+                  Go to Student Dashboard
+                </a>
+                <a 
+                  href="/dashboard" 
+                  className="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition-colors text-center block text-sm"
+                >
+                  Go to Faculty Dashboard
+                </a>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -17,6 +17,8 @@ interface PendingRegistration {
   id: string
   email: string
   user_type: 'student' | 'faculty'
+  field?: string
+  course?: string
   department: string
   year?: string
   status: 'pending_approval' | 'approved' | 'rejected'
@@ -102,7 +104,10 @@ export default function RegistrationApprovalsPage() {
     if (searchTerm) {
       filtered = filtered.filter(reg => 
         reg.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        reg.department.toLowerCase().includes(searchTerm.toLowerCase())
+        reg.department.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (reg.field && reg.field.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (reg.course && reg.course.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (reg.name && reg.name.toLowerCase().includes(searchTerm.toLowerCase()))
       )
     }
 
@@ -356,6 +361,20 @@ export default function RegistrationApprovalsPage() {
                           <span className="text-gray-500">User Type:</span>
                           <div className="font-medium capitalize">{registration.user_type}</div>
                         </div>
+                        
+                        {registration.field && (
+                          <div className="space-y-1">
+                            <span className="text-gray-500">Field:</span>
+                            <div className="font-medium">{registration.field}</div>
+                          </div>
+                        )}
+                        
+                        {registration.course && (
+                          <div className="space-y-1">
+                            <span className="text-gray-500">Course:</span>
+                            <div className="font-medium">{registration.course}</div>
+                          </div>
+                        )}
                         
                         <div className="space-y-1">
                           <span className="text-gray-500">Department:</span>

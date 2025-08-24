@@ -516,12 +516,15 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    updateStatus('Upload successful! Redirecting to EduVision...', 'success');
-                    
-                    // Redirect to EduVision after a short delay
-                    setTimeout(() => {
-                        window.location.href = 'http://localhost:3000/auth/pending-approval';
-                    }, 2000);
+                    const result = data;
+                    if (result.success) {
+                        showStatus('Image uploaded successfully! Redirecting...', 'success');
+                        setTimeout(() => {
+                            window.location.href = 'http://localhost:3000/auth/check-email';
+                        }, 2000);
+                    } else {
+                        showStatus('Failed to upload image: ' + result.message, 'error');
+                    }
                 } else {
                     throw new Error(data.error || 'Upload failed');
                 }

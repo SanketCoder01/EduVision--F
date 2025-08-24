@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/components/ui/use-toast';
 import { updateFacultyProfile } from '../actions';
+import { DEPARTMENTS } from '@/lib/constants/departments';
+import CourseSelector from '@/components/ui/course-selector';
 
 export default function RegistrationForm() {
   const router = useRouter();
@@ -26,6 +28,8 @@ export default function RegistrationForm() {
   const [formData, setFormData] = useState({
     fullName: name,
     email: email,
+    field: '',
+    course: '',
     department: '',
     mobileNumber: '',
     password: '',
@@ -43,6 +47,12 @@ export default function RegistrationForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // Validate required fields
+    if (!formData.field || !formData.course || !formData.department) {
+      setError('Please select your Field, Course, and Department.');
+      return;
+    }
 
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match.');
@@ -99,19 +109,36 @@ export default function RegistrationForm() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="department">Department</Label>
-              <Select onValueChange={(value) => handleInputChange('department', value)} required>
-                <SelectTrigger id="department">
-                  <SelectValue placeholder="Select Department" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Computer Science and Engineering (CSE)">Computer Science and Engineering (CSE)</SelectItem>
-                  <SelectItem value="Cyber Security">Cyber Security</SelectItem>
-                  <SelectItem value="Artificial Intelligence and Data Science (AIDS)">Artificial Intelligence and Data Science (AIDS)</SelectItem>
-                  <SelectItem value="Artificial Intelligence and Machine Learning (AIML)">Artificial Intelligence and Machine Learning (AIML)</SelectItem>
-                </SelectContent>
-              </Select>
+            {/* Academic Information Section */}
+            <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+              <h3 className="text-lg font-semibold text-green-900 mb-4">Academic Information</h3>
+              
+              {/* Field and Course Selection */}
+              <div className="mb-4">
+                <CourseSelector
+                  selectedField={formData.field}
+                  selectedCourse={formData.course}
+                  onFieldChangeAction={(field: string) => handleInputChange('field', field)}
+                  onCourseChangeAction={(course: string) => handleInputChange('course', course)}
+                />
+              </div>
+
+              {/* Department Selection */}
+              <div className="space-y-2">
+                <Label htmlFor="department">Department</Label>
+                <Select onValueChange={(value) => handleInputChange('department', value)} required>
+                  <SelectTrigger id="department">
+                    <SelectValue placeholder="Select Department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DEPARTMENTS.map((dept) => (
+                      <SelectItem key={dept} value={dept}>
+                        {dept}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="space-y-2">

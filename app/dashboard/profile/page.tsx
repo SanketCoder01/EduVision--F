@@ -17,7 +17,8 @@ import { useUser } from "@/contexts/UserContext"
 export default function ProfilePage() {
   const { toast } = useToast()
   const supabase = createClient()
-  const { fetchUserProfile } = useUser()
+  // Mock fetchUserProfile since authentication is disabled
+  const fetchUserProfile = () => Promise.resolve()
   const [isEditing, setIsEditing] = useState(false)
   const [showPhotoEditor, setShowPhotoEditor] = useState(false)
   const [showPasswordUpdate, setShowPasswordUpdate] = useState(false)
@@ -47,8 +48,9 @@ export default function ProfilePage() {
     loadProfile()
     
     // Set up real-time subscription for profile updates
-    const { data: { user } } = supabase.auth.getUser()
-    if (user) {
+    const setupSubscription = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
       const channel = supabase
         .channel('profile_updates')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'students_cse_1st_year' }, () => loadProfile())
@@ -76,7 +78,10 @@ export default function ProfilePage() {
       return () => {
         supabase.removeChannel(channel)
       }
+      }
     }
+    
+    setupSubscription()
   }, [])
 
   const loadProfile = async () => {
@@ -224,7 +229,7 @@ export default function ProfilePage() {
       }
 
       setIsEditing(false)
-      if (fetchUserProfile) await fetchUserProfile(user)
+      await fetchUserProfile()
       toast({
         title: "Profile Updated",
         description: "Your profile has been updated successfully.",

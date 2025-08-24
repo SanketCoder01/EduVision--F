@@ -5,6 +5,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useDropzone } from 'react-dropzone';
 import { FileText, Clock, CheckCircle, Search, Filter, X, Upload, Download, Paperclip, AlertTriangle, Eye } from 'lucide-react';
 import PlagiarismReport from '@/components/PlagiarismReport';
+import EnhancedPlagiarismReport from '@/components/EnhancedPlagiarismReport';
+import AISuggestions from '@/components/ai/AISuggestions';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 interface Assignment {
   id: number;
@@ -41,6 +44,10 @@ const AssignmentsPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPlagiarismReport, setShowPlagiarismReport] = useState<any>(null);
+  const [showEnhancedPlagiarism, setShowEnhancedPlagiarism] = useState(false);
+  const [submissionText, setSubmissionText] = useState('');
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const supabase = createClientComponentClient();
 
   useEffect(() => {
     const fetchAssignments = async () => {
@@ -60,13 +67,23 @@ const AssignmentsPage = () => {
       }
     };
 
+    // Mock user data since authentication is disabled
+    const mockUser = {
+      id: 'demo-student',
+      email: 'demo@student.edu',
+      name: 'Demo Student'
+    };
+    setCurrentUser(mockUser);
+
     fetchAssignments();
   }, []);
 
   const filteredAssignments = assignments.filter(a => a.status === activeTab);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    setSubmittedFile(acceptedFiles[0]);
+    if (acceptedFiles.length > 0) {
+      setSubmittedFile(acceptedFiles[0]);
+    }
   }, []);
 
   const { getRootProps, getInputProps, isDragActive, fileRejections } = useDropzone({
@@ -266,12 +283,22 @@ const AssignmentsPage = () => {
                           <ul>{fileRejectionItems}</ul>
                         </div>
                       )}
-                      <button 
-                        disabled={!submittedFile}
-                        className="mt-6 w-full bg-indigo-600 text-white px-6 py-3 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-                      >
-                        Submit Assignment
-                      </button>
+                      <div className="mt-4 space-y-3">
+                        <button 
+                          onClick={() => setShowEnhancedPlagiarism(true)}
+                          disabled={!submittedFile}
+                          className="w-full bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-semibold hover:bg-orange-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        >
+                          <AlertTriangle className="inline h-4 w-4 mr-2" />
+                          Check Plagiarism Before Submit
+                        </button>
+                        <button 
+                          disabled={!submittedFile}
+                          className="w-full bg-indigo-600 text-white px-6 py-3 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        >
+                          Submit Assignment
+                        </button>
+                      </div>
                     </div>
                   )}
                   {selectedAssignment.status === 'Submitted' && (
@@ -371,6 +398,22 @@ const AssignmentsPage = () => {
                       </div>
                     </div>
                   )}
+
+                  {/* AI Suggestions Section */}
+                  {selectedAssignment && selectedAssignment.grade !== null && (
+                    <div className="mt-6">
+                      <AISuggestions
+                        studentName={currentUser?.user_metadata?.full_name || 'Student'}
+                        assignmentTitle={selectedAssignment.title}
+                        subject={selectedAssignment.subject}
+                        grade={selectedAssignment.grade ?? 0}
+                        feedback={selectedAssignment.feedback || ''}
+                        weakAreas={(selectedAssignment.grade ?? 0) < 70 ? ['Time Management', 'Concept Understanding'] : []}
+                        strongAreas={(selectedAssignment.grade ?? 0) >= 80 ? ['Problem Solving', 'Implementation'] : (selectedAssignment.grade ?? 0) >= 70 ? ['Basic Understanding'] : []}
+                        submissionId={selectedAssignment.id.toString()}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>
@@ -391,6 +434,44 @@ const AssignmentsPage = () => {
                 report={showPlagiarismReport}
                 onDownload={() => {}}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enhanced Plagiarism Check Modal */}
+      {showEnhancedPlagiarism && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center p-4 border-b border-gray-200 bg-gray-50">
+              <h2 className="text-xl font-bold text-gray-800">Enhanced Plagiarism Check</h2>
+              <button onClick={() => setShowEnhancedPlagiarism(false)} className="text-gray-500 hover:text-gray-700">
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Paste your assignment text for plagiarism checking:
+                  </label>
+                  <textarea
+                    value={submissionText}
+                    onChange={(e) => setSubmissionText(e.target.value)}
+                    placeholder="Paste your assignment content here (minimum 40 characters required)..."
+                    className="w-full h-32 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Characters: {submissionText.length} (minimum 40 required)
+                  </p>
+                </div>
+                <EnhancedPlagiarismReport
+                  text={submissionText}
+                  onReportGenerated={(result) => {
+                    console.log('Plagiarism check completed:', result);
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>

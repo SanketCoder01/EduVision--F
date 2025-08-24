@@ -17,13 +17,15 @@ import { DEPARTMENTS } from '@/lib/constants/departments';
 import { createAssignment } from './actions';
 import { MultiSelect } from '@/components/ui/multi-select';
 import PlagiarismReport from '@/components/PlagiarismReport';
+import { UploadAndGenerate } from '@/components/ai/UploadAndGenerate';
+import PromptQuestionGenerator from '@/components/ai/PromptQuestionGenerator';
 
 export default function FacultyAssignmentsPage() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [submissions, setSubmissions] = useState<AssignmentSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [assignmentMode, setAssignmentMode] = useState<'manual' | 'ai'>('manual');
+  const [assignmentMode, setAssignmentMode] = useState<'manual' | 'ai' | 'upload-generate'>('manual');
   const [currentStep, setCurrentStep] = useState<'create' | 'settings' | 'preview'>('create');
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [showPlagiarismReport, setShowPlagiarismReport] = useState<any>(null);
@@ -50,8 +52,9 @@ export default function FacultyAssignmentsPage() {
     allow_late_submission: false,
     allowed_formats: { pdf: true, image: false, docs: true, xlsx: false, zip: false },
   });
-  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiPrompt, setAiPrompt] = useState('');
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [generatedQuestions, setGeneratedQuestions] = useState<any>(null);
   const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
 
   async function generateFormFromPrompt(prompt: string) {
@@ -63,31 +66,22 @@ export default function FacultyAssignmentsPage() {
   const fetchFacultyAndAssignments = useCallback(async () => {
     setFacultyLoading(true);
     try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr;
-      if (user) {
-        const { data: facultyProfile, error: facErr } = await supabase
-          .from('faculty')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-        if (facErr) {
-          // Not fatal for loading; surface and continue with empty faculty
-          console.warn('Faculty profile fetch error:', facErr);
-          toast({ title: 'Warning', description: 'Could not load faculty profile. Some features may be limited.', variant: 'destructive' });
-          setFaculty(null);
-        } else {
-          setFaculty(facultyProfile);
-          if (facultyProfile?.email) {
-            const { data: assignmentsData, error: assignErr } = await getFacultyAssignments(facultyProfile.email);
-            if (assignErr) {
-              console.error('Assignments fetch error:', assignErr);
-              toast({ title: 'Error', description: 'Failed to load assignments.', variant: 'destructive' });
-            }
-            setAssignments(assignmentsData || []);
-          }
-        }
+      // Mock faculty data since authentication is disabled
+      const mockFaculty = {
+        id: 'demo-faculty',
+        email: 'demo@faculty.edu',
+        name: 'Demo Faculty',
+        department: 'Computer Science and Engineering'
+      };
+      setFaculty(mockFaculty);
+      
+      // Load assignments with mock data
+      const { data: assignmentsData, error: assignErr } = await getFacultyAssignments(mockFaculty.email);
+      if (assignErr) {
+        console.error('Assignments fetch error:', assignErr);
+        toast({ title: 'Error', description: 'Failed to load assignments.', variant: 'destructive' });
       }
+      setAssignments(assignmentsData || []);
     } catch (err) {
       console.error('Error during initial load:', err);
       toast({ title: 'Error', description: 'Something went wrong while loading assignments.', variant: 'destructive' });
@@ -95,7 +89,7 @@ export default function FacultyAssignmentsPage() {
       setFacultyLoading(false);
       setLoading(false);
     }
-  }, [supabase, toast]);
+  }, [toast]);
 
   useEffect(() => {
     fetchFacultyAndAssignments();
@@ -265,30 +259,91 @@ export default function FacultyAssignmentsPage() {
     }
   };
 
-  const handleAIGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAIGenerate = async () => {
     if (!aiPrompt.trim()) return;
+    
     setAiGenerating(true);
     try {
-      const generatedForm = await generateFormFromPrompt(aiPrompt);
+      const response = await fetch('/api/ai/generate-assignment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: aiPrompt,
+          subject: formData.department || 'General',
+          difficulty: 'medium',
+          assignmentType: 'comprehensive'
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        const aiData = result.data;
+        setFormData({
+          ...formData,
+          title: aiData.title || "AI Generated Assignment",
+          description: aiData.description || "This assignment was generated using AI based on your prompt.",
+          question: aiData.question || aiPrompt,
+          instructions: aiData.instructions || "Follow the guidelines provided and submit your work on time.",
+          rules: aiData.rules || "Ensure originality and proper citations."
+        });
+        setAiPrompt('');
+        toast({ title: "Success", description: "Assignment generated successfully!" });
+      } else {
+        console.error('API Error:', result.error, result.details, result.debug);
+        throw new Error(result.details || result.error || 'Failed to generate assignment');
+      }
+    } catch (error) {
+      console.error('AI generation failed:', error);
+      
+      // Show error message to user
+      toast({ 
+        title: "AI Generation Failed", 
+        description: "Using fallback generation. Check console for details.",
+        variant: "destructive"
+      });
+      
+      // Fallback to basic generation with more intelligent parsing
+      const fallbackTitle = extractTitleFromPrompt(aiPrompt);
+      const fallbackDescription = generateDescriptionFromPrompt(aiPrompt, formData.department);
+      
       setFormData({
         ...formData,
-        title: generatedForm.title || "",
-        description: generatedForm.description || "",
-        question: generatedForm.description || "",
-        instructions: generatedForm.description || "",
-        department: faculty.department || "",
+        title: fallbackTitle,
+        description: fallbackDescription,
+        question: aiPrompt,
+        instructions: generateInstructionsFromPrompt(aiPrompt),
+        rules: "Ensure originality and proper citations. Follow academic integrity guidelines."
       });
-      toast({ title: "AI Assignment Generated! ✨", description: "Review and complete the form." });
-      setAiPrompt("");
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to generate with AI.", variant: "destructive" });
+      setAiPrompt('');
     } finally {
       setAiGenerating(false);
     }
   };
 
-  if (loading) return <div className="p-6">Loading assignments...</div>;
+  // Helper functions for fallback generation
+  const extractTitleFromPrompt = (prompt: string): string => {
+    const words = prompt.split(' ').slice(0, 6);
+    return `Assignment: ${words.join(' ')}`;
+  };
+
+  const generateDescriptionFromPrompt = (prompt: string, department?: string): string => {
+    return `This assignment focuses on ${prompt.toLowerCase()}. Students will demonstrate their understanding of key concepts in ${department || 'the subject area'} through comprehensive analysis and practical application.`;
+  };
+
+  const generateInstructionsFromPrompt = (prompt: string): string => {
+    if (prompt.toLowerCase().includes('program') || prompt.toLowerCase().includes('code')) {
+      return "1. Write clean, well-documented code\n2. Test your solution thoroughly\n3. Submit source code and documentation\n4. Follow coding best practices";
+    } else if (prompt.toLowerCase().includes('essay') || prompt.toLowerCase().includes('write')) {
+      return "1. Structure your response clearly with introduction, body, and conclusion\n2. Support arguments with evidence\n3. Cite sources properly\n4. Proofread before submission";
+    } else {
+      return "1. Read the requirements carefully\n2. Plan your approach before starting\n3. Show your work and reasoning\n4. Submit by the due date";
+    }
+  };
+
+  if (isPending) return <div className="p-6">Loading assignments...</div>;
 
   return (
     <div className="p-6 space-y-6">
@@ -314,6 +369,11 @@ export default function FacultyAssignmentsPage() {
           setShowForm(true); 
           setEditingAssignment(null); 
         }}
+        onUploadGenerateAction={() => { 
+          setAssignmentMode('upload-generate'); 
+          setShowForm(true); 
+          setEditingAssignment(null); 
+        }}
       />
 
       {showForm && (
@@ -322,7 +382,10 @@ export default function FacultyAssignmentsPage() {
             <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4 sm:p-6 rounded-t-lg sm:rounded-t-2xl flex-shrink-0">
               <div className="flex justify-between items-start">
                 <h2 className="text-lg sm:text-2xl font-bold">
-                  {editingAssignment ? '📝 Edit Assignment' : (assignmentMode === 'manual' ? '📝 Create Manual Assignment' : '✨ Create AI Assignment')}
+                  {editingAssignment ? '📝 Edit Assignment' : 
+                   assignmentMode === 'manual' ? '📝 Create Manual Assignment' : 
+                   assignmentMode === 'ai' ? '✨ Create AI Assignment' : 
+                   '📤 Upload & Generate Assignment'}
                 </h2>
                 <Button variant="ghost" onClick={() => setShowForm(false)} className="text-white hover:bg-white/20 rounded-full p-2 flex-shrink-0">
                   <X className="w-5 h-5" />
@@ -332,7 +395,289 @@ export default function FacultyAssignmentsPage() {
 
             <form onSubmit={handleSubmit} className="flex-1 flex flex-col">
               <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
-                {/* Form content based on step */}
+                {/* Form content based on assignment mode */}
+                {assignmentMode === 'upload-generate' ? (
+                  <UploadAndGenerate />
+                ) : assignmentMode === 'ai' ? (
+                  <div className="space-y-6">
+                    {/* AI Prompt Section */}
+                    <div className="bg-gradient-to-r from-purple-50 to-blue-50 p-6 rounded-xl border border-purple-200">
+                      <h3 className="text-lg font-semibold text-purple-800 mb-4">✨ AI Assignment Generator</h3>
+                      <div className="space-y-4">
+                        <Textarea
+                          placeholder="Describe the assignment you want to create... (e.g., 'Create a programming assignment on data structures focusing on linked lists with 3 problems of varying difficulty')"
+                          value={aiPrompt}
+                          onChange={(e) => setAiPrompt(e.target.value)}
+                          className="min-h-[100px] border-purple-200 focus:border-purple-400"
+                        />
+                        <Button 
+                          type="button"
+                          onClick={handleAIGenerate}
+                          disabled={aiGenerating || !aiPrompt.trim()}
+                          className="bg-purple-600 hover:bg-purple-700"
+                        >
+                          {aiGenerating ? 'Generating...' : '✨ Generate with AI'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Generated Form Fields */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Assignment Title</label>
+                        <Input
+                          name="title"
+                          value={formData.title}
+                          onChange={(e) => setFormData({...formData, title: e.target.value})}
+                          placeholder="Enter assignment title"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Department</label>
+                        <select
+                          name="department"
+                          value={formData.department}
+                          onChange={(e) => setFormData({...formData, department: e.target.value})}
+                          className="w-full p-2 border rounded-lg"
+                          required
+                        >
+                          <option value="">Select Department</option>
+                          <option value="Computer Science and Engineering">Computer Science and Engineering</option>
+                          <option value="Cyber Security">Cyber Security</option>
+                          <option value="Artificial Intelligence and Data Science">Artificial Intelligence and Data Science</option>
+                          <option value="Artificial Intelligence and Machine Learning">Artificial Intelligence and Machine Learning</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Academic Year</label>
+                        <select
+                          name="year"
+                          value={formData.year}
+                          onChange={(e) => setFormData({...formData, year: e.target.value})}
+                          className="w-full p-2 border rounded-lg"
+                          required
+                        >
+                          <option value="">Select Year</option>
+                          <option value="1st Year">1st Year</option>
+                          <option value="2nd Year">2nd Year</option>
+                          <option value="3rd Year">3rd Year</option>
+                          <option value="4th Year">4th Year</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Max Marks</label>
+                        <Input
+                          name="max_marks"
+                          type="number"
+                          value={formData.max_marks}
+                          onChange={(e) => setFormData({...formData, max_marks: parseInt(e.target.value)})}
+                          placeholder="100"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Start Date</label>
+                        <Input
+                          name="start_date"
+                          type="date"
+                          value={formData.start_date}
+                          onChange={(e) => setFormData({...formData, start_date: e.target.value})}
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Due Date</label>
+                        <Input
+                          name="due_date"
+                          type="date"
+                          value={formData.due_date}
+                          onChange={(e) => setFormData({...formData, due_date: e.target.value})}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Description</label>
+                      <Textarea
+                        name="description"
+                        value={formData.description}
+                        onChange={(e) => setFormData({...formData, description: e.target.value})}
+                        placeholder="Describe the assignment objectives and context"
+                        className="min-h-[100px]"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Question/Problem Statement</label>
+                      <Textarea
+                        name="question"
+                        value={formData.question}
+                        onChange={(e) => setFormData({...formData, question: e.target.value})}
+                        placeholder="Enter the main question or problem statement"
+                        className="min-h-[120px]"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Instructions</label>
+                      <Textarea
+                        name="instructions"
+                        value={formData.instructions}
+                        onChange={(e) => setFormData({...formData, instructions: e.target.value})}
+                        placeholder="Provide step-by-step instructions for students"
+                        className="min-h-[100px]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Rules & Guidelines</label>
+                      <Textarea
+                        name="rules"
+                        value={formData.rules}
+                        onChange={(e) => setFormData({...formData, rules: e.target.value})}
+                        placeholder="List any specific rules, constraints, or guidelines"
+                        className="min-h-[80px]"
+                      />
+                    </div>
+
+                    {/* Question Generator Section */}
+                    <div className="mt-8 border-t pt-6">
+                      <h3 className="text-lg font-semibold mb-4">📝 Generate Questions</h3>
+                      <PromptQuestionGenerator 
+                        onQuestionsGenerated={(questions) => setGeneratedQuestions(questions)}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Manual Assignment Form */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Assignment Title</label>
+                        <Input
+                          name="title"
+                          value={formData.title}
+                          onChange={(e) => setFormData({...formData, title: e.target.value})}
+                          placeholder="Enter assignment title"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Department</label>
+                        <select
+                          name="department"
+                          value={formData.department}
+                          onChange={(e) => setFormData({...formData, department: e.target.value})}
+                          className="w-full p-2 border rounded-lg"
+                          required
+                        >
+                          <option value="">Select Department</option>
+                          <option value="Computer Science and Engineering">Computer Science and Engineering</option>
+                          <option value="Cyber Security">Cyber Security</option>
+                          <option value="Artificial Intelligence and Data Science">Artificial Intelligence and Data Science</option>
+                          <option value="Artificial Intelligence and Machine Learning">Artificial Intelligence and Machine Learning</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Academic Year</label>
+                        <select
+                          name="year"
+                          value={formData.year}
+                          onChange={(e) => setFormData({...formData, year: e.target.value})}
+                          className="w-full p-2 border rounded-lg"
+                          required
+                        >
+                          <option value="">Select Year</option>
+                          <option value="1st Year">1st Year</option>
+                          <option value="2nd Year">2nd Year</option>
+                          <option value="3rd Year">3rd Year</option>
+                          <option value="4th Year">4th Year</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Max Marks</label>
+                        <Input
+                          name="max_marks"
+                          type="number"
+                          value={formData.max_marks}
+                          onChange={(e) => setFormData({...formData, max_marks: parseInt(e.target.value)})}
+                          placeholder="100"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Start Date</label>
+                        <Input
+                          name="start_date"
+                          type="date"
+                          value={formData.start_date}
+                          onChange={(e) => setFormData({...formData, start_date: e.target.value})}
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Due Date</label>
+                        <Input
+                          name="due_date"
+                          type="date"
+                          value={formData.due_date}
+                          onChange={(e) => setFormData({...formData, due_date: e.target.value})}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Description</label>
+                      <Textarea
+                        name="description"
+                        value={formData.description}
+                        onChange={(e) => setFormData({...formData, description: e.target.value})}
+                        placeholder="Describe the assignment objectives and context"
+                        className="min-h-[100px]"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Question/Problem Statement</label>
+                      <Textarea
+                        name="question"
+                        value={formData.question}
+                        onChange={(e) => setFormData({...formData, question: e.target.value})}
+                        placeholder="Enter the main question or problem statement"
+                        className="min-h-[120px]"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Instructions</label>
+                      <Textarea
+                        name="instructions"
+                        value={formData.instructions}
+                        onChange={(e) => setFormData({...formData, instructions: e.target.value})}
+                        placeholder="Provide step-by-step instructions for students"
+                        className="min-h-[100px]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Rules & Guidelines</label>
+                      <Textarea
+                        name="rules"
+                        value={formData.rules}
+                        onChange={(e) => setFormData({...formData, rules: e.target.value})}
+                        placeholder="List any specific rules, constraints, or guidelines"
+                        className="min-h-[80px]"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="bg-gray-50 p-4 sm:p-6 rounded-b-lg sm:rounded-b-2xl flex-shrink-0 flex items-center justify-between">
                 <Button type="submit" disabled={isPending}>

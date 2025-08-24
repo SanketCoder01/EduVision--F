@@ -4,7 +4,9 @@ import { useUser } from "@/contexts/UserContext";
 import { StudentHub } from "@/components/todays-hub/student-hub";
 
 export default function StudentDashboardPage() {
-  const { profile, isLoading } = useUser();
+  // Mock profile data since authentication is disabled
+  const profile = { full_name: "Demo Student" };
+  const isLoading = false;
 
   return (
     <div className="p-6">

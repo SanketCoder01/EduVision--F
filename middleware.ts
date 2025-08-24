@@ -1,57 +1,31 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
+import { NextResponse, type NextRequest } from 'next/server';
+import { DEPARTMENTS, YEARS } from './lib/constants/departments';
 
-export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
-  })
+// Helper function to check registration status
+async function getUserRegistrationStatus(supabase: any, userId: string): Promise<{ registered: boolean, userType: 'faculty' | 'student' | null }> {
+  const { data: faculty } = await supabase.from('faculty').select('id').eq('id', userId).single();
+  if (faculty) return { registered: true, userType: 'faculty' };
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          request.cookies.set({ name, value, ...options })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.set({ name, value, ...options })
-        },
-        remove(name: string, options: CookieOptions) {
-          request.cookies.set({ name, value: '', ...options })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.set({ name, value: '', ...options })
-        },
-      },
+  for (const department of DEPARTMENTS) {
+    for (const year of YEARS) {
+      const tableName = `students_${department.toLowerCase().replace(/\s+/g, '_')}_${year.toLowerCase().replace(/\s+/g, '_')}`;
+      const { data: student } = await supabase.from(tableName).select('id').eq('id', userId).single();
+      if (student) return { registered: true, userType: 'student' };
     }
-  )
+  }
 
-  // Refresh session so it's available to Server Components
-  await supabase.auth.getUser()
+  return { registered: false, userType: null };
+}
 
-  return response
+export async function middleware(req: NextRequest) {
+  const res = NextResponse.next();
+  // Remove all authentication checks - allow access to all routes
+  return res;
 }
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/).*)',
   ],
-}
+};

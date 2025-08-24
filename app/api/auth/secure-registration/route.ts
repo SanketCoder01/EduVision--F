@@ -4,9 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 export async function POST(request: NextRequest) {
   try {
     const supabase = createClient()
-    const { email, department, year, user_type, mobile, name, photo, updateOnly } = await request.json()
+    const { email, field, course, department, year, user_type, mobile, name, photo, updateOnly } = await request.json()
 
-    console.log('Registration request:', { email, department, year, user_type, mobile: mobile ? 'provided' : 'missing', name, photo: photo ? 'provided' : 'missing' })
+    console.log('Registration request:', { email, field, course, department, year, user_type, mobile: mobile ? 'provided' : 'missing', name, photo: photo ? 'provided' : 'missing' })
 
     // Helpers to normalize inputs
     const toYearLabel = (val: string | null | undefined): string | null => {
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 1. Basic field validation with detailed logging
-    console.log('Validating fields:', { email: !!email, name: !!name, department: !!department, user_type: !!user_type, year: !!year })
+    console.log('Validating fields:', { email: !!email, name: !!name, field: !!field, course: !!course, department: !!department, user_type: !!user_type, year: !!year })
 
     if (!email || !email.includes('@')) {
       console.log('Email validation failed:', email)
@@ -88,11 +88,11 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    if (!name || !department || !user_type) {
-      console.log('Required fields missing:', { name: !!name, department: !!department, user_type: !!user_type })
+    if (!name || !field || !course || !department || !user_type) {
+      console.log('Required fields missing:', { name: !!name, field: !!field, course: !!course, department: !!department, user_type: !!user_type })
       return NextResponse.json({ 
         success: false, 
-        error: 'Name, department, and user type are required' 
+        error: 'Name, field, course, department, and user type are required' 
       }, { status: 400 })
     }
 
@@ -147,6 +147,8 @@ export async function POST(request: NextRequest) {
       const insertData: any = {
         email,
         name: name || '',
+        field: field || '',
+        course: course || '',
         user_type: user_type,
         status: 'pending_approval'
       }
