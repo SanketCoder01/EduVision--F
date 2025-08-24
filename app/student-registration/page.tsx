@@ -98,8 +98,8 @@ function RegistrationForm() {
           email: user.email,
           department: formData.department,
           year: formData.year,
-          userType: 'student',
-          phone: formData.mobileNumber,
+          user_type: 'student',
+          mobile: formData.mobileNumber,
           name: userName,
         }),
       })
@@ -112,11 +112,11 @@ function RegistrationForm() {
       }
 
       toast({
-        title: "Details Saved!",
-        description: "Next, please capture your profile image for verification.",
+        title: "Registration Submitted!",
+        description: "Your registration is now pending admin approval.",
       })
-
-      router.push("/student-registration/capture-image")
+      // Redirect to face capture page
+      router.push("/student-registration/capture-image");
     } catch (err: any) {
       setError(err?.message || 'Something went wrong. Please try again.')
     } finally {

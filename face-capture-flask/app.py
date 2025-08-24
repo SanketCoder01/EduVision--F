@@ -11,7 +11,7 @@ import threading
 import time
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["http://localhost:3000"])
 
 # Configuration
 UPLOAD_FOLDER = 'static/captures'
@@ -447,71 +447,75 @@ def auto_detect_and_capture():
             x, y, w, h = faces[0]
             
             # Check quality criteria
-            face_size_ok = w >= 150 and h >= 150
+            face_area = w * h
+            frame_area = frame.shape[0] * frame.shape[1]
+            face_ratio = face_area / frame_area
             
-            # Check if face is centered
-            frame_center_x = frame.shape[1] // 2
-            face_center_x = x + w // 2
-            face_centered = abs(face_center_x - frame_center_x) <= frame.shape[1] * 0.2
-            
-            # Check brightness
-            face_roi = frame[y:y+h, x:x+w]
-            avg_brightness = np.mean(cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY))
-            brightness_ok = 90 <= avg_brightness <= 180
-            
-            if not face_size_ok:
+            # Quality checks
+            if face_ratio < 0.05:
                 feedback.append("Move closer to the camera")
-            if not face_centered:
-                feedback.append("Center your face in the frame")
-            if not brightness_ok:
-                if avg_brightness < 90:
-                    feedback.append("Improve lighting - too dark")
-                else:
-                    feedback.append("Reduce lighting - too bright")
-            
-            # Auto-capture if all criteria met
-            should_capture = face_size_ok and face_centered and brightness_ok
-            
-            if should_capture:
+            elif face_ratio > 0.4:
+                feedback.append("Move back from the camera")
+            elif w < 100 or h < 100:
+                feedback.append("Face too small - move closer")
+            else:
+                # Face is good quality - auto capture
+                should_capture = True
                 feedback.append("Perfect! Capturing image...")
         
-        # Create response with face detection overlay
-        if len(faces) > 0:
-            frame_with_overlay = draw_face_circle(frame, faces)
-            _, buffer = cv2.imencode('.jpg', frame_with_overlay)
-            overlay_image = base64.b64encode(buffer).decode('utf-8')
-        else:
-            _, buffer = cv2.imencode('.jpg', frame)
-            overlay_image = base64.b64encode(buffer).decode('utf-8')
-        
-        response_data = {
-            'success': True,
-            'face_detected': len(faces) > 0,
-            'face_count': len(faces),
-            'should_capture': should_capture,
-            'feedback': feedback,
-            'overlay_image': f"data:image/jpeg;base64,{overlay_image}"
-        }
-        
-        # If should capture, save the image
+        # If should capture, save the image and send to Next.js
         if should_capture:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f'auto_captured_{timestamp}.jpg'
+            # Save image locally
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"face_capture_{timestamp}.jpg"
             filepath = os.path.join(UPLOAD_FOLDER, filename)
             cv2.imwrite(filepath, frame)
             
-            # Convert to base64 for response
+            # Convert to base64 for sending to Next.js
             _, buffer = cv2.imencode('.jpg', frame)
-            captured_base64 = base64.b64encode(buffer).decode('utf-8')
+            img_base64 = base64.b64encode(buffer).decode('utf-8')
+            img_data_url = f"data:image/jpeg;base64,{img_base64}"
             
-            response_data.update({
-                'captured': True,
-                'captured_image': f"data:image/jpeg;base64,{captured_base64}",
-                'filename': filename,
-                'filepath': filepath
-            })
+            # Send to Next.js API
+            try:
+                response = requests.post('http://localhost:3000/api/face-capture', 
+                    json={
+                        'email': data.get('email', ''),
+                        'imageData': img_data_url
+                    },
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    return jsonify({
+                        'success': True,
+                        'captured': True,
+                        'message': 'Face captured and saved successfully!',
+                        'redirect_to': '/auth/pending-approval',
+                        'image_url': img_data_url
+                    })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'captured': True,
+                        'message': 'Image captured but failed to save to database',
+                        'image_url': img_data_url
+                    })
+            except Exception as e:
+                print(f"Error sending to Next.js: {e}")
+                return jsonify({
+                    'success': False,
+                    'captured': True,
+                    'message': 'Image captured but failed to save',
+                    'image_url': img_data_url
+                })
         
-        return jsonify(response_data)
+        return jsonify({
+            'success': True,
+            'captured': False,
+            'feedback': feedback,
+            'face_count': len(faces)
+        })
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500

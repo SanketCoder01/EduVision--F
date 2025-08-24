@@ -1,127 +1,112 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import bcrypt from 'bcryptjs'
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    const { userType, profile, faceImageData, password } = await request.json()
+
+    // Validate required fields
+    if (!profile.email || !profile.name || !profile.department || !password) {
+      return NextResponse.json(
+        { error: 'Missing required fields' },
+        { status: 400 }
+      )
     }
 
-    const body = await req.json()
-    const { userType, profile, faceImageData, password } = body as {
-      userType: 'student' | 'faculty'
-      profile: {
-        name: string
-        email: string
-        department: string
-        year?: string
-        mobile?: string
-        photo?: string | null
-      }
-      faceImageData: string
-      password?: string
+    // Validate email domain
+    if (!profile.email.endsWith('@sanjivani.edu.in')) {
+      return NextResponse.json(
+        { error: 'Only emails ending with @sanjivani.edu.in are allowed' },
+        { status: 403 }
+      )
     }
 
-    // Optionally set password so user can login with email/password later
-    if (password && password.length >= 8) {
-      const { error: pwError } = await supabase.auth.updateUser({ password })
-      if (pwError) {
-        console.error('Set password error', pwError)
-        // continue anyway, don't fail whole flow
-      }
+    // Check if user already exists in the appropriate table
+    const tableName = userType === 'student' ? 'students' : 'faculty'
+    const { data: existingUser } = await supabase
+      .from(tableName)
+      .select('id')
+      .eq('email', profile.email)
+      .single()
+
+    if (existingUser) {
+      return NextResponse.json(
+        { error: 'User already exists' },
+        { status: 409 }
+      )
     }
 
-    // Upload face image
-    let publicUrl: string | null = null
-    try {
-      const fileName = `${user.id}_${Date.now()}.jpg`
-      const buffer = Buffer.from(faceImageData.split(',')[1], 'base64')
-      const { error: uploadError } = await supabase.storage
-        .from('faces')
-        .upload(fileName, buffer, { contentType: 'image/jpeg', upsert: false })
-      if (!uploadError) {
-        const { data: pub } = supabase.storage.from('faces').getPublicUrl(fileName)
-        publicUrl = pub.publicUrl
-      } else {
-        console.error('Face upload error', uploadError)
-      }
-    } catch (e) {
-      console.error('Face upload exception', e)
-    }
+    // Hash the password
+    const hashedPassword = await bcrypt.hash(password, 10)
 
-    // Determine correct table name based on department and year
-    let tableName = 'faculty'
-    if (userType === 'student' && profile.department && profile.year) {
-      // Map to specific department-year table
-      const deptMap: { [key: string]: string } = {
-        'Computer Science and Engineering': 'cse',
-        'Cyber Security': 'cyber',
-        'Artificial Intelligence and Data Science': 'aids',
-        'Artificial Intelligence and Machine Learning': 'aiml'
-      }
-      const yearMap: { [key: string]: string } = {
-        '1st Year': '1st_year',
-        '2nd Year': '2nd_year',
-        '3rd Year': '3rd_year',
-        '4th Year': '4th_year'
-      }
-      
-      const deptCode = deptMap[profile.department]
-      const yearCode = yearMap[profile.year]
-      
-      if (deptCode && yearCode) {
-        tableName = `students_${deptCode}_${yearCode}`
-      } else {
-        // Fallback to general students table if mapping fails
-        tableName = 'students'
-      }
-    }
-
-    const userRecord: any = {
-      user_id: user.id,
-      name: profile.name,
-      email: profile.email,
-      department: profile.department,
-      photo: profile.photo || null,
-      face_url: publicUrl,
-      face_registered: Boolean(publicUrl),
-    }
-    if (userType === 'student' && profile.year) userRecord.year = profile.year
-    if (profile.mobile) userRecord.phone = profile.mobile
-
-    // Try upserting into correct department-year table
-    let upsertError = null as any
-    try {
-      const res = await supabase.from(tableName).upsert([userRecord], { onConflict: 'user_id' })
-      upsertError = res.error
-    } catch (e) {
-      upsertError = e
-    }
-
-    if (upsertError) {
-      console.error('Profile upsert error on', tableName, upsertError)
-      // Fallback: upsert into generic users table if present
+    // Handle face image upload if provided
+    let faceUrl = null
+    if (faceImageData) {
       try {
-        const usersPayload: any = {
-          id: user.id,
-          email: profile.email,
-          name: profile.name,
-          user_type: userType,
-          department: profile.department,
-          year: userType === 'student' ? profile.year || null : null,
-          profile_image_url: profile.photo || publicUrl || null,
+        // Decode base64 image
+        const base64Data = faceImageData.replace(/^data:image\/jpeg;base64,/, '')
+        const imageBuffer = Buffer.from(base64Data, 'base64')
+
+        // Upload to Supabase Storage
+        const filePath = `face-captures/${profile.email}-${Date.now()}.jpg`
+        const { error: uploadError } = await supabase.storage
+          .from('faces')
+          .upload(filePath, imageBuffer, {
+            contentType: 'image/jpeg',
+            upsert: true,
+          })
+
+        if (!uploadError) {
+          const { data: urlData } = supabase.storage.from('faces').getPublicUrl(filePath)
+          faceUrl = urlData.publicUrl
         }
-        await supabase.from('users').upsert([usersPayload], { onConflict: 'id' })
-      } catch (e2) {
-        console.error('Fallback users upsert failed', e2)
+      } catch (uploadError) {
+        console.error('Face image upload error:', uploadError)
+        // Continue without face image - don't fail the registration
       }
     }
 
-    return NextResponse.json({ success: true, face_url: publicUrl })
-  } catch (e) {
-    console.error('Complete-registration API error', e)
-    return NextResponse.json({ error: 'Server error' }, { status: 500 })
+    // Create pending registration record for admin approval
+    const { data: pendingData, error: pendingError } = await supabase
+      .from('pending_registrations')
+      .insert({
+        email: profile.email,
+        user_type: userType,
+        name: profile.name,
+        department: profile.department,
+        year: userType === 'student' ? profile.year : null,
+        mobile_number: profile.mobile,
+        face_url: faceUrl,
+        password_hash: hashedPassword,
+        status: 'pending_approval',
+        face_registered: !!faceUrl,
+        submitted_at: new Date().toISOString()
+      })
+      .select('id')
+      .single()
+
+    if (pendingError) {
+      console.error('Pending registration error:', pendingError)
+      return NextResponse.json(
+        { error: 'Failed to submit registration for approval' },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Registration submitted for admin approval. You will receive an email once approved.',
+      requiresApproval: true,
+      pending_registration_id: pendingData?.id
+    })
+
+  } catch (error) {
+    console.error('Complete registration error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }

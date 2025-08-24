@@ -27,10 +27,30 @@ export const GENDERS = [
 
 // Color scheme for departments
 export const DEPARTMENT_COLORS = {
-  'Computer Science and Engineering': '#3B82F6', // Blue
-  'Cyber Security': '#EF4444', // Red
-  'Artificial Intelligence and Data Science': '#10B981', // Green
-  'Artificial Intelligence and Machine Learning': '#F59E0B' // Orange
+  'Computer Science and Engineering': {
+    bg: 'bg-blue-500',
+    border: 'border-blue-600', 
+    text: 'text-white',
+    hex: '#3B82F6'
+  },
+  'Cyber Security': {
+    bg: 'bg-red-500',
+    border: 'border-red-600',
+    text: 'text-white', 
+    hex: '#EF4444'
+  },
+  'Artificial Intelligence and Data Science': {
+    bg: 'bg-green-500',
+    border: 'border-green-600',
+    text: 'text-white',
+    hex: '#10B981'
+  },
+  'Artificial Intelligence and Machine Learning': {
+    bg: 'bg-orange-500', 
+    border: 'border-orange-600',
+    text: 'text-white',
+    hex: '#F59E0B'
+  }
 } as const;
 
 // Venue configurations

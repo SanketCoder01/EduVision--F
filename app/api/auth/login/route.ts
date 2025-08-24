@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { supabase } from "@/lib/supabase"
+import { createClient } from "@/lib/supabase/server"
 import bcrypt from "bcryptjs"
 
 export async function POST(request: NextRequest) {
@@ -21,47 +21,95 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "Invalid role" }, { status: 400 })
     }
 
-    // Use Supabase instead of Appwrite
-    const tableName = theRole === 'student' ? 'students' : 'faculty'
+    const supabase = createClient()
+    
+    // For students, we need to check department-specific tables
+    // For faculty, we check department-specific faculty tables
+    let userData = null
+    let userFound = false
 
-    // Query Supabase for user
-    const isLikelyPrn = /^\d{10}$/.test(theIdentifier)
-    let query = supabase.from(tableName).select('*')
-    
-    if (isLikelyPrn) {
-      query = query.eq('prn', theIdentifier)
+    if (theRole === 'student') {
+      // Check all student department-year tables
+      const departments = ['cse', 'aids', 'aiml', 'cyber']
+      const years = ['1st_year', '2nd_year', '3rd_year', '4th_year']
+      
+      const isLikelyPrn = /^PRN\d+/.test(theIdentifier)
+      
+      for (const dept of departments) {
+        for (const year of years) {
+          const tableName = `students_${dept}_${year}`
+          let query = supabase.from(tableName).select('*')
+          
+          if (isLikelyPrn) {
+            query = query.eq('prn', theIdentifier)
+          } else {
+            query = query.eq('email', theIdentifier.toLowerCase())
+          }
+          
+          const { data: users, error } = await query
+          
+          if (!error && users && users.length > 0) {
+            userData = users[0]
+            userFound = true
+            break
+          }
+        }
+        if (userFound) break
+      }
     } else {
-      query = query.eq('email', theIdentifier.toLowerCase())
+      // Check faculty department tables
+      const departments = ['cse', 'aids', 'aiml', 'cyber']
+      
+      const isLikelyEmpId = /^EMP\d+/.test(theIdentifier)
+      
+      for (const dept of departments) {
+        const tableName = `faculty_${dept}`
+        let query = supabase.from(tableName).select('*')
+        
+        if (isLikelyEmpId) {
+          query = query.eq('employee_id', theIdentifier)
+        } else {
+          query = query.eq('email', theIdentifier.toLowerCase())
+        }
+        
+        const { data: users, error } = await query
+        
+        if (!error && users && users.length > 0) {
+          userData = users[0]
+          userFound = true
+          break
+        }
+      }
     }
-    
-    const { data: users, error } = await query
-    
-    if (error || !users || users.length === 0) {
-      console.error('Database error:', error)
+
+    if (!userFound || !userData) {
       return NextResponse.json({ success: false, message: "Invalid credentials" }, { status: 401 })
     }
 
-    const user = users[0]
-    const ok = await bcrypt.compare(password, user.password)
+    // Verify password
+    const ok = await bcrypt.compare(password, userData.password_hash || userData.password)
     if (!ok) {
       return NextResponse.json({ success: false, message: "Invalid credentials" }, { status: 401 })
     }
 
-    // If face not registered flag exists and is false/null, let client show setup
-    const faceRegistered = Boolean(user.face_registered)
+    // Return successful login with user data
+    const faceRegistered = Boolean(userData.face_registered)
     return NextResponse.json({
       success: true,
       message: "Login successful",
       user: {
-        id: user.id,
-        prn: user.prn,
-        email: user.email,
-        name: user.name,
-        userType: theRole,
-        department: user.department ?? null,
-        year: user.year ?? null,
-        faceRegistered,
-      },
+        id: userData.id,
+        name: userData.name,
+        email: userData.email,
+        role: theRole,
+        department: userData.department,
+        year: userData.year || null,
+        prn: userData.prn || null,
+        employee_id: userData.employee_id || null,
+        face_registered: faceRegistered,
+        face_url: userData.face_url || userData.photo,
+        mobile: userData.mobile
+      }
     })
   } catch (error) {
     console.error("Login error:", error)

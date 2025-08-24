@@ -65,6 +65,13 @@ export async function createEvent(eventData: EventData) {
       return { success: false, error: error.message }
     }
 
+    // Send department-specific notifications
+    await sendEventNotifications(data.id, eventData.target_departments, {
+      title: `New Event: ${eventData.title}`,
+      message: `${eventData.event_type} scheduled for ${new Date(eventData.date).toLocaleDateString()} at ${eventData.time}`,
+      event_id: data.id
+    })
+
     revalidatePath('/dashboard/events')
     revalidatePath('/student-dashboard/events')
     return { success: true, data }
@@ -78,6 +85,7 @@ export async function getFacultyEvents(facultyId: string) {
   try {
     const supabase = createClient()
 
+    // Get all published events (not just faculty's own events) for seat assignment
     const { data, error } = await supabase
       .from('events')
       .select(`
@@ -101,7 +109,7 @@ export async function getFacultyEvents(facultyId: string) {
           notes
         )
       `)
-      .eq('faculty_id', facultyId)
+      .eq('is_active', true)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -120,6 +128,12 @@ export async function createSeatAssignment(seatData: SeatAssignment) {
   try {
     const supabase = createClient()
 
+    // Get current user to track who made the assignment
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return { success: false, error: 'Authentication required' }
+    }
+
     // Check for conflicts
     const { data: existingAssignments, error: checkError } = await supabase
       .from('seat_assignments')
@@ -132,7 +146,7 @@ export async function createSeatAssignment(seatData: SeatAssignment) {
     }
 
     // Check for overlapping seat numbers
-    const existingSeatNumbers = existingAssignments?.flatMap(a => a.seat_numbers) || []
+    const existingSeatNumbers = existingAssignments?.flatMap((a: any) => a.seat_numbers) || []
     const conflicts = seatData.seat_numbers.filter(seat => existingSeatNumbers.includes(seat))
     
     if (conflicts.length > 0) {
@@ -144,7 +158,11 @@ export async function createSeatAssignment(seatData: SeatAssignment) {
 
     const { data, error } = await supabase
       .from('seat_assignments')
-      .insert([seatData])
+      .insert([{
+        ...seatData,
+        assigned_by: user.id,
+        assigned_at: new Date().toISOString()
+      }])
       .select()
       .single()
 
@@ -403,6 +421,78 @@ export async function getStudentEvents(studentDepartment: string, studentYear: s
   } catch (error) {
     console.error('Error fetching student events:', error)
     return { success: false, error: 'Failed to fetch events' }
+  }
+}
+
+interface NotificationData {
+  user_id: string
+  title: string
+  message: string
+  type: string
+  event_id: string
+  department: string
+  year: string
+  is_read: boolean
+}
+
+export async function sendEventNotifications(eventId: string, targetDepartments: string[], notification: {
+  title: string
+  message: string
+  event_id: string
+}) {
+  try {
+    const supabase = createClient()
+
+    // Get all students from target departments
+    const notifications: NotificationData[] = []
+    
+    for (const department of targetDepartments) {
+      // Map department names to table codes
+      const deptCode = department === "Computer Science and Engineering" ? "cse" :
+                      department === "Cyber Security" ? "cyber" :
+                      department === "Artificial Intelligence and Data Science" ? "aids" :
+                      department === "Artificial Intelligence and Machine Learning" ? "aiml" : "cse"
+      
+      // Get students from all years for this department
+      for (const year of ["1st_year", "2nd_year", "3rd_year", "4th_year"]) {
+        const tableName = `students_${deptCode}_${year}`
+        
+        const { data: students, error } = await supabase
+          .from(tableName)
+          .select('id, name, email')
+        
+        if (!error && students) {
+          students.forEach((student: any) => {
+            notifications.push({
+              user_id: student.id,
+              title: notification.title,
+              message: notification.message,
+              type: 'event',
+              event_id: notification.event_id,
+              department: department,
+              year: year.replace('_', ' '),
+              is_read: false
+            })
+          })
+        }
+      }
+    }
+
+    // Insert all notifications
+    if (notifications.length > 0) {
+      const { error } = await supabase
+        .from('notifications')
+        .insert(notifications)
+      
+      if (error) {
+        console.error('Error sending notifications:', error)
+      }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error('Error sending event notifications:', error)
+    return { success: false, error: 'Failed to send notifications' }
   }
 }
 

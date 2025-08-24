@@ -10,6 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Camera, User, Mail, Phone, GraduationCap, Building } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import EnhancedFaceCapture from './EnhancedFaceCapture'
+import RegistrationStatusChecker from './RegistrationStatusChecker'
 
 interface GoogleAuthSignupProps {
   userType: 'student' | 'faculty'
@@ -27,25 +30,21 @@ interface UserData {
 }
 
 const departments = [
-  'Computer Science',
-  'Information Technology',
-  'Electronics & Communication',
-  'Mechanical Engineering',
-  'Civil Engineering',
-  'Electrical Engineering',
-  'Chemical Engineering',
-  'Biotechnology',
-  'Mathematics',
-  'Physics',
-  'Chemistry',
-  'English',
-  'Management Studies'
+  { value: 'cse', label: 'Computer Science & Engineering' },
+  { value: 'aids', label: 'Artificial Intelligence & Data Science' },
+  { value: 'aiml', label: 'Artificial Intelligence & Machine Learning' },
+  { value: 'cyber', label: 'Cyber Security' }
 ]
 
-const years = ['1st Year', '2nd Year', '3rd Year', '4th Year']
+const years = [
+  { value: '1st_year', label: '1st Year' },
+  { value: '2nd_year', label: '2nd Year' },
+  { value: '3rd_year', label: '3rd Year' },
+  { value: '4th_year', label: '4th Year' }
+]
 
 export default function GoogleAuthSignup({ userType, onComplete, onBack }: GoogleAuthSignupProps) {
-  const [step, setStep] = useState<'auth' | 'details' | 'selfie' | 'loading' | 'welcome'>('auth')
+  const [step, setStep] = useState<'auth' | 'details' | 'selfie' | 'loading' | 'pending' | 'welcome'>('auth')
   const [userData, setUserData] = useState<UserData>({
     name: '',
     email: '',
@@ -130,17 +129,83 @@ export default function GoogleAuthSignup({ userType, onComplete, onBack }: Googl
     setStep('selfie')
   }
 
-  const handleSelfieCapture = (photoData: string) => {
+  const handleSelfieCapture = async (photoData: string) => {
     setUserData(prev => ({ ...prev, photo: photoData }))
     setStep('loading')
+    setError('') // Clear any previous errors
     
-    // Simulate loading for 5 seconds
-    setTimeout(() => {
-      setStep('welcome')
-      setTimeout(() => {
-        onComplete(userData)
-      }, 3000)
-    }, 5000)
+    try {
+      const registrationData = {
+        email: userData.email,
+        name: userData.name,
+        department: userData.department,
+        year: userData.year,
+        mobile: userData.mobile,
+        photo: photoData,
+        user_type: userType
+      }
+
+      console.log('Submitting registration with data:', {
+        ...registrationData,
+        photo: photoData ? 'provided' : 'missing',
+        mobile: registrationData.mobile ? 'provided' : 'missing'
+      })
+
+      // Add timeout to prevent infinite loading
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+
+      // Submit registration to pending approval
+      const response = await fetch('/api/auth/secure-registration', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(registrationData),
+        signal: controller.signal
+      })
+
+      clearTimeout(timeoutId)
+
+      console.log('Response status:', response.status)
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()))
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Response error text:', errorText)
+        throw new Error(`HTTP ${response.status}: ${errorText}`)
+      }
+
+      const result = await response.json()
+      console.log('Registration API response:', result)
+
+      if (result.success) {
+        toast({
+          title: 'Registration Submitted!',
+          description: 'Your registration has been submitted for approval.',
+        })
+        setStep('pending')
+      } else {
+        throw new Error(result.error || result.message || 'Registration failed')
+      }
+    } catch (error: any) {
+      console.error('Registration error:', error)
+      
+      let errorMessage = 'Failed to submit registration'
+      if (error.name === 'AbortError') {
+        errorMessage = 'Request timed out. Please try again.'
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+      
+      toast({
+        title: 'Registration Failed',
+        description: errorMessage,
+        variant: 'destructive'
+      })
+      setError(errorMessage)
+      setStep('selfie') // Go back to selfie step
+    }
   }
 
   const saveUserData = async () => {
@@ -166,7 +231,12 @@ export default function GoogleAuthSignup({ userType, onComplete, onBack }: Googl
   }
 
   if (step === 'selfie') {
-    return <SelfieCapture onCapture={handleSelfieCapture} onBack={() => setStep('details')} />
+    return <EnhancedFaceCapture 
+      onCapture={handleSelfieCapture} 
+      onBack={() => setStep('details')} 
+      userType={userType}
+      userName={userData.name}
+    />
   }
 
   if (step === 'loading') {
@@ -175,20 +245,23 @@ export default function GoogleAuthSignup({ userType, onComplete, onBack }: Googl
         <motion.div
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="text-center space-y-6"
+          className="text-center space-y-6 max-w-md"
         >
           <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-            className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full mx-auto"
-          />
+            initial={{ scale: 0.8 }}
+            animate={{ scale: [0.8, 1.1, 1] }}
+            transition={{ duration: 1.5, repeat: Infinity, repeatType: "reverse" }}
+            className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center mx-auto shadow-lg"
+          >
+            <GraduationCap className="w-10 h-10 text-white" />
+          </motion.div>
           <motion.h2
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5 }}
             className="text-2xl font-bold text-gray-900"
           >
-            Processing your registration...
+            Submitting Registration...
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 20 }}
@@ -196,8 +269,82 @@ export default function GoogleAuthSignup({ userType, onComplete, onBack }: Googl
             transition={{ delay: 1 }}
             className="text-gray-600"
           >
-            Please wait while we set up your account
+            Please wait while we process your registration for admin approval
           </motion.p>
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 1.5 }}
+              className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm"
+            >
+              {error}
+            </motion.div>
+          )}
+        </motion.div>
+      </div>
+    )
+  }
+
+  if (step === 'pending') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-orange-50 via-yellow-50 to-red-50 flex items-center justify-center p-4">
+        <RegistrationStatusChecker 
+          email={userData.email} 
+          onApproved={() => setStep('welcome')} 
+        />
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="text-center space-y-6 max-w-md"
+        >
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+            className="w-20 h-20 bg-gradient-to-br from-orange-500 to-red-500 rounded-full flex items-center justify-center mx-auto"
+          >
+            <GraduationCap className="w-10 h-10 text-white" />
+          </motion.div>
+          <motion.h1
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="text-3xl font-bold text-gray-900"
+          >
+            Registration Submitted! ⏳
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.7 }}
+            className="text-lg text-gray-600"
+          >
+            Your {userType} registration is pending admin approval.
+          </motion.p>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.9 }}
+            className="text-sm text-gray-500 space-y-2"
+          >
+            <p>✅ Checking approval status automatically...</p>
+            <p>🔄 Page will redirect when approved</p>
+            <p>📧 Email notification will be sent</p>
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 1.1 }}
+          >
+            <Button
+              variant="outline"
+              onClick={onBack}
+              className="mt-4"
+            >
+              Back to Login
+            </Button>
+          </motion.div>
         </motion.div>
       </div>
     )
@@ -350,7 +497,7 @@ export default function GoogleAuthSignup({ userType, onComplete, onBack }: Googl
                       </SelectTrigger>
                       <SelectContent>
                         {departments.map((dept) => (
-                          <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                          <SelectItem key={dept.value} value={dept.value}>{dept.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -367,7 +514,7 @@ export default function GoogleAuthSignup({ userType, onComplete, onBack }: Googl
                         </SelectTrigger>
                         <SelectContent>
                           {years.map((year) => (
-                            <SelectItem key={year} value={year}>{year}</SelectItem>
+                            <SelectItem key={year.value} value={year.value}>{year.label}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>

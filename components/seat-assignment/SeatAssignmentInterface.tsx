@@ -10,10 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/use-toast'
 import { Trash2, Users, MapPin } from 'lucide-react'
 import SeatVisualization from './SeatVisualization'
-import { DEPARTMENTS } from '@/lib/constants/departments'
-
-const YEARS = ['1st Year', '2nd Year', '3rd Year', '4th Year']
-const GENDERS = ['Male', 'Female']
+import { DEPARTMENTS, YEARS, GENDERS } from '@/lib/constants/departments'
 
 interface SeatAssignment {
   id: string
@@ -48,6 +45,11 @@ export default function SeatAssignmentInterface({
   const [currentYear, setCurrentYear] = useState('')
   const [currentGender, setCurrentGender] = useState('')
   const [isAssigning, setIsAssigning] = useState(false)
+
+  // Reset selected seats when department/year changes
+  useEffect(() => {
+    setSelectedSeats([])
+  }, [currentDepartment, currentYear])
 
   const handleSeatClick = (seatNumber: number) => {
     // Check if seat is already assigned
@@ -89,7 +91,7 @@ export default function SeatAssignmentInterface({
       await onAssignmentCreateAction({
         department: currentDepartment,
         year: currentYear,
-        gender: currentGender || undefined,
+        gender: currentGender && currentGender !== 'all' ? currentGender : undefined,
         seat_numbers: selectedSeats,
         row_numbers: Array.from(new Set(selectedSeats.map(seat => Math.floor((seat - 1) / 16) + 1))),
         venue_type: venueType
@@ -136,25 +138,26 @@ export default function SeatAssignmentInterface({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* Mobile-optimized Controls */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <MapPin className="h-5 w-5" />
-            <span>Seat Assignment Controls</span>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Users className="h-4 w-4" />
+            Seat Assignment Controls
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="space-y-2">
-              <Label>Department</Label>
+              <Label className="text-sm">Department</Label>
               <Select value={currentDepartment} onValueChange={setCurrentDepartment}>
-                <SelectTrigger>
+                <SelectTrigger className="h-9">
                   <SelectValue placeholder="Select department" />
                 </SelectTrigger>
                 <SelectContent>
                   {DEPARTMENTS.map((dept) => (
-                    <SelectItem key={dept} value={dept}>
+                    <SelectItem key={dept} value={dept} className="text-sm">
                       {dept}
                     </SelectItem>
                   ))}
@@ -163,14 +166,14 @@ export default function SeatAssignmentInterface({
             </div>
 
             <div className="space-y-2">
-              <Label>Year</Label>
+              <Label className="text-sm">Year</Label>
               <Select value={currentYear} onValueChange={setCurrentYear}>
-                <SelectTrigger>
+                <SelectTrigger className="h-9">
                   <SelectValue placeholder="Select year" />
                 </SelectTrigger>
                 <SelectContent>
-                  {YEARS.map((year: string) => (
-                    <SelectItem key={year} value={year}>
+                  {YEARS.map((year) => (
+                    <SelectItem key={year} value={year} className="text-sm">
                       {year}
                     </SelectItem>
                   ))}
@@ -179,109 +182,75 @@ export default function SeatAssignmentInterface({
             </div>
 
             <div className="space-y-2">
-              <Label>Gender (Optional)</Label>
+              <Label className="text-sm">Gender (Optional)</Label>
               <Select value={currentGender} onValueChange={setCurrentGender}>
-                <SelectTrigger>
+                <SelectTrigger className="h-9">
                   <SelectValue placeholder="Select gender" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All</SelectItem>
-                  {GENDERS.map((gender: string) => (
-                    <SelectItem key={gender} value={gender}>
+                  <SelectItem value="all">All</SelectItem>
+                  {GENDERS.map((gender) => (
+                    <SelectItem key={gender} value={gender} className="text-sm">
                       {gender}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-          </div>
 
-          <div className="flex items-center justify-between pt-4 border-t">
-            <div className="flex items-center space-x-4">
-              <div className="text-sm text-gray-600">
-                Selected: <span className="font-medium">{selectedSeats.length} seats</span>
-              </div>
-              {selectedSeats.length > 0 && (
-                <Button variant="outline" size="sm" onClick={clearSelection}>
-                  Clear Selection
-                </Button>
-              )}
+            <div className="flex items-end">
+              <Button 
+                onClick={handleAssignSeats} 
+                disabled={!currentDepartment || !currentYear || selectedSeats.length === 0 || isAssigning}
+                className="w-full h-9 text-sm"
+                size="sm"
+              >
+                {isAssigning ? 'Assigning...' : `Assign ${selectedSeats.length} Seat${selectedSeats.length !== 1 ? 's' : ''}`}
+              </Button>
             </div>
-
-            <Button 
-              onClick={handleAssignSeats}
-              disabled={!currentDepartment || !currentYear || selectedSeats.length === 0 || isAssigning}
-            >
-              {isAssigning ? (
-                <>
-                  <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                  Assigning...
-                </>
-              ) : (
-                <>
-                  <Users className="h-4 w-4 mr-2" />
-                  Assign {selectedSeats.length} Seats
-                </>
-              )}
-            </Button>
           </div>
+
+          {selectedSeats.length > 0 && (
+            <div className="bg-blue-50 p-3 rounded-lg">
+              <p className="text-sm text-blue-700 font-medium">
+                📍 Selected {selectedSeats.length} seat{selectedSeats.length !== 1 ? 's' : ''}: {selectedSeats.sort((a, b) => a - b).join(', ')}
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Seat Layout</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <SeatVisualization
-            venueType={venueType}
-            assignments={assignments}
-            selectedSeats={selectedSeats}
-            onSeatClick={handleSeatClick}
-          />
-        </CardContent>
-      </Card>
-
+      {/* Current Assignments - Mobile Optimized */}
       {assignments.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle>Current Assignments</CardTitle>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MapPin className="h-4 w-4" />
+              Current Assignments ({assignments.length})
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {assignments.map((assignment) => (
-                <motion.div
-                  key={assignment.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex items-center justify-between p-4 border rounded-lg bg-gray-50"
-                >
-                  <div className="flex items-center space-x-4">
-                    <div className="flex flex-col">
-                      <div className="font-medium">{assignment.department}</div>
-                      <div className="text-sm text-gray-600">
-                        {assignment.year}
-                        {assignment.gender && ` • ${assignment.gender}`}
-                      </div>
+                <div key={assignment.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm truncate">
+                      {assignment.department} • {assignment.year}
+                      {assignment.gender && assignment.gender !== 'all' && ` • ${assignment.gender}`}
                     </div>
-                    <Badge variant="outline">
-                      {assignment.seat_numbers.length} seats
-                    </Badge>
-                    <div className="text-sm text-gray-500">
-                      Seats: {assignment.seat_numbers.slice(0, 5).join(', ')}
-                      {assignment.seat_numbers.length > 5 && ` +${assignment.seat_numbers.length - 5} more`}
+                    <div className="text-xs text-gray-600 mt-1">
+                      {assignment.seat_numbers.length} seat{assignment.seat_numbers.length !== 1 ? 's' : ''}: {assignment.seat_numbers.sort((a, b) => a - b).slice(0, 10).join(', ')}{assignment.seat_numbers.length > 10 ? '...' : ''}
                     </div>
                   </div>
-                  
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => handleDeleteAssignment(assignment.id)}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    className="text-red-600 hover:text-red-700 ml-2 h-8 w-8 p-0"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3 w-3" />
                   </Button>
-                </motion.div>
+                </div>
               ))}
             </div>
           </CardContent>

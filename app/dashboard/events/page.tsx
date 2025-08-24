@@ -137,14 +137,8 @@ export default function EventsPage() {
     loadEvents()
   }, [])
 
-  // Save events to localStorage whenever events change
-  useEffect(() => {
-    if (events.length > 0) {
-      localStorage.setItem("facultyEvents", JSON.stringify(events))
-      // Also save to student events for visibility
-      localStorage.setItem("events", JSON.stringify(events))
-    }
-  }, [events])
+  // Remove localStorage usage - all data persists in Supabase
+  // Events are automatically loaded from database on mount
 
   // Mock students data for attendance
   const [registrations, setRegistrations] = useState<any[]>([])
@@ -188,28 +182,41 @@ export default function EventsPage() {
     const file = event.target.files?.[0]
     if (!file) return
 
-    const fileExt = file.name.split('.').pop()
-    const fileName = `${Math.random()}.${fileExt}`
-    const filePath = `${fileName}`
-
-    const { error } = await supabase.storage.from('posters').upload(filePath, file)
-
-    if (error) {
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
       toast({
-        title: "Error uploading poster",
-        description: error.message,
+        title: "File too large",
+        description: "Please select an image under 5MB",
         variant: "destructive",
       })
       return
     }
 
-    const { data } = supabase.storage.from('posters').getPublicUrl(filePath)
+    const fileExt = file.name.split('.').pop()
+    const fileName = `event-poster-${Date.now()}.${fileExt}`
+    const filePath = `posters/${fileName}`
 
-    setPoster(data.publicUrl)
-    toast({
-      title: "Poster Uploaded",
-      description: "Event poster has been uploaded successfully.",
-    })
+    try {
+      const { error } = await supabase.storage.from('event-assets').upload(filePath, file)
+
+      if (error) {
+        toast({
+          title: "Error uploading poster",
+          description: error.message,
+          variant: "destructive",
+        })
+        return
+      }
+
+      const { data } = supabase.storage.from('event-assets').getPublicUrl(filePath)
+      setPoster(data.publicUrl)
+      toast({
+        title: "Poster Uploaded",
+        description: "Event poster has been uploaded successfully.",
+      })
+    } catch (error) {
+      console.error("Error uploading poster:", error)
+    }
   }
 
   const generateRegistrationForm = async () => {
@@ -1032,10 +1039,6 @@ export default function EventsPage() {
       {/* Seat Assignment Dialog */}
       <Dialog open={showSeatSelection} onOpenChange={setShowSeatSelection}>
         <DialogContent className="sm:max-w-[1200px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Seat Assignment - {selectedVenue && venueConfigs[selectedVenue as keyof typeof venueConfigs]?.name}</DialogTitle>
-          </DialogHeader>
-
           <div className="py-4">
             {currentEventForSeats && (
               <RealtimeSeatUpdates
@@ -1050,7 +1053,7 @@ export default function EventsPage() {
                     const result = await createSeatAssignment({
                       ...assignment,
                       event_id: currentEventForSeats,
-                      venue_type: selectedVenue as 'seminar-hall' | 'solar-shade'
+                      venue_type: selectedVenue as 'seminar-hall' | 'solar-shade',
                     })
                     if (!result.success) {
                       throw new Error(result.error || 'Failed to create assignment')
@@ -1079,218 +1082,93 @@ export default function EventsPage() {
 
   const renderManageTab = () => (
     <div className="space-y-6">
-      {events.length === 0 ? (
-        <div className="text-center py-12">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Calendar className="h-8 w-8 text-gray-400" />
-          </div>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No Events Yet</h3>
-          <p className="text-gray-500 mb-4">Create your first event to get started</p>
-          <Button onClick={() => setActiveTab("create")}>Create Event</Button>
-        </div>
-      ) : (
-        <div>
-          {events.map((event) => (
-            <Card key={event.id} className="mb-6">
-              <CardContent className="p-0">
-                <div className="md:flex">
-                  <div className="md:w-1/3">
-                    <img
-                      src={event.poster_url || "/placeholder.svg"}
-                      alt={event.title}
-                      className="w-full h-48 md:h-full object-cover"
-                    />
+      {(() => {
+        const groups: Record<string, any[]> = {}
+        registrations.forEach((r: any) => {
+          const key = `${r.students.department} • ${r.students.year}`
+          groups[key] = groups[key] || []
+          groups[key].push(r)
+        })
+        const entries = Object.entries(groups)
+        return entries.length === 0 ? (
+          <div className="text-sm text-gray-600">No registrations yet.</div>
+        ) : (
+          <div className="space-y-6">
+            {entries.map(([group, regs]) => (
+              <div key={group}>
+                <div className="flex items-center justify-between mb-2">
+                  <h5 className="font-medium">{group} <span className="text-gray-500">({(regs as any[]).length})</span></h5>
+                </div>
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="grid grid-cols-7 bg-gray-100 p-3 text-sm font-medium">
+                    <div>Name</div>
+                    <div>Email</div>
+                    <div>Phone</div>
+                    <div>Dept</div>
+                    <div>Year</div>
+                    <div>Status</div>
+                    <div>Attendance</div>
                   </div>
-                  <div className="p-6 md:w-2/3">
-                    <div className="flex justify-between items-start mb-4">
+                  {(regs as any[]).map((registration: any) => (
+                    <div key={registration.id} className="grid grid-cols-7 p-3 text-sm border-t">
+                      <div>{registration.students.name}</div>
+                      <div>{registration.students.email}</div>
+                      <div>{registration.students.phone || '-'}</div>
+                      <div>{registration.students.department}</div>
+                      <div>{registration.students.year}</div>
                       <div>
-                        <h3 className="text-xl font-bold mb-1">{event.title}</h3>
-                        <div className="flex flex-wrap gap-2 text-sm text-gray-500">
-                          <div className="flex items-center">
-                            <Calendar className="h-4 w-4 mr-1" />
-                            {new Date(event.event_date).toLocaleDateString()}
-                          </div>
-                          <div className="flex items-center">
-                            <Clock className="h-4 w-4 mr-1" />
-                            {new Date(event.event_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </div>
-                          <div className="flex items-center">
-                            <div className="text-sm text-gray-600 mb-2">Venue: {event.venue}</div>
-                          </div>
-                        </div>
+                        <Badge className={registration.status === 'registered' ? 'bg-gray-100 text-gray-800' : 'bg-blue-100 text-blue-800'}>
+                          {registration.status}
+                        </Badge>
                       </div>
                       <div className="flex gap-2">
-                        {event.allow_registration && (
-                          <Button variant="outline" size="sm" onClick={() => handleViewRegistrations(event)} >
-                            View Registrations
-                          </Button>
-                        )}
                         <Button
-                          variant={showAttendance ? "outline" : "default"}
                           size="sm"
-                          onClick={() => setShowAttendance(!showAttendance)}
+                          variant="outline"
+                          onClick={async () => {
+                            const { data: { user } } = await supabase.auth.getUser()
+                            if (!user) return
+                            const res = await (await import('./actions')).markEventAttendance(event.id, registration.student_id, 'present', user.id)
+                            if (res.success) {
+                              toast({ title: 'Marked present' })
+                            } else {
+                              toast({ title: 'Error', description: res.error, variant: 'destructive' })
+                            }
+                          }}
                         >
-                          {showAttendance ? "Cancel" : "Mark Attendance"}
+                          Present
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            const { data: { user } } = await supabase.auth.getUser()
+                            if (!user) return
+                            const res = await (await import('./actions')).markEventAttendance(event.id, registration.student_id, 'absent', user.id)
+                            if (res.success) {
+                              toast({ title: 'Marked absent' })
+                            } else {
+                              toast({ title: 'Error', description: res.error, variant: 'destructive' })
+                            }
+                          }}
+                        >
+                          Absent
                         </Button>
                       </div>
                     </div>
-
-                    {!showAttendance && !showRegistrations ? (
-                      <>
-                        <p className="text-gray-600 mb-4 line-clamp-2">{event.description}</p>
-
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                          <div className="bg-purple-50 p-3 rounded-lg">
-                            <div className="text-sm text-gray-500">Registered</div>
-                            <div className="text-xl font-bold">{event.event_registrations?.length || 0}</div>
-                          </div>
-                          <div className="bg-green-50 p-3 rounded-lg">
-                            <div className="text-sm text-gray-500">Payments</div>
-                            <div className="text-xl font-bold">{event.enable_payment ? (event.event_registrations?.length || 0) : 0}</div>
-                          </div>
-                          <div className="bg-blue-50 p-3 rounded-lg">
-                            <div className="text-sm text-gray-500">Attended</div>
-                            <div className="text-xl font-bold">{(event.event_attendance || []).filter((a: any) => a.attendance_status === 'present').length}</div>
-                          </div>
-                          <div className="bg-yellow-50 p-3 rounded-lg">
-                            <div className="text-sm text-gray-500">Revenue</div>
-                            <div className="text-xl font-bold">₹{(event.enable_payment ? (event.payment_amount || 0) * (event.event_registrations?.length || 0) : 0)}</div>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-1 mb-4">
-                          {event.department?.map((dept: string) => (
-                            <span key={dept} className="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded">
-                              {dept}
-                            </span>
-                          ))}
-                        </div>
-
-                        {event.venue_type && (
-                          <div className="text-sm text-gray-600">
-                            Venue Type: {venueConfigs[event.venue_type as keyof typeof venueConfigs]?.name} ({venueConfigs[event.venue_type as keyof typeof venueConfigs]?.totalSeats} seats)
-                          </div>
-                        )}
-                      </>
-                    ) : showRegistrations ? (
-                      <div className="mt-4">
-                        <div className="flex justify-between items-center mb-4">
-                          <h4 className="font-medium">Event Registrations</h4>
-                          <Button variant="outline" size="sm" onClick={() => setShowRegistrations(false)}>
-                            Close
-                          </Button>
-                        </div>
-                        {/* Group by department and year */}
-                        {(() => {
-                          const groups: Record<string, any[]> = {}
-                          registrations.forEach((r: any) => {
-                            const key = `${r.students.department} • ${r.students.year}`
-                            groups[key] = groups[key] || []
-                            groups[key].push(r)
-                          })
-                          const entries = Object.entries(groups)
-                          return entries.length === 0 ? (
-                            <div className="text-sm text-gray-600">No registrations yet.</div>
-                          ) : (
-                            <div className="space-y-6">
-                              {entries.map(([group, regs]) => (
-                                <div key={group}>
-                                  <div className="flex items-center justify-between mb-2">
-                                    <h5 className="font-medium">{group} <span className="text-gray-500">({(regs as any[]).length})</span></h5>
-                                  </div>
-                                  <div className="border rounded-lg overflow-hidden">
-                                    <div className="grid grid-cols-7 bg-gray-100 p-3 text-sm font-medium">
-                                      <div>Name</div>
-                                      <div>Email</div>
-                                      <div>Phone</div>
-                                      <div>Dept</div>
-                                      <div>Year</div>
-                                      <div>Status</div>
-                                      <div>Attendance</div>
-                                    </div>
-                                    {(regs as any[]).map((registration: any) => (
-                                      <div key={registration.id} className="grid grid-cols-7 p-3 text-sm border-t">
-                                        <div>{registration.students.name}</div>
-                                        <div>{registration.students.email}</div>
-                                        <div>{registration.students.phone || '-'}</div>
-                                        <div>{registration.students.department}</div>
-                                        <div>{registration.students.year}</div>
-                                        <div>
-                                          <Badge className={registration.status === 'registered' ? 'bg-gray-100 text-gray-800' : 'bg-blue-100 text-blue-800'}>
-                                            {registration.status}
-                                          </Badge>
-                                        </div>
-                                        <div className="flex gap-2">
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={async () => {
-                                              const { data: { user } } = await supabase.auth.getUser()
-                                              if (!user) return
-                                              const res = await (await import('./actions')).markEventAttendance(event.id, registration.student_id, 'present', user.id)
-                                              if (res.success) {
-                                                toast({ title: 'Marked present' })
-                                              } else {
-                                                toast({ title: 'Error', description: res.error, variant: 'destructive' })
-                                              }
-                                            }}
-                                          >
-                                            Present
-                                          </Button>
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={async () => {
-                                              const { data: { user } } = await supabase.auth.getUser()
-                                              if (!user) return
-                                              const res = await (await import('./actions')).markEventAttendance(event.id, registration.student_id, 'absent', user.id)
-                                              if (res.success) {
-                                                toast({ title: 'Marked absent' })
-                                              } else {
-                                                toast({ title: 'Error', description: res.error, variant: 'destructive' })
-                                              }
-                                            }}
-                                          >
-                                            Absent
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )
-                        })()}
-                      </div>
-                    ) : (
-                      <div className="mt-4">
-                        <div className="flex justify-between items-center mb-3">
-                          <h4 className="font-medium">Mark Attendance</h4>
-                          <Button variant="outline" size="sm" onClick={downloadAttendanceExcel}>
-                            <Download className="h-4 w-4 mr-1" />
-                            Download Excel
-                          </Button>
-                        </div>
-                        <div className="bg-yellow-50 p-3 rounded-lg mb-4 text-sm">
-                          Use the Registrations view to mark present/absent in real-time. This legacy section remains for quick CSV download.
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  ))}
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+              </div>
+            ))}
+          </div>
+        )
+      })}
     </div>
   )
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Event Management</h1>
-
       <Tabs defaultValue="create" value={activeTab} onValueChange={setActiveTab} className="mb-6">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="create">Create Event</TabsTrigger>

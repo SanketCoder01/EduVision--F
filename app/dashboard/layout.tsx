@@ -122,62 +122,138 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Sidebar (off-canvas for all breakpoints) */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 bg-white dark:bg-gray-800 w-64 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
-      >
-        <div className="p-4 flex items-center justify-between">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <GraduationCap className="h-8 w-8 text-primary" />
-            <h1 className="text-xl font-bold text-gray-800 dark:text-white">EduVision</h1>
-          </Link>
-          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(false)}>
-            <X className="h-6 w-6" />
-          </Button>
-        </div>
-        <nav className="mt-4 px-2 space-y-1">
-          {sidebarItems.map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              onClick={() => setSidebarOpen(false)}
-              className={`flex items-center px-3 py-2.5 text-sm font-medium rounded-md transition-colors ${pathname === item.href ? "bg-primary/10 text-primary" : "text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"}`}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.aside
+            initial={{ x: -256, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -256, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            className="fixed inset-y-0 left-0 z-50 bg-white dark:bg-gray-800 w-64 shadow-2xl"
+          >
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="p-4 flex items-center justify-between"
             >
-              <item.icon className={`mr-3 h-5 w-5 ${item.color}`} />
-              <span>{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-      </aside>
+              <Link href="/dashboard" className="flex items-center gap-2 group">
+                <motion.div
+                  whileHover={{ rotate: 360 }}
+                  transition={{ duration: 0.6 }}
+                >
+                  <GraduationCap className="h-8 w-8 text-primary" />
+                </motion.div>
+                <h1 className="text-xl font-bold text-gray-800 dark:text-white group-hover:text-primary transition-colors">EduVision</h1>
+              </Link>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="md:hidden hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" 
+                onClick={() => setSidebarOpen(false)}
+              >
+                <X className="h-6 w-6" />
+              </Button>
+            </motion.div>
+            <nav className="mt-4 px-2 space-y-1 overflow-y-auto flex-1">
+              {sidebarItems.map((item, index) => (
+                <motion.div
+                  key={item.label}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.1 + index * 0.05 }}
+                >
+                  <Link
+                    href={item.href}
+                    onClick={() => setSidebarOpen(false)}
+                    className={`group flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-all duration-200 hover:scale-105 ${pathname === item.href ? "bg-primary/10 text-primary shadow-sm" : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"}`}
+                  >
+                    <motion.div
+                      whileHover={{ scale: 1.15, rotate: pathname === item.href ? 0 : 10 }}
+                      whileTap={{ scale: 0.9 }}
+                      className="relative z-10"
+                    >
+                      <item.icon className={`mr-3 h-5 w-5 ${pathname === item.href ? item.color : 'group-hover:' + item.color} transition-colors`} />
+                    </motion.div>
+                    <span className="group-hover:translate-x-1 transition-transform duration-200">{item.label}</span>
+                    {pathname === item.href && (
+                      <motion.div
+                        layoutId="activeIndicator"
+                        className="ml-auto relative z-10"
+                        initial={{ scale: 0, rotate: -90 }}
+                        animate={{ scale: 1, rotate: 0 }}
+                        transition={{ type: "spring", stiffness: 400 }}
+                      >
+                        <ChevronRight className="h-4 w-4 text-primary" />
+                      </motion.div>
+                    )}
+                  </Link>
+                </motion.div>
+              ))}
+            </nav>
+          </motion.aside>
+        )}
+      </AnimatePresence>
 
       {/* Screen overlay when sidebar is open */}
-      {isSidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="sticky top-0 z-30 bg-white/90 dark:bg-gray-800/80 backdrop-blur supports-[backdrop-filter]:backdrop-blur flex items-center justify-between px-4 py-3 shadow-sm border-b border-gray-200/60 dark:border-gray-700/60">
+        <motion.header 
+          initial={{ y: -20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className="sticky top-0 z-30 bg-white/90 dark:bg-gray-800/80 backdrop-blur supports-[backdrop-filter]:backdrop-blur flex items-center justify-between px-4 py-3 shadow-sm border-b border-gray-200/60 dark:border-gray-700/60"
+        >
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(true)}>
-              <Menu className="h-6 w-6" />
-            </Button>
-            <Link href="/dashboard" className="flex items-center gap-2">
-              <GraduationCap className="h-6 w-6 text-primary" />
-              <span className="font-semibold">EduVision</span>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => setSidebarOpen(true)}
+                className="hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <motion.div
+                  animate={{ rotate: isSidebarOpen ? 90 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <Menu className="h-6 w-6" />
+                </motion.div>
+              </Button>
+            </motion.div>
+            <Link href="/dashboard" className="flex items-center gap-2 group">
+              <motion.div
+                whileHover={{ rotate: 360 }}
+                transition={{ duration: 0.6 }}
+              >
+                <GraduationCap className="h-6 w-6 text-primary" />
+              </motion.div>
+              <span className="font-semibold group-hover:text-primary transition-colors">EduVision</span>
             </Link>
           </div>
           <div className="flex-1" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-                <Avatar>
-                  <AvatarImage src={(profile as any)?.avatar_url || (profile as any)?.face_url || "/placeholder-user.jpg"} alt="User avatar" />
-                  <AvatarFallback>U</AvatarFallback>
-                </Avatar>
-              </Button>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button variant="ghost" className="relative h-10 w-10 rounded-full hover:ring-2 hover:ring-primary/20 transition-all">
+                  <Avatar className="ring-2 ring-transparent hover:ring-primary/30 transition-all">
+                    <AvatarImage src={(profile as any)?.avatar_url || (profile as any)?.face_url || "/placeholder-user.jpg"} alt="User avatar" />
+                    <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/10">U</AvatarFallback>
+                  </Avatar>
+                </Button>
+              </motion.div>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuItem asChild>
@@ -193,11 +269,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </header>
+        </motion.header>
         <main className="flex-1 overflow-y-auto">
           <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-6 pb-28">
             {/* Page transition animation */}
-            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: 'easeOut' }}>
+            <motion.div 
+              key={pathname}
+              initial={{ opacity: 0, y: 20, scale: 0.98 }} 
+              animate={{ opacity: 1, y: 0, scale: 1 }} 
+              exit={{ opacity: 0, y: -20, scale: 0.98 }}
+              transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+            >
               {children}
             </motion.div>
           </div>

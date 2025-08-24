@@ -1,31 +1,16 @@
-import { createClient } from '@/lib/supabase/server';
-import { getConversations } from '@/app/actions/chat-actions';
-import { redirect } from 'next/navigation';
-import { ChatLayout } from '@/components/chat-layout';
+"use client"
 
-export default async function FacultyQueriesPage() {
-  const supabase = createClient();
+import StudentQueriesInterface from "@/components/student-queries/StudentQueriesInterface"
 
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    return redirect('/auth/login');
-  }
-
-  // Fetch all conversations for the faculty member
-  const conversationsResult = await getConversations(user.id);
-
-  if (!conversationsResult.success) {
-    return <div>Error loading chat data. Please try again.</div>;
-  }
-
+export default function QueriesPage() {
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
-      <ChatLayout
-        user={user}
-        initialConversations={conversationsResult.data || []}
-        facultyDirectory={[]}
-      />
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold mb-2">Student Queries</h1>
+        <p className="text-gray-600">Submit questions and get help from faculty</p>
+      </div>
+      
+      <StudentQueriesInterface />
     </div>
-  );
+  )
 }

@@ -15,27 +15,29 @@ interface SeatAssignment {
 }
 
 interface SeatVisualizationProps {
-  venueType: 'seminar-hall' | 'solar-shade'
   assignments: SeatAssignment[]
-  selectedSeats?: number[]
   onSeatClick?: (seatNumber: number) => void
+  selectedSeats?: number[]
+  venueType: 'seminar-hall' | 'solar-shade'
   readOnly?: boolean
   studentView?: boolean
   studentDepartment?: string
   studentYear?: string
   studentGender?: string
+  showDepartmentStats?: boolean
 }
 
 export default function SeatVisualization({
-  venueType,
   assignments,
-  selectedSeats = [],
   onSeatClick,
+  selectedSeats = [],
+  venueType,
   readOnly = false,
   studentView = false,
   studentDepartment,
   studentYear,
-  studentGender
+  studentGender,
+  showDepartmentStats = true,
 }: SeatVisualizationProps) {
   const config = VENUE_CONFIGS[venueType]
   
@@ -58,21 +60,21 @@ export default function SeatVisualization({
 
   const getSeatColor = (seatNumber: number): string => {
     const assignment = getSeatAssignment(seatNumber)
+    
+    if (selectedSeats.includes(seatNumber)) {
+      return 'bg-purple-600 border-purple-700 text-white shadow-lg'
+    }
+    
     if (!assignment) {
-      return 'bg-white border-gray-300 hover:bg-gray-50'
+      return 'bg-white border-gray-300 hover:bg-gray-50 hover:border-gray-400 transition-all'
+    }
+    
+    if (studentView && !isSeatAvailableForStudent(seatNumber)) {
+      return 'bg-red-500 border-red-600 text-white cursor-not-allowed opacity-75'
     }
     
     const departmentColor = DEPARTMENT_COLORS[assignment.department as keyof typeof DEPARTMENT_COLORS]
-    
-    if (studentView && !isSeatAvailableForStudent(seatNumber)) {
-      return 'bg-gray-200 border-gray-300 cursor-not-allowed opacity-50'
-    }
-    
-    if (selectedSeats.includes(seatNumber)) {
-      return 'bg-purple-600 border-purple-700 text-white'
-    }
-    
-    return `${departmentColor.bg} ${departmentColor.border} ${departmentColor.text}`
+    return `${departmentColor?.bg || 'bg-black'} ${departmentColor?.border || 'border-black'} ${departmentColor?.text || 'text-white'} shadow-md`
   }
 
   const handleSeatClick = (seatNumber: number) => {
@@ -82,6 +84,33 @@ export default function SeatVisualization({
     
     onSeatClick(seatNumber)
   }
+
+  const getDepartmentStats = () => {
+    const stats: Record<string, { assigned: number; total: number; color: string }> = {}
+    const totalSeats = config.totalSeats
+    
+    // Initialize department stats
+    Object.keys(DEPARTMENT_COLORS).forEach(dept => {
+      const deptColor = DEPARTMENT_COLORS[dept as keyof typeof DEPARTMENT_COLORS]
+      stats[dept] = { assigned: 0, total: 0, color: deptColor?.bg || 'bg-gray-500' }
+    })
+    
+    // Count assigned seats by department
+    assignments.forEach(assignment => {
+      const dept = assignment.department
+      if (stats[dept]) {
+        stats[dept].assigned += assignment.seat_numbers.length
+      }
+    })
+    
+    // Calculate available seats
+    const totalAssigned = assignments.reduce((sum, assignment) => sum + assignment.seat_numbers.length, 0)
+    const availableSeats = totalSeats - totalAssigned
+    
+    return { stats, availableSeats, totalSeats }
+  }
+
+  const { stats, availableSeats, totalSeats } = getDepartmentStats()
 
   const renderSeatMap = () => {
     const seats = []
@@ -100,10 +129,10 @@ export default function SeatVisualization({
           rowSeats.push(
             <motion.div
               key={seatNumber}
-              whileHover={isClickable ? { scale: 1.1 } : {}}
+              whileHover={isClickable ? { scale: 1.1, y: -1 } : {}}
               whileTap={isClickable ? { scale: 0.95 } : {}}
-              className={`w-8 h-8 flex items-center justify-center rounded-md text-xs font-medium border cursor-pointer transition-all ${seatColor} ${
-                !isClickable ? 'cursor-not-allowed' : ''
+              className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded text-xs font-bold border cursor-pointer transition-all duration-200 ${seatColor} ${
+                !isClickable ? 'cursor-not-allowed' : 'hover:shadow-md'
               }`}
               onClick={() => handleSeatClick(seatNumber)}
               title={assignment ? 
@@ -111,7 +140,7 @@ export default function SeatVisualization({
                 'Available'
               }
             >
-              {seatNumber}
+              <span className="text-xs">{seatNumber}</span>
             </motion.div>
           )
         }
@@ -134,21 +163,21 @@ export default function SeatVisualization({
     const usedDepartments = [...new Set(assignments.map(a => a.department))]
     
     return (
-      <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-        <h4 className="font-medium mb-3">Seat Assignment Legend</h4>
+      <div className="mt-4 p-3 sm:p-4 bg-gray-50 rounded-lg">
+        <h4 className="font-medium mb-3 text-sm sm:text-base">Legend</h4>
         
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 text-xs sm:text-sm">
           {!studentView && (
             <>
-              <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 bg-white border border-gray-300 rounded"></div>
-                <span className="text-sm">Available</span>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 sm:w-4 sm:h-4 bg-white border border-gray-300 rounded"></div>
+                <span>Available</span>
               </div>
               
               {selectedSeats.length > 0 && (
-                <div className="flex items-center space-x-2">
-                  <div className="w-4 h-4 bg-purple-600 border border-purple-700 rounded"></div>
-                  <span className="text-sm">Selected</span>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 sm:w-4 sm:h-4 bg-purple-600 border border-purple-700 rounded"></div>
+                  <span>Selected</span>
                 </div>
               )}
             </>
@@ -157,104 +186,81 @@ export default function SeatVisualization({
           {usedDepartments.map(department => {
             const color = DEPARTMENT_COLORS[department as keyof typeof DEPARTMENT_COLORS]
             return (
-              <div key={department} className="flex items-center space-x-2">
-                <div className={`w-4 h-4 rounded ${color.bg} ${color.border}`}></div>
-                <span className="text-sm">{department}</span>
+              <div key={department} className="flex items-center gap-2">
+                <div className={`w-3 h-3 sm:w-4 sm:h-4 rounded ${color?.bg || 'bg-gray-500'}`}></div>
+                <span className="truncate" title={department}>
+                  {department.split(' ').map(word => word.charAt(0)).join('')}
+                </span>
               </div>
             )
           })}
           
           {studentView && (
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 bg-gray-200 border border-gray-300 rounded opacity-50"></div>
-              <span className="text-sm">Not Available</span>
-            </div>
+            <>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 sm:w-4 sm:h-4 bg-gray-200 border border-gray-300 rounded opacity-50"></div>
+                <span>Not Available</span>
+              </div>
+              <div className="bg-blue-50 p-2 rounded col-span-full">
+                <div className="text-xs sm:text-sm">
+                  <span className="font-medium">Your section:</span> {studentDepartment} - {studentYear}
+                  {studentGender && ` (${studentGender})`}
+                </div>
+              </div>
+            </>
           )}
-        </div>
-        
-        {studentView && studentDepartment && (
-          <div className="mt-3 p-3 bg-blue-50 rounded-lg">
-            <div className="text-sm">
-              <span className="font-medium">Your assigned section:</span> {studentDepartment} - {studentYear}
-              {studentGender && ` (${studentGender})`}
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  const renderStats = () => {
-    const totalAssigned = assignments.reduce((sum, assignment) => sum + assignment.seat_numbers.length, 0)
-    const availableSeats = config.totalSeats - totalAssigned
-    
-    return (
-      <div className="grid grid-cols-3 gap-4 mb-4">
-        <div className="bg-blue-50 p-3 rounded-lg text-center">
-          <div className="text-2xl font-bold text-blue-600">{config.totalSeats}</div>
-          <div className="text-sm text-blue-600">Total Seats</div>
-        </div>
-        
-        <div className="bg-green-50 p-3 rounded-lg text-center">
-          <div className="text-2xl font-bold text-green-600">{totalAssigned}</div>
-          <div className="text-sm text-green-600">Assigned</div>
-        </div>
-        
-        <div className="bg-orange-50 p-3 rounded-lg text-center">
-          <div className="text-2xl font-bold text-orange-600">{availableSeats}</div>
-          <div className="text-sm text-orange-600">Available</div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      {!studentView && renderStats()}
+    <div className="w-full max-w-full mx-auto">
+      {showDepartmentStats && (
+        <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+          {Object.entries(stats).map(([dept, data]) => (
+            <div key={dept} className="bg-white rounded-lg border p-2 sm:p-3 text-center">
+              <div className={`w-3 h-3 sm:w-4 sm:h-4 rounded mx-auto mb-1 sm:mb-2 ${data.color}`}></div>
+              <div className="text-xs font-medium text-gray-600 mb-1 truncate" title={dept}>
+                {dept.split(' ').map(word => word.charAt(0)).join('')}
+              </div>
+              <div className="text-sm sm:text-lg font-bold">{data.assigned}</div>
+              <div className="text-xs text-gray-500">assigned</div>
+            </div>
+          ))}
+          <div className="bg-green-50 border border-green-200 rounded-lg p-2 sm:p-3 text-center">
+            <div className="w-3 h-3 sm:w-4 sm:h-4 rounded mx-auto mb-1 sm:mb-2 bg-white border-2 border-gray-300"></div>
+            <div className="text-xs font-medium text-green-600 mb-1">Available</div>
+            <div className="text-sm sm:text-lg font-bold text-green-700">{availableSeats}</div>
+            <div className="text-xs text-green-600">remaining</div>
+          </div>
+        </div>
+      )}
       
-      <div className="space-y-4">
-        <div className="text-center">
-          <div className="inline-block p-3 bg-gray-100 rounded-lg mb-4">
-            <div className="text-lg font-bold">STAGE / FRONT</div>
+      <div className="bg-white rounded-lg border p-3 sm:p-6">
+        <div className="flex items-center justify-between mb-4 sm:mb-6">
+          <h3 className="text-base sm:text-lg font-semibold">{config.name}</h3>
+          <div className="text-xs sm:text-sm text-gray-600">
+            {assignments.reduce((sum, assignment) => sum + assignment.seat_numbers.length, 0)}/{totalSeats} assigned
           </div>
         </div>
         
-        <div className="overflow-x-auto">
-          <div className="min-w-max">
-            {renderSeatMap()}
+        <div className="text-center mb-4">
+          <div className="inline-block p-2 sm:p-3 bg-gray-100 rounded-lg">
+            <div className="text-sm sm:text-lg font-bold">STAGE / FRONT</div>
           </div>
         </div>
         
-        <div className="text-center text-sm text-gray-500">
+        <div className="overflow-x-auto pb-2">
+          {renderSeatMap()}
+        </div>
+        
+        <div className="text-center text-xs sm:text-sm text-gray-500 mt-4">
           {config.name} - {config.totalSeats} Total Seats
         </div>
       </div>
       
       {renderLegend()}
-      
-      {assignments.length > 0 && !studentView && (
-        <div className="space-y-3">
-          <h4 className="font-medium">Department Assignments</h4>
-          <div className="space-y-2">
-            {assignments.map((assignment, index) => (
-              <div key={index} className="flex items-center justify-between p-3 bg-white border rounded-lg">
-                <div className="flex items-center space-x-3">
-                  <div className={`w-4 h-4 rounded ${DEPARTMENT_COLORS[assignment.department as keyof typeof DEPARTMENT_COLORS]?.bg || 'bg-gray-200'}`}></div>
-                  <div>
-                    <div className="font-medium">{assignment.department}</div>
-                    <div className="text-sm text-gray-500">
-                      {assignment.year}{assignment.gender && ` • ${assignment.gender}`}
-                    </div>
-                  </div>
-                </div>
-                <Badge variant="outline">
-                  {assignment.seat_numbers.length} seats
-                </Badge>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -1,161 +1,204 @@
-"use client"
+'use client'
 
-import { useState, useRef, useCallback } from "react"
-import { useRouter } from "next/navigation"
-import dynamic from "next/dynamic"
-import { motion } from "framer-motion"
-import { Camera, RefreshCw, CheckCircle } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useToast } from "@/components/ui/use-toast"
-import EduVisionLoader from "@/components/ui/animated-loader"
-
-const videoConstraints = {
-  width: 540,
-  height: 380,
-  facingMode: "user",
-}
-
-// Lazy-load Webcam to avoid SSR/build-time dependency issues
-const Webcam = dynamic<any>(async () => (await import("react-webcam")).default as any, {
-  ssr: false,
-  loading: () => (
-    <div className="flex items-center justify-center text-sm text-gray-500 h-full">
-      Initializing camera…
-    </div>
-  ),
-})
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 
 export default function CaptureImagePage() {
   const router = useRouter()
-  const { toast } = useToast()
-  const webcamRef = useRef<any>(null)
   const [imgSrc, setImgSrc] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState<string>('')
+  const [captureStatus, setCaptureStatus] = useState<string>('waiting')
+  const [videoRef, setVideoRef] = useState<HTMLVideoElement | null>(null)
+  const [stream, setStream] = useState<MediaStream | null>(null)
 
-  const capture = useCallback(() => {
-    const imageSrc = webcamRef.current?.getScreenshot()
-    if (imageSrc) {
-      setImgSrc(imageSrc)
-    } else {
-      setError("Could not capture image. Please ensure camera permissions are enabled.")
+  // Get user email on component mount
+  useEffect(() => {
+    const getUserEmail = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user?.email) {
+        setUserEmail(user.email)
+      }
     }
-  }, [webcamRef])
+    getUserEmail()
+  }, [])
 
-  const handleRetake = () => {
-    setImgSrc(null)
+  // Initialize camera
+  useEffect(() => {
+    const initCamera = async () => {
+      try {
+        const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+          video: { width: 640, height: 480 }, 
+          audio: false 
+        })
+        setStream(mediaStream)
+        setError(null)
+      } catch (err) {
+        setError('Camera access denied. Please allow camera permissions.')
+      }
+    }
+    initCamera()
+    
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop())
+      }
+    }
+  }, [])
+
+  // Set video source when stream is available
+  useEffect(() => {
+    if (videoRef && stream) {
+      videoRef.srcObject = stream
+    }
+  }, [videoRef, stream])
+
+  const captureImage = () => {
+    if (!videoRef) return
+    
+    const canvas = document.createElement('canvas')
+    canvas.width = videoRef.videoWidth
+    canvas.height = videoRef.videoHeight
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.drawImage(videoRef, 0, 0)
+      const imageData = canvas.toDataURL('image/jpeg', 0.8)
+      setImgSrc(imageData)
+      setCaptureStatus('captured')
+      saveImage(imageData)
+    }
   }
 
-  const handleCompleteRegistration = async () => {
-    if (!imgSrc) {
-      setError("Please capture an image before proceeding.")
-      return
-    }
+  const saveImage = async (imageData: string) => {
     setIsLoading(true)
-
     try {
-      // Convert base64 to blob
-      const response = await fetch(imgSrc)
-      const blob = await response.blob()
-      
-      // Create form data for upload
-      const formData = new FormData()
-      formData.append('face_image', blob, 'face_capture.jpg')
-
-      // Upload face image and complete registration
-      const uploadResponse = await fetch('/api/student/complete-registration', {
+      const response = await fetch('/api/face-capture', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: userEmail,
+          imageData: imageData
+        })
       })
-
-      const result = await uploadResponse.json()
-
-      if (!result.success) {
-        throw new Error(result.message || 'Failed to complete registration')
+      
+      if (response.ok) {
+        setTimeout(() => {
+          router.push('/auth/pending-approval')
+        }, 1500)
+      } else {
+        setError('Failed to save image. Please try again.')
       }
-
-      toast({
-        title: "Registration Complete!",
-        description: "Welcome to EduVision! Redirecting you to your dashboard.",
-      })
-
-      // Redirect to the student dashboard
-      router.push("/student-dashboard")
-    } catch (error: any) {
-      setError(error.message || 'Failed to complete registration')
+    } catch (err) {
+      setError('Failed to save image. Please try again.')
     } finally {
       setIsLoading(false)
     }
   }
 
-  if (isLoading) {
-    return <EduVisionLoader />
+  const handleRetake = () => {
+    setImgSrc(null)
+    setCaptureStatus('waiting')
+  }
+
+  if (error && !userEmail) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full text-center">
+          <div className="text-red-600 mb-4 text-4xl">⚠️</div>
+          <p className="text-gray-700 mb-4">{error}</p>
+          <button 
+            onClick={() => router.push('/auth/login')}
+            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
+          >
+            Go to Login
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full max-w-2xl"
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-2xl font-bold">Profile Image Capture</CardTitle>
-            <CardDescription>Please take a clear photo of your face for verification.</CardDescription>
-          </CardHeader>
-          <CardContent className="text-center">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl">
+        <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-xl border-0">
+          <div className="text-center p-6 border-b">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              Capture Your Photo
+            </h1>
+            <p className="text-lg text-gray-600">
+              Take a clear photo for verification
+            </p>
+          </div>
+          
+          <div className="p-6">
             {error && (
-              <Alert variant="destructive" className="mb-4">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                <div className="flex items-center">
+                  <span className="text-red-600 mr-2">⚠️</span>
+                  <span className="text-red-700">{error}</span>
+                </div>
+              </div>
             )}
 
-            <div className="w-full aspect-video bg-black rounded-lg overflow-hidden relative mb-4 flex items-center justify-center">
-              {imgSrc ? (
-                <img src={imgSrc} alt="Captured student" className="w-full h-full object-cover" />
-              ) : (
-                <Webcam
-                  ref={webcamRef}
-                  audio={false}
-                  screenshotFormat="image/jpeg"
-                  videoConstraints={videoConstraints}
-                  onUserMediaError={() => setError("Camera not accessible. Please grant permission.")}
-                  className="w-full h-full"
-                />
-              )}
-            </div>
-
-            <div className="flex justify-center gap-4">
-              {imgSrc ? (
-                <>
-                  <Button variant="outline" onClick={handleRetake}>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Retake Photo
-                  </Button>
-                  <Button onClick={handleCompleteRegistration}>
-                    <CheckCircle className="mr-2 h-4 w-4" />
-                    Complete Registration
-                  </Button>
-                </>
-              ) : (
-                <Button onClick={capture} size="lg">
-                  <Camera className="mr-2 h-5 w-5" />
-                  Capture Photo
-                </Button>
-              )}
-            </div>
-            <Alert className="mt-4 text-left">
-              <AlertDescription>
-                <strong>Note:</strong> You will need to install the `react-webcam` package for this page to work. Run `npm install react-webcam` in your terminal.
-              </AlertDescription>
-            </Alert>
-          </CardContent>
-        </Card>
-      </motion.div>
+            {captureStatus === 'captured' && imgSrc ? (
+              <div className="text-center space-y-6">
+                <div className="text-green-600 text-6xl mb-4">✅</div>
+                <h2 className="text-2xl font-bold text-green-600 mb-2">Face Captured Successfully!</h2>
+                <div className="rounded-2xl overflow-hidden border-4 border-green-200 shadow-2xl max-w-md mx-auto">
+                  <img src={imgSrc} alt="Captured" className="w-full h-auto" />
+                </div>
+                {isLoading ? (
+                  <div>
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
+                    <p className="text-gray-600">Saving and redirecting...</p>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleRetake}
+                    className="bg-gray-500 hover:bg-gray-600 text-white px-6 py-2 rounded-lg"
+                  >
+                    🔄 Retake
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="flex flex-col items-center space-y-6">
+                  <div className="rounded-2xl overflow-hidden border-4 border-white shadow-2xl bg-black relative">
+                    <video
+                      ref={setVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      width="540"
+                      height="380"
+                      className="w-full h-auto"
+                    />
+                    {stream && (
+                      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
+                        <button
+                          onClick={captureImage}
+                          className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-full text-lg font-semibold shadow-lg"
+                        >
+                          📸 Capture Photo
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-gray-600">
+                      Position your face in the camera frame and click capture when ready.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

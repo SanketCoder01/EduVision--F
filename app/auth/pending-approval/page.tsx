@@ -1,541 +1,335 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { Clock, CheckCircle, Mail, User, GraduationCap, XCircle, ArrowRight, AlertCircle, RefreshCw } from 'lucide-react'
+import { Clock, CheckCircle, XCircle, AlertCircle, RefreshCw, User, Mail, GraduationCap, Phone, Calendar } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { useEffect, useState } from 'react'
+import { Badge } from '@/components/ui/badge'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import AnimatedLoader from '@/components/ui/animated-loader'
 
-interface RealtimeChannel {}
-
-interface SupabaseUser {
-  id: string;
-  email?: string;
-  user_metadata: { [key: string]: any };
+interface PendingRegistration {
+  id: string
+  email: string
+  name: string
+  phone?: string
+  department: string
+  year?: string
+  user_type: 'student' | 'faculty'
+  face_url?: string
+  status: string
+  rejection_reason?: string
+  submitted_at: string
 }
 
 export default function PendingApprovalPage() {
-  const [user, setUser] = useState<SupabaseUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isChecking, setIsChecking] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState<string | null>(null);
-  const [pendingReg, setPendingReg] = useState<any>(null);
-  const [isApproved, setIsApproved] = useState(false);
-  const [isRejected, setIsRejected] = useState(false);
-  const [showApprovalSuccess, setShowApprovalSuccess] = useState(false);
-  const [showRejectionMessage, setShowRejectionMessage] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [manualCheckCount, setManualCheckCount] = useState(0);
-  const [forceDashboard, setForceDashboard] = useState(false);
-  const router = useRouter();
-  const supabase = createClient();
+  const [status, setStatus] = useState<'loading' | 'pending' | 'approved' | 'rejected' | 'error'>('loading')
+  const [pendingReg, setPendingReg] = useState<PendingRegistration | null>(null)
+  const [rejectionReason, setRejectionReason] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
+  const supabase = createClient()
 
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const { data: { user: supabaseUser }, error } = await supabase.auth.getUser();
-        if (error) {
-          console.error('Error fetching user:', error);
-          setError('Authentication error');
-          setIsLoading(false);
-          return;
-        }
-        setUser(supabaseUser);
-        
-        if (!supabaseUser) {
-          router.push('/login');
-          return;
-        }
-      } catch (err) {
-        console.error('Error in fetchUser:', err);
-        setError('Failed to load user data');
-        setIsLoading(false);
-      }
-    };
-    fetchUser();
-  }, [supabase.auth, router]);
-
-  const checkStatus = async () => {
-    if (!user || !user.email) return;
-    
-    setIsChecking(true);
-    console.log('Checking status for user:', user.email);
-
-    try {
-      const { data: pendingData, error } = await supabase
-        .from('pending_registrations')
-        .select('*')
-        .eq('email', user.email)
-        .single();
-
-      if (error) {
-        if (error.code === 'PGRST116') {
-          console.log('No pending registration found for:', user.email);
-          setError('No pending registration found. You may already be registered.');
-          setIsLoading(false);
-          return;
-        } else {
-          console.error('Error fetching pending registration:', error);
-          setError('Failed to check registration status');
-          setIsLoading(false);
-          return;
-        }
-      }
-
-      if (pendingData) {
-        console.log('Found pending registration:', pendingData);
-        setPendingReg(pendingData);
-        setIsLoading(false);
-        
-        // Immediately check status and update UI
-        if (pendingData.status === 'approved') {
-          console.log('Registration is approved - showing success');
-          setIsApproved(true);
-          setShowApprovalSuccess(true);
-          return;
-        } else if (pendingData.status === 'rejected') {
-          console.log('Registration is rejected - showing rejection');
-          setRejectionReason(pendingData.rejection_reason);
-          setIsRejected(true);
-          setShowRejectionMessage(true);
-          return;
-        } else if (pendingData.status === 'pending_approval') {
-          console.log('Registration still pending approval');
-        }
-      }
-    } catch (error) {
-      console.error('Error in checkStatus:', error);
-      setError('Failed to check registration status');
-      setIsLoading(false);
-    } finally {
-      setIsChecking(false);
+  const checkStatus = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      router.push('/login')
+      return
     }
-  };
+
+    const { data, error } = await supabase
+      .from('pending_registrations')
+      .select('*')
+      .eq('email', user.email)
+      .single()
+
+    if (error && error.code !== 'PGRST116') {
+      setError('Could not verify registration status. Please try again later.')
+      setStatus('error')
+      return
+    }
+
+    if (!data) {
+        // Check if user exists in final tables (approved and moved)
+        const { data: student } = await supabase.from('students').select('id').eq('email', user.email).single();
+        const { data: faculty } = await supabase.from('faculty').select('id').eq('email', user.email).single();
+        
+        if(student || faculty) {
+            setStatus('approved');
+            // Redirect immediately to dashboard
+            setTimeout(() => {
+              if (student) {
+                router.push('/dashboard')
+              } else {
+                router.push('/dashboard')
+              }
+            }, 1000)
+        } else {
+            setError('Your registration is not found. It might have been rejected or there was an error. Please try registering again.')
+            setStatus('error')
+        }
+        return;
+    }
+
+    setPendingReg(data)
+    
+    switch (data.status) {
+      case 'approved':
+        setStatus('approved')
+        break
+      case 'rejected':
+        setRejectionReason(data.rejection_reason)
+        setStatus('rejected')
+        break
+      default:
+        setStatus('pending')
+    }
+  }, [supabase, router])
 
   useEffect(() => {
-    if (!user || !user.email) return;
+    checkStatus()
+  }, [checkStatus])
 
-    let isMounted = true;
-    let intervalId: NodeJS.Timeout | null = null;
-    let channel: RealtimeChannel | null = null;
+  useEffect(() => {
+    if (status !== 'approved') return
 
-    const cleanup = () => {
-      if (!isMounted) return;
-      isMounted = false;
-      if (intervalId) clearInterval(intervalId);
-      if (channel) {
-        supabase.removeChannel(channel).catch((err: any) => console.error('Error removing channel:', err));
+    const timer = setTimeout(() => {
+      if (pendingReg?.user_type === 'student') {
+        router.push('/dashboard')
+      } else {
+        router.push('/dashboard')
       }
-    };
+    }, 3000)
 
-    // Initial check
-    checkStatus();
-
-    // Set up real-time subscription
-    channel = supabase
-      .channel('pending_registration_status')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'pending_registrations',
-          filter: `email=eq.${user.email}`
-        },
-        (payload: any) => {
-          console.log('Real-time update received:', payload);
-          if (payload.new.status === 'approved') {
-            console.log('Real-time approval received - showing success and auto-redirecting');
-            setPendingReg(payload.new);
-            setIsApproved(true);
-            setShowApprovalSuccess(true);
-            // Automatically redirect to dashboard after approval
-            setTimeout(() => {
-              if (payload.new.user_type === 'student') {
-                router.push('/dashboard');
-              } else if (payload.new.user_type === 'faculty') {
-                router.push('/dashboard');
-              } else {
-                router.push('/dashboard'); // Default
-              }
-            }, 3000); // Redirect after 3 seconds
-          } else if (payload.new.status === 'rejected') {
-            console.log('Real-time rejection received - showing rejection message');
-            setRejectionReason(payload.new.rejection_reason);
-            setIsRejected(true);
-            setShowRejectionMessage(true);
-            setPendingReg(payload.new);
-            // Don't cleanup here, let the user see the rejection message
-          }
+    return () => clearTimeout(timer)
+  }, [status, router, pendingReg])
+  
+  useEffect(() => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_IN') {
+            checkStatus();
         }
-      )
-      .subscribe((status: any) => {
-        console.log('Real-time subscription status:', status);
-      });
+    });
 
-    console.log('Real-time subscription established for:', user.email);
+    return () => {
+        authListener.subscription.unsubscribe();
+    };
+  }, [supabase, checkStatus]);
 
-    // Faster polling for immediate updates
-    intervalId = setInterval(() => {
-      if (isMounted && !isChecking) {
-        checkStatus();
-      }
-    }, 5000); // Check every 5 seconds to reduce load
 
-    return cleanup;
-  }, [user, supabase, router]);
+  if (status === 'loading') {
+    return <AnimatedLoader />
+  }
 
-  const handleProceedToDashboard = () => {
-    router.push('/dashboard');
-  };
-
-  const handleForceDashboard = () => {
-    // Force redirect regardless of status
-    router.push('/dashboard');
-  };
-
-  const handleGoToLogin = () => {
-    router.push('/login');
-  };
-
-  const handleRetry = () => {
-    setError(null);
-    setIsLoading(true);
-    window.location.reload();
-  };
-
-  const handleManualCheck = () => {
-    setManualCheckCount(prev => prev + 1);
-    checkStatus();
-  };
-
-  if (isLoading) {
+  if (status === 'error') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md mx-auto">
-          <CardContent className="p-6 text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p>Loading registration status...</p>
-            {isChecking && (
-              <p className="text-sm text-gray-600 mt-2">Checking for updates...</p>
-            )}
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md text-center">
+          <CardHeader>
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+              <AlertCircle className="h-6 w-6 text-red-600" />
+            </div>
+            <CardTitle className="mt-4">Error</CardTitle>
+            <CardDescription>{error}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => router.push('/student-registration')}>Try Again</Button>
           </CardContent>
         </Card>
       </div>
-    );
+    )
   }
 
-  if (error) {
+  if (status === 'rejected') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-red-50 to-pink-100 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md mx-auto">
-          <CardContent className="p-6 text-center">
-            <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
-              <AlertCircle className="w-8 h-8 text-red-600" />
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md text-center">
+          <CardHeader>
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+              <XCircle className="h-6 w-6 text-red-600" />
             </div>
-            <h3 className="text-lg font-semibold text-red-900 mb-2">Error</h3>
-            <p className="text-red-700 mb-4">{error}</p>
-            <div className="space-y-3">
-              <Button onClick={handleRetry} className="w-full">
-                Try Again
-              </Button>
-              <Button onClick={handleForceDashboard} variant="outline" className="w-full">
-                Go to Dashboard Anyway
-              </Button>
-            </div>
+            <CardTitle className="mt-4">Registration Rejected</CardTitle>
+            <CardDescription>
+              {rejectionReason || 'Your registration has been rejected by the administrator.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => router.push('/student-registration')}>Register Again</Button>
           </CardContent>
         </Card>
       </div>
-    );
+    )
   }
 
-  if (!user) {
-    router.push('/login');
-    return null;
-  }
-
-  // Show rejection message
-  if (showRejectionMessage && isRejected) {
+  if (status === 'approved') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-red-50 to-pink-100 flex items-center justify-center p-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="w-full max-w-md mx-auto"
-        >
-          <Card className="w-full border-red-200">
-            <CardHeader className="text-center">
-              <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
-                <XCircle className="w-8 h-8 text-red-600" />
-              </div>
-              <CardTitle className="text-2xl font-bold text-red-900">
-                Registration Rejected
-              </CardTitle>
-              <CardDescription className="text-red-700">
-                Your registration has been reviewed and rejected by the admin.
-              </CardDescription>
-            </CardHeader>
-            
-            <CardContent className="space-y-6">
-              <div className="text-center space-y-4">
-                <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-                  <User className="h-4 w-4" />
-                  <span>{user.user_metadata?.full_name || user.email}</span>
-                </div>
-                
-                <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-                  <Mail className="h-4 w-4" />
-                  <span>{user.email}</span>
-                </div>
-
-                {pendingReg && (
-                  <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-                    <GraduationCap className="h-4 w-4" />
-                    <span>
-                      {pendingReg.user_type === 'student' ? 'Student' : 'Faculty'} - {pendingReg.department}
-                      {pendingReg.user_type === 'student' && pendingReg.year && ` (${pendingReg.year} Year)`}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {rejectionReason && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <div className="flex items-start space-x-3">
-                    <div className="flex-shrink-0">
-                      <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
-                    </div>
-                    <div className="text-sm text-red-800">
-                      <p className="font-medium">Rejection Reason:</p>
-                      <p className="mt-1">{rejectionReason}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0">
-                    <XCircle className="h-5 w-5 text-red-600 mt-0.5" />
-                  </div>
-                  <div className="text-sm text-red-800">
-                    <p className="font-medium">What you can do:</p>
-                    <ul className="mt-2 space-y-1">
-                      <li>• Review the rejection reason above</li>
-                      <li>• Contact admin for clarification if needed</li>
-                      <li>• You can try registering again with corrected information</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <Button
-                  onClick={handleGoToLogin}
-                  className="w-full bg-red-600 hover:bg-red-700 shadow-md transition-all"
-                >
-                  Go to Login
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-                
-                <div className="text-center text-xs text-gray-500">
-                  <p>You can contact admin or try registering again</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md text-center">
+          <CardHeader>
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+              <CheckCircle className="h-6 w-6 text-green-600" />
+            </div>
+            <CardTitle className="mt-4">Registration Approved!</CardTitle>
+            <CardDescription>
+              Redirecting you to dashboard...
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
+            <Button 
+              onClick={() => {
+                if (pendingReg?.user_type === 'student') {
+                  router.push('/dashboard')
+                } else {
+                  router.push('/dashboard')
+                }
+              }}
+              className="w-full bg-green-600 hover:bg-green-700 text-white"
+            >
+              Go to Dashboard Now
+            </Button>
+          </CardContent>
+        </Card>
       </div>
-    );
-  }
-
-  // Show approval success message
-  if (showApprovalSuccess && isApproved) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center p-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="w-full max-w-md mx-auto"
-        >
-          <Card className="w-full border-green-200">
-            <CardHeader className="text-center">
-              <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                <CheckCircle className="w-8 h-8 text-green-600" />
-              </div>
-              <CardTitle className="text-2xl font-bold text-green-900">
-                Registration Approved!
-              </CardTitle>
-              <CardDescription className="text-green-700">
-                Congratulations! Your registration has been approved by the admin.
-              </CardDescription>
-            </CardHeader>
-            
-            <CardContent className="space-y-6">
-              <div className="text-center space-y-4">
-                <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-                  <User className="h-4 w-4" />
-                  <span>{user.user_metadata?.full_name || user.email}</span>
-                </div>
-                
-                <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-                  <Mail className="h-4 w-4" />
-                  <span>{user.email}</span>
-                </div>
-
-                {pendingReg && (
-                  <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-                    <GraduationCap className="h-4 w-4" />
-                    <span>
-                      {pendingReg.user_type === 'student' ? 'Student' : 'Faculty'} - {pendingReg.department}
-                      {pendingReg.user_type === 'student' && pendingReg.year && ` (${pendingReg.year} Year)`}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0">
-                    <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
-                  </div>
-                  <div className="text-sm text-green-800">
-                    <p className="font-medium">What's next?</p>
-                    <ul className="mt-2 space-y-1">
-                      <li>• Your account has been created successfully</li>
-                      <li>• You can now access your dashboard</li>
-                      <li>• Check your email for login credentials</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <Button
-                  onClick={handleProceedToDashboard}
-                  className="w-full bg-green-600 hover:bg-green-700 shadow-md transition-all"
-                >
-                  Go to Dashboard
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-                
-                <div className="text-center text-xs text-gray-500">
-                  <p>Redirecting automatically in 3 seconds...</p>
-                  <p className="mt-1">Or click the button above to go now</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-    );
+    )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full max-w-md mx-auto"
+        transition={{ duration: 0.6 }}
+        className="w-full max-w-2xl"
       >
-        <Card className="w-full">
-          <CardHeader className="text-center">
-            <div className="mx-auto w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
-              <Clock className="w-8 h-8 text-yellow-600" />
+        <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
+          <CardHeader className="text-center pb-6">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 shadow-lg mb-4">
+              <Clock className="h-8 w-8 text-white" />
             </div>
-            <CardTitle className="text-2xl font-bold text-gray-900">
-              Registration Pending
+            <CardTitle className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+              Registration Under Review
             </CardTitle>
-            <CardDescription className="text-gray-600">
-              Your registration is currently under review
+            <CardDescription className="text-lg text-gray-600 mt-2">
+              Your application is being reviewed by our admin team
             </CardDescription>
           </CardHeader>
           
-          <CardContent className="space-y-6">
-            <div className="text-center space-y-4">
-              <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-                <User className="h-4 w-4" />
-                <span>{user.user_metadata?.full_name || user.email}</span>
-              </div>
-              
-              <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-                <Mail className="h-4 w-4" />
-                <span>{user.email}</span>
-              </div>
-
-              {pendingReg && (
-                <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
-                  <GraduationCap className="h-4 w-4" />
-                  <span>
-                    {pendingReg.user_type === 'student' ? 'Student' : 'Faculty'} - {pendingReg.department}
-                    {pendingReg.user_type === 'student' && pendingReg.year && ` (${pendingReg.year} Year)`}
-                  </span>
+          <CardContent className="space-y-8">
+            {pendingReg && (
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100">
+                <div className="flex items-start space-x-4">
+                  <Avatar className="h-16 w-16 border-4 border-white shadow-lg">
+                    <AvatarImage src={pendingReg.face_url} alt={pendingReg.name} />
+                    <AvatarFallback className="bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xl font-bold">
+                      {pendingReg.name.split(' ').map(n => n[0]).join('')}
+                    </AvatarFallback>
+                  </Avatar>
+                  
+                  <div className="flex-1 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xl font-semibold text-gray-900">{pendingReg.name}</h3>
+                      <Badge className={`${
+                        pendingReg.user_type === 'student' 
+                          ? 'bg-blue-100 text-blue-800 border-blue-200' 
+                          : 'bg-purple-100 text-purple-800 border-purple-200'
+                      }`}>
+                        {pendingReg.user_type === 'student' ? 'Student' : 'Faculty'}
+                      </Badge>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                      <div className="flex items-center space-x-2 text-gray-600">
+                        <Mail className="h-4 w-4" />
+                        <span>{pendingReg.email}</span>
+                      </div>
+                      
+                      {pendingReg.phone && (
+                        <div className="flex items-center space-x-2 text-gray-600">
+                          <Phone className="h-4 w-4" />
+                          <span>{pendingReg.phone}</span>
+                        </div>
+                      )}
+                      
+                      <div className="flex items-center space-x-2 text-gray-600">
+                        <GraduationCap className="h-4 w-4" />
+                        <span>{pendingReg.department}</span>
+                      </div>
+                      
+                      {pendingReg.year && (
+                        <div className="flex items-center space-x-2 text-gray-600">
+                          <Calendar className="h-4 w-4" />
+                          <span>{pendingReg.year} Year</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="text-xs text-gray-500">
+                      Submitted: {new Date(pendingReg.submitted_at).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="bg-gradient-to-r from-amber-50 to-yellow-50 rounded-xl p-6 border border-amber-200">
               <div className="flex items-start space-x-3">
                 <div className="flex-shrink-0">
-                  <Clock className="h-5 w-5 text-blue-600 mt-0.5" />
+                  <Clock className="h-6 w-6 text-amber-600 mt-0.5" />
                 </div>
-                <div className="text-sm text-blue-800">
-                  <p className="font-medium">What happens next?</p>
-                  <ul className="mt-2 space-y-1">
-                    <li>• Admin will review your registration</li>
-                    <li>• You'll receive an email notification</li>
-                    <li>• You'll see a success or rejection message here</li>
+                <div className="text-sm">
+                  <p className="font-semibold text-amber-900 mb-2">What happens next?</p>
+                  <ul className="space-y-2 text-amber-800">
+                    <li className="flex items-center space-x-2">
+                      <div className="w-2 h-2 bg-amber-400 rounded-full"></div>
+                      <span>Admin reviews your registration details</span>
+                    </li>
+                    <li className="flex items-center space-x-2">
+                      <div className="w-2 h-2 bg-amber-400 rounded-full"></div>
+                      <span>You'll receive an email notification</span>
+                    </li>
+                    <li className="flex items-center space-x-2">
+                      <div className="w-2 h-2 bg-amber-400 rounded-full"></div>
+                      <span>Access to your dashboard upon approval</span>
+                    </li>
                   </ul>
                 </div>
               </div>
             </div>
 
-            {isChecking && (
-              <div className="text-center text-sm text-gray-600">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                Checking status...
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <Button
-                onClick={handleManualCheck}
-                variant="outline"
-                className="w-full"
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Button 
+                onClick={checkStatus}
+                className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white shadow-lg"
               >
                 <RefreshCw className="mr-2 h-4 w-4" />
-                Check Status Now ({manualCheckCount})
+                Check Status
               </Button>
               
-              <Button
-                onClick={handleForceDashboard}
-                variant="outline"
-                className="w-full bg-yellow-50 border-yellow-200 text-yellow-800 hover:bg-yellow-100"
-              >
-                Go to Dashboard Anyway
-              </Button>
-              
-              <Button
+              <Button 
                 onClick={() => window.location.reload()}
-                variant="outline"
-                className="w-full"
+                className="bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white shadow-lg"
               >
                 Refresh Page
               </Button>
             </div>
 
-            <div className="text-center text-xs text-gray-500">
-              <p>This page will show you when your registration is approved or rejected</p>
-              <p className="mt-1">Manual checks: {manualCheckCount}</p>
+            <div className="text-center text-sm text-gray-500 bg-gray-50 rounded-lg p-4">
+              <p className="font-medium">Need help?</p>
+              <p className="mt-1">Contact admin if you have questions about your registration status</p>
             </div>
           </CardContent>
         </Card>
       </motion.div>
     </div>
-  );
+  )
 }
