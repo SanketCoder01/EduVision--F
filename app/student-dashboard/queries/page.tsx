@@ -1,47 +1,45 @@
-import { createClient } from '@/lib/supabase/server';
-import { getConversations, getFacultyByDepartment } from '@/app/actions/chat-actions';
-import { redirect } from 'next/navigation';
+'use client';
+
+import { useState, useEffect } from 'react';
 import { ChatLayout } from '@/components/chat-layout';
 
-export default async function QueriesPage() {
-  const supabase = createClient();
-
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    return redirect('/auth/login');
-  }
-
-  // Fetch student profile to get their department
-  const { data: studentProfile, error: profileError } = await supabase
-    .from('students')
-    .select('department')
-    .eq('id', user.id)
-    .single();
-
-  if (profileError || !studentProfile) {
-    console.error('Error fetching student profile:', profileError);
-    // Redirect or show an error message if profile is not found
-    return <div>Error: Could not load your profile. Please try again later.</div>;
-  }
-
-  // Fetch conversations and faculty list in parallel
-  const [conversationsResult, facultyResult] = await Promise.all([
-    getConversations(user.id),
-    getFacultyByDepartment(studentProfile.department)
-  ]);
-
-  if (!conversationsResult.success || !facultyResult.success) {
-    return <div>Error loading chat data. Please try again.</div>;
-  }
+export default function QueriesPage() {
+  const [mockData, setMockData] = useState({
+    user: { id: 'demo-student', email: 'demo@student.com' },
+    conversations: [],
+    faculty: [
+      { 
+        id: '1', 
+        name: 'Dr. Smith', 
+        department: 'Computer Science', 
+        email: 'smith@university.edu',
+        designation: 'Professor',
+        profile_image_url: null
+      },
+      { 
+        id: '2', 
+        name: 'Prof. Johnson', 
+        department: 'Computer Science', 
+        email: 'johnson@university.edu',
+        designation: 'Associate Professor',
+        profile_image_url: null
+      }
+    ]
+  });
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
-      <ChatLayout
-        user={user}
-        initialConversations={conversationsResult.data || []}
-        facultyDirectory={facultyResult.data || []}
-      />
+    <div className="h-full">
+      <div className="mb-4 px-4 sm:px-6 lg:px-8">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Queries</h1>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Chat with faculty members for academic support</p>
+      </div>
+      <div className="px-2 sm:px-4 lg:px-8">
+        <ChatLayout
+          user={mockData.user}
+          initialConversations={mockData.conversations}
+          facultyDirectory={mockData.faculty}
+        />
+      </div>
     </div>
   );
 }

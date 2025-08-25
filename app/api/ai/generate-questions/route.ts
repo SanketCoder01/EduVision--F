@@ -18,8 +18,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Initialize Gemini AI
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'AIzaSyDhwbJhWYlJWfWfWfWfWfWfWfWfWfWfWfW');
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    if (!process.env.GEMINI_API_KEY) {
+      return NextResponse.json(
+        { error: 'Gemini API key not configured' },
+        { status: 500 }
+      );
+    }
+
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      generationConfig: {
+        temperature: 0.7,
+        topP: 0.8,
+        topK: 40,
+        maxOutputTokens: 2048,
+      }
+    });
 
     let extractedContent = '';
 
@@ -57,63 +72,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Try OpenAI first, fallback to Gemini
-    let generatedText = '';
-    const openaiApiKey = process.env.OPENAI_API_KEY;
+    // Use Gemini AI for question generation
+    console.log('🤖 Generating questions with Gemini...');
     
-    if (openaiApiKey) {
-      try {
-        const { default: OpenAI } = await import('openai');
-        const openai = new OpenAI({
-          apiKey: openaiApiKey,
-        });
-
-        const openaiResponse = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo",
-          messages: [
-            {
-              role: "system",
-              content: "You are an expert educational assessment creator. Generate high-quality questions based on study materials. Always respond with valid JSON format."
-            },
-            {
-              role: "user",
-              content: `Based on the following study material, generate ${questionCount} ${difficulty} level ${questionType} questions for "${subject}":
-
-${extractedContent}
-
-Generate questions in JSON format:
-{
-  "questions": [
-    {
-      "id": 1,
-      "type": "multiple_choice|short_answer|essay|true_false",
-      "question": "Question text",
-      "options": ["A", "B", "C", "D"],
-      "correctAnswer": "A",
-      "expectedLength": "2-3 sentences",
-      "keyPoints": ["point1", "point2"],
-      "marks": 5
-    }
-  ],
-  "totalMarks": 25,
-  "estimatedTime": "30 minutes"
-}`
-            }
-          ],
-          max_tokens: 2000,
-          temperature: 0.7
-        });
-
-        if (openaiResponse.choices[0]?.message?.content) {
-          generatedText = openaiResponse.choices[0].message.content;
-        }
-      } catch (openaiError) {
-        console.log('OpenAI failed, falling back to Gemini:', openaiError);
-      }
-    }
-
-    // Fallback to Gemini if RapidAPI fails
-    if (!generatedText) {
+    let generatedText = '';
+    try {
       const questionPrompt = `
 Based on the following study material content, generate ${questionCount} ${difficulty} level ${questionType} questions for the subject "${subject}".
 
@@ -155,6 +118,10 @@ Format the response as a JSON object with the following structure:
 
       const result = await model.generateContent(questionPrompt);
       generatedText = result.response.text();
+      console.log('✅ Questions generated successfully with Gemini');
+    } catch (geminiError) {
+      console.error('❌ Gemini generation failed:', geminiError);
+      throw geminiError;
     }
     
     // Try to parse JSON from the response

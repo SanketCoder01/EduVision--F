@@ -134,23 +134,23 @@ export default function StudyMaterialList({ materials, onDelete }: StudyMaterial
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ duration: 0.3, delay: index * 0.05 }}
-                  className="flex items-start justify-between p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
+                  className="flex flex-col sm:flex-row items-start gap-4 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
                 >
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    <div className="p-2 bg-white rounded-lg border">
+                  <div className="flex items-start gap-3 flex-1 min-w-0 w-full sm:w-auto">
+                    <div className="p-2 bg-white rounded-lg border flex-shrink-0">
                       <FileText className="h-5 w-5 text-blue-600" />
                     </div>
                     
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-gray-900 truncate">
+                      <h4 className="font-medium text-gray-900 text-sm sm:text-base">
                         {material.title}
                       </h4>
                       {material.description && (
-                        <p className="text-sm text-gray-600 mt-1 line-clamp-2">
+                        <p className="text-xs sm:text-sm text-gray-600 mt-1 line-clamp-2">
                           {material.description}
                         </p>
                       )}
-                      <div className="flex items-center gap-2 mt-2">
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
                         <Badge className={`${getFileTypeColor(material.file_type)} text-xs`}>
                           {material.file_type.split('/')[1]?.toUpperCase() || 'FILE'}
                         </Badge>
@@ -161,13 +161,14 @@ export default function StudyMaterialList({ materials, onDelete }: StudyMaterial
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 ml-4">
+                  <div className="flex flex-row sm:flex-col items-center gap-2 w-full sm:w-auto sm:min-w-0">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setViewingMaterial(material)}
+                      className="w-full sm:w-auto text-xs"
                     >
-                      <Eye className="h-4 w-4 mr-1" />
+                      <Eye className="h-3 w-3 mr-1" />
                       View
                     </Button>
                     
@@ -180,8 +181,9 @@ export default function StudyMaterialList({ materials, onDelete }: StudyMaterial
                         link.download = material.file_name;
                         link.click();
                       }}
+                      className="w-full sm:w-auto text-xs"
                     >
-                      <Download className="h-4 w-4 mr-1" />
+                      <Download className="h-3 w-3 mr-1" />
                       Download
                     </Button>
                     
@@ -190,17 +192,17 @@ export default function StudyMaterialList({ materials, onDelete }: StudyMaterial
                       size="sm"
                       onClick={() => handleDelete(material.id)}
                       disabled={deletingId === material.id}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      className="w-full sm:w-auto text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
                     >
                       {deletingId === material.id ? (
                         <motion.div
                           animate={{ rotate: 360 }}
                           transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-3 w-3" />
                         </motion.div>
                       ) : (
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3 w-3" />
                       )}
                     </Button>
                   </div>

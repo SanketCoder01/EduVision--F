@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, FileText, BookOpen, Users, X } from 'lucide-react';
+import { Upload, FileText, BookOpen, Users, X, Bot, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Switch } from '@/components/ui/switch';
 import { uploadStudyMaterial } from '../actions';
 
 interface StudyMaterialUploadProps {
@@ -28,12 +29,32 @@ export default function StudyMaterialUpload({ onUploadSuccess }: StudyMaterialUp
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [aiSummarizerEnabled, setAiSummarizerEnabled] = useState(false);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [summaryGenerated, setSummaryGenerated] = useState(false);
 
   const departments = [
     'Computer Science and Engineering (CSE)',
     'Cyber Security',
     'Artificial Intelligence and Data Science (AIDS)',
     'Artificial Intelligence and Machine Learning (AIML)',
+    'Electronics and Communication Engineering (ECE)',
+    'Electrical and Electronics Engineering (EEE)',
+    'Mechanical Engineering (ME)',
+    'Civil Engineering (CE)',
+    'Information Technology (IT)',
+    'Biotechnology (BT)',
+    'Chemical Engineering (CHE)',
+    'Aerospace Engineering (AE)',
+    'Automobile Engineering (AUTO)',
+    'Industrial Engineering (IE)',
+    'Environmental Engineering (ENV)',
+    'Biomedical Engineering (BME)',
+    'Materials Science and Engineering (MSE)',
+    'Petroleum Engineering (PE)',
+    'Mining Engineering (MIN)',
+    'Agricultural Engineering (AGE)',
   ];
 
   const years = ['1', '2', '3', '4'];
@@ -75,6 +96,31 @@ export default function StudyMaterialUpload({ onUploadSuccess }: StudyMaterialUp
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const generateAISummary = async (file: File) => {
+    setIsGeneratingSummary(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch('/api/ai/summarize-document', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate summary');
+      }
+      
+      const result = await response.json();
+      return result.summaryFile;
+    } catch (error) {
+      console.error('Error generating AI summary:', error);
+      throw error;
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -86,19 +132,45 @@ export default function StudyMaterialUpload({ onUploadSuccess }: StudyMaterialUp
 
     setIsUploading(true);
 
-    const submitData = new FormData();
-    submitData.append('file', selectedFile);
-    submitData.append('department', formData.department);
-    submitData.append('year', formData.year);
-    submitData.append('subject', formData.subject);
-    submitData.append('title', formData.title);
-    submitData.append('description', formData.description);
+    try {
+      const submitData = new FormData();
+      submitData.append('file', selectedFile);
+      submitData.append('department', formData.department);
+      submitData.append('year', formData.year);
+      submitData.append('subject', formData.subject);
+      submitData.append('title', formData.title);
+      submitData.append('description', formData.description);
 
-    const result = await uploadStudyMaterial(submitData);
+      // Upload original file
+      const result = await uploadStudyMaterial(submitData);
 
-    if (result.error) {
-      setError(result.error.message);
-    } else {
+      if (result.error) {
+        setError(result.error.message);
+        return;
+      }
+
+      // Generate and upload AI summary if enabled
+      if (aiSummarizerEnabled) {
+        try {
+          const summaryFile = await generateAISummary(selectedFile);
+          
+          const summaryData = new FormData();
+          summaryData.append('file', summaryFile);
+          summaryData.append('department', formData.department);
+          summaryData.append('year', formData.year);
+          summaryData.append('subject', formData.subject);
+          summaryData.append('title', `${formData.title} - AI Summary`);
+          summaryData.append('description', `AI-generated summary of: ${formData.description}`);
+
+          await uploadStudyMaterial(summaryData);
+          setSummaryGenerated(true);
+        } catch (summaryError) {
+          console.error('Failed to generate/upload summary:', summaryError);
+          // Continue with success message even if summary fails
+        }
+      }
+
+      setUploadSuccess(true);
       setSelectedFile(null);
       setFormData({
         department: '',
@@ -108,9 +180,12 @@ export default function StudyMaterialUpload({ onUploadSuccess }: StudyMaterialUp
         description: '',
       });
       onUploadSuccess();
+      
+    } catch (error) {
+      setError('Upload failed. Please try again.');
+    } finally {
+      setIsUploading(false);
     }
-
-    setIsUploading(false);
   };
 
   const formatFileSize = (bytes: number) => {
@@ -122,18 +197,14 @@ export default function StudyMaterialUpload({ onUploadSuccess }: StudyMaterialUp
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-    >
-      <Card className="max-w-2xl">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+    <div className="w-full space-y-6">
+      <Card className="w-full">
+        <CardHeader className="text-center sm:text-left">
+          <CardTitle className="flex items-center justify-center sm:justify-start gap-2 text-lg sm:text-xl">
             <Upload className="h-5 w-5 text-blue-600" />
             Upload Study Material
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-center sm:text-left">
             Upload study materials for students by department, year, and subject.
           </CardDescription>
         </CardHeader>
@@ -146,16 +217,16 @@ export default function StudyMaterialUpload({ onUploadSuccess }: StudyMaterialUp
             )}
 
             {/* Department and Year Selection */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="department">Department *</Label>
+                <Label htmlFor="department" className="text-sm font-medium">Department *</Label>
                 <Select onValueChange={(value) => handleInputChange('department', value)} value={formData.department}>
-                  <SelectTrigger id="department">
+                  <SelectTrigger id="department" className="w-full">
                     <SelectValue placeholder="Select Department" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-60 overflow-y-auto">
                     {departments.map((dept) => (
-                      <SelectItem key={dept} value={dept}>
+                      <SelectItem key={dept} value={dept} className="text-sm">
                         {dept}
                       </SelectItem>
                     ))}
@@ -163,14 +234,14 @@ export default function StudyMaterialUpload({ onUploadSuccess }: StudyMaterialUp
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="year">Year *</Label>
+                <Label htmlFor="year" className="text-sm font-medium">Year *</Label>
                 <Select onValueChange={(value) => handleInputChange('year', value)} value={formData.year}>
-                  <SelectTrigger id="year">
+                  <SelectTrigger id="year" className="w-full">
                     <SelectValue placeholder="Select Year" />
                   </SelectTrigger>
                   <SelectContent>
                     {years.map((yr) => (
-                      <SelectItem key={yr} value={yr}>
+                      <SelectItem key={yr} value={yr} className="text-sm">
                         {yr}{yr === '1' ? 'st' : yr === '2' ? 'nd' : yr === '3' ? 'rd' : 'th'} Year
                       </SelectItem>
                     ))}
@@ -180,16 +251,16 @@ export default function StudyMaterialUpload({ onUploadSuccess }: StudyMaterialUp
             </div>
 
             {/* Subject and Title */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="subject">Subject *</Label>
+                <Label htmlFor="subject" className="text-sm font-medium">Subject *</Label>
                 <Select onValueChange={(value) => handleInputChange('subject', value)} value={formData.subject}>
-                  <SelectTrigger id="subject">
+                  <SelectTrigger id="subject" className="w-full">
                     <SelectValue placeholder="Select Subject" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-60 overflow-y-auto">
                     {subjects.map((subj) => (
-                      <SelectItem key={subj} value={subj}>
+                      <SelectItem key={subj} value={subj} className="text-sm">
                         {subj}
                       </SelectItem>
                     ))}
@@ -197,12 +268,13 @@ export default function StudyMaterialUpload({ onUploadSuccess }: StudyMaterialUp
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="title">Title *</Label>
+                <Label htmlFor="title" className="text-sm font-medium">Title *</Label>
                 <Input
                   id="title"
                   placeholder="e.g., Chapter 1 - Introduction"
                   value={formData.title}
                   onChange={(e) => handleInputChange('title', e.target.value)}
+                  className="w-full"
                 />
               </div>
             </div>
@@ -217,6 +289,49 @@ export default function StudyMaterialUpload({ onUploadSuccess }: StudyMaterialUp
                 onChange={(e) => handleInputChange('description', e.target.value)}
                 rows={3}
               />
+            </div>
+
+            {/* AI Summarizer Toggle */}
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 border rounded-lg bg-gradient-to-r from-blue-50 to-purple-50">
+                <div className="flex items-center gap-3">
+                  <Bot className="h-5 w-5 text-blue-600" />
+                  <div>
+                    <Label htmlFor="ai-summarizer" className="text-sm font-medium">
+                      AI Summarizer
+                    </Label>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Generate AI summary with key points and upload both files
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  id="ai-summarizer"
+                  checked={aiSummarizerEnabled}
+                  onCheckedChange={setAiSummarizerEnabled}
+                  className="self-start sm:self-center"
+                />
+              </div>
+              
+              {aiSummarizerEnabled && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="p-3 bg-blue-50 rounded-lg border border-blue-200"
+                >
+                  <div className="flex items-center gap-2 text-sm text-blue-700">
+                    <Bot className="h-4 w-4" />
+                    <span className="font-medium">AI Summary Features:</span>
+                  </div>
+                  <ul className="text-xs text-blue-600 mt-2 space-y-1 ml-6">
+                    <li>• Extract key concepts and important points</li>
+                    <li>• Create structured bullet points</li>
+                    <li>• Generate PDF summary document</li>
+                    <li>• Upload both original and summary files</li>
+                  </ul>
+                </motion.div>
+              )}
             </div>
 
             {/* File Upload Area */}
@@ -281,24 +396,92 @@ export default function StudyMaterialUpload({ onUploadSuccess }: StudyMaterialUp
             <Button 
               type="submit" 
               className="w-full" 
-              disabled={isUploading || !selectedFile || !formData.department || !formData.year || !formData.subject || !formData.title}
+              disabled={isUploading || isGeneratingSummary || !selectedFile || !formData.department || !formData.year || !formData.subject || !formData.title}
             >
-              {isUploading ? (
+              {isUploading || isGeneratingSummary ? (
                 <motion.div
                   animate={{ rotate: 360 }}
                   transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                   className="mr-2"
                 >
-                  <Upload className="h-4 w-4" />
+                  {isGeneratingSummary ? <Bot className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
                 </motion.div>
               ) : (
                 <Upload className="mr-2 h-4 w-4" />
               )}
-              {isUploading ? 'Uploading...' : 'Upload Study Material'}
+              {isGeneratingSummary 
+                ? 'Generating AI Summary...' 
+                : isUploading 
+                  ? aiSummarizerEnabled 
+                    ? 'Uploading Files...' 
+                    : 'Uploading...'
+                  : 'Upload Study Material'
+              }
             </Button>
           </form>
         </CardContent>
       </Card>
-    </motion.div>
+
+      {/* AI Summarizer Status - Always visible below upload form */}
+      {(aiSummarizerEnabled || uploadSuccess) && (
+        <Card className="w-full border-blue-200 bg-blue-50">
+          <CardContent className="p-4 sm:p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <Bot className="h-5 w-5 text-blue-600" />
+              <h3 className="text-lg font-semibold text-blue-800">AI Summarizer</h3>
+            </div>
+
+            {uploadSuccess ? (
+              <div className="space-y-3">
+                {summaryGenerated ? (
+                  <div className="flex items-center gap-2 text-sm text-green-700 bg-green-100 p-3 rounded-lg">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>AI summary generated and uploaded successfully!</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-100 p-3 rounded-lg">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>AI summary generation in progress...</span>
+                  </div>
+                )}
+
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-600 mb-2 font-medium">Files uploaded:</p>
+                  <ul className="text-xs text-gray-500 space-y-1">
+                    <li>• Original study material</li>
+                    {summaryGenerated && <li>• AI-generated summary (PDF)</li>}
+                  </ul>
+                </div>
+
+                <Button
+                  onClick={() => {
+                    setUploadSuccess(false);
+                    setSummaryGenerated(false);
+                    setAiSummarizerEnabled(false);
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                >
+                  Upload Another File
+                </Button>
+              </div>
+            ) : (
+              <div className="text-sm text-blue-700">
+                <p className="mb-2">AI Summarizer is enabled. When you upload a file, it will:</p>
+                <ul className="text-xs space-y-1 ml-4">
+                  <li>• Extract key concepts and important points</li>
+                  <li>• Create structured bullet points</li>
+                  <li>• Generate PDF summary document</li>
+                  <li>• Upload both original and summary files</li>
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }

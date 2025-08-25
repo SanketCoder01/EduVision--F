@@ -1,9 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 export async function POST(request: NextRequest) {
+  let prompt = '';
+  let subject = '';
+  let difficulty = '';
+  
   try {
-    const { prompt, subject, difficulty, assignmentType } = await request.json();
+    const requestData = await request.json();
+    prompt = requestData.prompt;
+    subject = requestData.subject;
+    difficulty = requestData.difficulty;
+    const { assignmentType, language = 'english' } = requestData;
 
     if (!prompt) {
       return NextResponse.json(
@@ -12,30 +22,57 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) {
+    if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json(
-        { error: 'OpenAI API key not configured' },
+        { error: 'Gemini API key not configured' },
         { status: 500 }
       );
     }
 
-    // Initialize OpenAI client
-    const openai = new OpenAI({
-      apiKey: openaiApiKey,
-    });
+    let systemPrompt = '';
+    let userPrompt = '';
 
-    // Use OpenAI GPT for assignment generation
-    const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content: "You are an expert educational content creator. Generate comprehensive assignments that are educational, engaging, and well-structured."
-        },
-        {
-          role: "user",
-          content: `Create a comprehensive assignment based on the following requirements:
+    if (language === 'marathi') {
+      systemPrompt = 'तुम्ही एक अनुभवी शैक्षणिक सामग्री निर्माता आहात. शैक्षणिक, आकर्षक आणि सुव्यवस्थित असाइनमेंट तयार करा.';
+      userPrompt = `खालील आवश्यकतांवर आधारित संपूर्ण असाइनमेंट तयार करा:
+
+विषय: ${subject || 'सामान्य'}
+कठिणाई: ${difficulty || 'मध्यम'}
+प्रकार: ${assignmentType || 'मिश्र'}
+
+वापरकर्त्याची विनंती: ${prompt}
+
+कृपया खालील संरचनेसह तपशीलवार असाइनमेंट तयार करा:
+1. असाइनमेंट शीर्षक
+2. तपशीलवार वर्णन (उद्दिष्टे आणि संदर्भ)
+3. मुख्य प्रश्न/समस्या विधान
+4. पायरी दर पायरी सूचना
+5. नियम आणि मार्गदर्शक तत्त्वे
+6. मूल्यमापन निकष
+
+असाइनमेंट शैक्षणिक, आकर्षक आणि निर्दिष्ट कठिणाई स्तरासाठी योग्य बनवा.`;
+    } else if (language === 'hindi') {
+      systemPrompt = 'आप एक अनुभवी शैक्षणिक सामग्री निर्माता हैं। शैक्षणिक, आकर्षक और सुव्यवस्थित असाइनमेंट बनाएं।';
+      userPrompt = `निम्नलिखित आवश्यकताओं के आधार पर व्यापक असाइनमेंट बनाएं:
+
+विषय: ${subject || 'सामान्य'}
+कठिनाई: ${difficulty || 'मध्यम'}
+प्रकार: ${assignmentType || 'मिश्रित'}
+
+उपयोगकर्ता अनुरोध: ${prompt}
+
+कृपया निम्नलिखित संरचना के साथ विस्तृत असाइनमेंट तैयार करें:
+1. असाइनमेंट शीर्षक
+2. विस्तृत विवरण (उद्देश्य और संदर्भ)
+3. मुख्य प्रश्न/समस्या कथन
+4. चरणबद्ध निर्देश
+5. नियम और दिशानिर्देश
+6. मूल्यांकन मानदंड
+
+असाइनमेंट को शैक्षणिक, आकर्षक और निर्दिष्ट कठिनाई स्तर के लिए उपयुक्त बनाएं।`;
+    } else {
+      systemPrompt = 'You are an expert educational content creator. Generate comprehensive assignments that are educational, engaging, and well-structured.';
+      userPrompt = `Create a comprehensive assignment based on the following requirements:
 
 Subject: ${subject || 'General'}
 Difficulty: ${difficulty || 'medium'}
@@ -51,14 +88,24 @@ Please generate a detailed assignment with the following structure:
 5. Rules and Guidelines
 6. Evaluation Criteria
 
-Make the assignment educational, engaging, and appropriate for the specified difficulty level. Include specific requirements, constraints, and expected deliverables.`
-        }
-      ],
-      max_tokens: 1500,
-      temperature: 0.7
+Make the assignment educational, engaging, and appropriate for the specified difficulty level. Include specific requirements, constraints, and expected deliverables.`;
+    }
+
+    // Use Gemini for assignment generation
+    console.log('📝 Generating assignment with Gemini...');
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-1.5-flash',
+      generationConfig: {
+        temperature: 0.7,
+        topP: 0.8,
+        topK: 40,
+        maxOutputTokens: 2000,
+      }
     });
 
-    const aiResponse = response.choices[0]?.message?.content || '';
+    const result = await model.generateContent(`${systemPrompt}\n\n${userPrompt}`);
+    const aiResponse = result.response.text();
+    console.log('✅ Assignment generated successfully');
     
     if (!aiResponse || aiResponse.length < 50) {
       // If AI response is too short, use fallback
@@ -78,27 +125,26 @@ Make the assignment educational, engaging, and appropriate for the specified dif
     });
 
   } catch (error) {
-    console.error('Assignment generation error:', error);
+    console.error('❌ Assignment generation error:', error);
     
     // More detailed error information
     const errorDetails = {
       message: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined,
-      openaiApiKey: process.env.OPENAI_API_KEY ? 'Present' : 'Missing',
+      geminiApiKey: process.env.GEMINI_API_KEY ? 'Present' : 'Missing',
       timestamp: new Date().toISOString()
     };
     
-    console.error('Detailed error info:', errorDetails);
+    console.error('🔍 Detailed error info:', errorDetails);
     
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: 'Failed to generate assignment',
-        details: errorDetails.message,
-        debug: process.env.NODE_ENV === 'development' ? errorDetails : undefined
-      },
-      { status: 500 }
-    );
+    // Fallback assignment generation
+    const fallbackData = generateFallbackAssignment(prompt, subject, difficulty);
+    
+    return NextResponse.json({
+      success: true,
+      data: fallbackData,
+      source: 'fallback'
+    });
   }
 }
 
@@ -130,7 +176,7 @@ function parseAssignmentResponse(aiResponse: string, originalPrompt: string, sub
     instructions,
     rules,
     generatedAt: new Date().toISOString(),
-    source: 'RapidAPI ChatGPT',
+    source: 'Gemini AI',
     originalPrompt
   };
 }

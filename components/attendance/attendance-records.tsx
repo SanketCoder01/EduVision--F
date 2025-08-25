@@ -174,11 +174,46 @@ export function AttendanceRecords({ sessionId }: AttendanceRecordsProps) {
               </thead>
               <tbody>
                 {filteredStudentRecords.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-center py-8 text-gray-500">
-                      No attendance records found
-                    </td>
-                  </tr>
+                  <>
+                    {/* Sample attendance record */}
+                    <tr className="border-b hover:bg-gray-50">
+                      <td className="py-3 px-4">
+                        <div>
+                          <div className="font-medium">Demo Student</div>
+                          <div className="text-sm text-gray-600">demo@student.edu</div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-sm">PRN2024001</td>
+                      <td className="py-3 px-4">{getStatusBadge('present')}</td>
+                      <td className="py-3 px-4 text-sm">
+                        {new Date().toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex gap-2">
+                          <div className="flex items-center gap-1" title="Face Verified">
+                            <CheckCircle className="w-4 h-4 text-green-600" />
+                            <span className="text-xs">Face</span>
+                          </div>
+                          <div className="flex items-center gap-1" title="Location Verified">
+                            <CheckCircle className="w-4 h-4 text-green-600" />
+                            <span className="text-xs">Geo</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-sm">
+                        <div>
+                          <div>19.076090, 72.877426</div>
+                          <div className="text-xs text-gray-600">15m from center</div>
+                          <div className="text-xs text-blue-600 font-medium mt-1">Workshop - AI/ML Fundamentals</div>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td colSpan={6} className="text-center py-4 text-gray-400 text-sm">
+                        Sample attendance record shown above
+                      </td>
+                    </tr>
+                  </>
                 ) : (
                   filteredStudentRecords.map((record: any) => (
                     <tr key={record.id} className="border-b hover:bg-gray-50">

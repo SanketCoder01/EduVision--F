@@ -71,7 +71,7 @@ export default function ChatbotWidget() {
     <div className="fixed right-4 md:right-6 z-[9999]" style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
       <button
         onClick={loadChatbot}
-        className="h-14 w-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-xl ring-1 ring-blue-400/30 flex items-center justify-center transition-transform duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+        className="h-14 w-14 rounded-full bg-white hover:bg-gray-50 text-blue-600 shadow-xl border border-gray-200 flex items-center justify-center transition-transform duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
         aria-label="Open Chatbot"
       >
         <Bot className="h-7 w-7" />

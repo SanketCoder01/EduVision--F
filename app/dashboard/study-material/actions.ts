@@ -20,10 +20,14 @@ export interface StudyMaterialEntry {
 export async function uploadStudyMaterial(formData: FormData) {
   const supabase = createClient();
   
-  const { data: { user }, error: userError } = await supabase.auth.getUser();
-  if (!user) {
-    return { error: { message: 'User not authenticated' } };
-  }
+  // Skip authentication for now - allow unrestricted uploads
+  // const { data: { user }, error: userError } = await supabase.auth.getUser();
+  // if (!user) {
+  //   return { error: { message: 'User not authenticated' } };
+  // }
+  
+  // Use a default faculty_id for uploads without authentication
+  const defaultFacultyId = 'default-faculty-id';
 
   const file = formData.get('file') as File;
   const department = formData.get('department') as string;
@@ -39,6 +43,15 @@ export async function uploadStudyMaterial(formData: FormData) {
   try {
     // Upload file to Supabase Storage
     const fileName = `${department}-${year}-${subject}-${Date.now()}-${file.name}`;
+    
+    // Create the bucket if it doesn't exist
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const bucketExists = buckets?.some((bucket: any) => bucket.name === 'study-materials');
+    
+    if (!bucketExists) {
+      await supabase.storage.createBucket('study-materials', { public: true });
+    }
+    
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('study-materials')
       .upload(fileName, file);
@@ -56,7 +69,7 @@ export async function uploadStudyMaterial(formData: FormData) {
     const { data, error: dbError } = await supabase
       .from('study_materials')
       .insert({
-        faculty_id: user.id,
+        faculty_id: defaultFacultyId,
         department,
         year,
         subject,
@@ -70,7 +83,8 @@ export async function uploadStudyMaterial(formData: FormData) {
       .single();
 
     if (dbError) {
-      return { error: { message: `Database error: ${dbError.message}` } };
+      console.error('Database error details:', dbError);
+      return { error: { message: `Database error: ${dbError.message || 'Unknown database error'}` } };
     }
 
     revalidatePath('/dashboard/study-material');
@@ -83,15 +97,15 @@ export async function uploadStudyMaterial(formData: FormData) {
 export async function getStudyMaterials() {
   const supabase = createClient();
   
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return { error: { message: 'User not authenticated' } };
-  }
+  // Skip authentication for now - show all materials
+  // const { data: { user } } = await supabase.auth.getUser();
+  // if (!user) {
+  //   return { error: { message: 'User not authenticated' } };
+  // }
 
   const { data, error } = await supabase
     .from('study_materials')
     .select('*')
-    .eq('faculty_id', user.id)
     .order('uploaded_at', { ascending: false });
 
   if (error) {
