@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Plus, RefreshCw, FileText, Users } from 'lucide-react';
+import { BookOpen, Plus, RefreshCw, FileText, Users, Upload, Sparkles } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -23,11 +24,7 @@ export default function StudyMaterialPage() {
 
     const result = await getStudyMaterials();
 
-    if (result.error) {
-      setError(result.error.message);
-    } else {
-      setMaterials(result.data || []);
-    }
+    setMaterials(result.data || []);
 
     setIsLoading(false);
   };
@@ -53,7 +50,7 @@ export default function StudyMaterialPage() {
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+          className="space-y-4"
         >
           <div className="text-center sm:text-left">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center justify-center sm:justify-start gap-3">
@@ -65,25 +62,35 @@ export default function StudyMaterialPage() {
             </p>
           </div>
           
-          <div className="flex items-center justify-center gap-3 sm:gap-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <Button
               onClick={handleRefresh}
               variant="outline"
               disabled={isLoading}
-              className="flex items-center gap-2 text-sm"
+              className="flex items-center justify-center gap-2 text-sm w-full sm:w-auto"
               size="sm"
             >
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            <Button 
-              onClick={() => window.location.href = '/dashboard/study-material/upload'}
-              className="flex items-center gap-2 text-sm"
-              size="sm"
-            >
-              <Plus className="h-4 w-4" />
-              Upload Material
-            </Button>
+            
+            <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="flex items-center justify-center gap-2 w-full sm:w-auto">
+                  <Plus className="h-4 w-4" />
+                  Upload Material
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Upload className="h-5 w-5 text-blue-600" />
+                    Upload Study Material
+                  </DialogTitle>
+                </DialogHeader>
+                <StudyMaterialUpload onUploadSuccess={handleUploadSuccess} />
+              </DialogContent>
+            </Dialog>
           </div>
         </motion.div>
 

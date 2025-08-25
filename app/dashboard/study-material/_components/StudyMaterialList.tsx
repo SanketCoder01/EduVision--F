@@ -74,14 +74,18 @@ export default function StudyMaterialList({ materials, onDelete }: StudyMaterial
     );
   }
 
-  // Group materials by subject for better organization
+  // Group materials by upload session (original + AI summary together)
   const groupedMaterials = materials.reduce((acc, material) => {
-    const key = `${material.department}-${material.year}-${material.subject}`;
+    // Extract base ID to group original and AI summary together
+    const baseId = material.id.replace(/_original$|_summary$/, '');
+    const key = `${material.department}-${material.year}-${material.subject}-${baseId}`;
+    
     if (!acc[key]) {
       acc[key] = {
         department: material.department,
         year: material.year,
         subject: material.subject,
+        baseTitle: material.title.replace(' - AI Summary', ''),
         materials: []
       };
     }
@@ -114,7 +118,7 @@ export default function StudyMaterialList({ materials, onDelete }: StudyMaterial
               <CardTitle className="flex items-center justify-between text-lg">
                 <span className="flex items-center gap-2">
                   <BookOpen className="h-5 w-5 text-blue-600" />
-                  {group.subject}
+                  {group.baseTitle}
                 </span>
                 <div className="flex items-center gap-2">
                   <Badge variant="outline" className="text-xs">
@@ -123,6 +127,9 @@ export default function StudyMaterialList({ materials, onDelete }: StudyMaterial
                   </Badge>
                   <Badge variant="outline" className="text-xs">
                     Year {group.year}
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    {group.subject}
                   </Badge>
                 </div>
               </CardTitle>
@@ -142,8 +149,20 @@ export default function StudyMaterialList({ materials, onDelete }: StudyMaterial
                     </div>
                     
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-gray-900 text-sm sm:text-base">
-                        {material.title}
+                      <h4 className="font-medium text-gray-900 text-sm sm:text-base flex items-center gap-2">
+                        {material.is_ai_generated ? (
+                          <>
+                            <span className="text-blue-600">🤖 AI Summary</span>
+                            <Badge className="bg-blue-100 text-blue-800 text-xs">PDF</Badge>
+                          </>
+                        ) : (
+                          <>
+                            <span>📄 Original File</span>
+                            <Badge className={`${getFileTypeColor(material.file_type)} text-xs`}>
+                              {material.file_type.split('/')[1]?.toUpperCase() || 'FILE'}
+                            </Badge>
+                          </>
+                        )}
                       </h4>
                       {material.description && (
                         <p className="text-xs sm:text-sm text-gray-600 mt-1 line-clamp-2">
@@ -151,9 +170,6 @@ export default function StudyMaterialList({ materials, onDelete }: StudyMaterial
                         </p>
                       )}
                       <div className="flex flex-wrap items-center gap-2 mt-2">
-                        <Badge className={`${getFileTypeColor(material.file_type)} text-xs`}>
-                          {material.file_type.split('/')[1]?.toUpperCase() || 'FILE'}
-                        </Badge>
                         <span className="text-xs text-gray-500">
                           {formatDate(material.uploaded_at)}
                         </span>

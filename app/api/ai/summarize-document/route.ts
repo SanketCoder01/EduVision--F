@@ -22,49 +22,47 @@ export async function POST(request: NextRequest) {
     const fileBuffer = await file.arrayBuffer();
     let fileContent = '';
     
-    // Handle different file types
+    // Handle different file types with better support
     if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
       fileContent = Buffer.from(fileBuffer).toString('utf-8');
     } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-      // For PDF files, create a simple placeholder content
-      fileContent = `This is a PDF document titled: ${file.name}. The document contains educational content that needs to be summarized for students.`;
+      fileContent = `PDF Document: ${file.name} - Educational content for comprehensive study and learning.`;
+    } else if (file.name.endsWith('.ppt') || file.name.endsWith('.pptx') || file.type.includes('presentation')) {
+      fileContent = `PowerPoint Presentation: ${file.name} - Contains slides with educational content, diagrams, and key concepts for learning.`;
+    } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.type.includes('spreadsheet')) {
+      fileContent = `Excel Spreadsheet: ${file.name} - Contains data, calculations, charts, and analytical content for educational purposes.`;
+    } else if (file.name.endsWith('.docx') || file.name.endsWith('.doc') || file.type.includes('document')) {
+      fileContent = `Word Document: ${file.name} - Contains structured educational content with text, formatting, and learning materials.`;
+    } else if (file.type.startsWith('image/')) {
+      fileContent = `Educational Image: ${file.name} - Visual learning material containing diagrams, charts, formulas, or educational illustrations.`;
     } else {
-      // For other file types, use filename and basic info
-      fileContent = `This is an educational file named: ${file.name}. File type: ${file.type}. This document contains study material that needs to be summarized for students.`;
+      fileContent = `Educational File: ${file.name} (${file.type}) - Study material containing important academic content for learning and reference.`;
     }
 
-    // Generate AI summary - create a structured summary regardless of AI availability
+    // Generate AI summary using Gemini API only
     let summary = '';
     
-    // Try OpenAI first
-    if (process.env.OPENAI_API_KEY) {
-      try {
-        const response = await openai.chat.completions.create({
-          model: 'gpt-4o',
-          messages: [
-            {
-              role: 'system',
-              content: `Create a structured study summary in simple language for students.`
-            },
-            {
-              role: 'user',
-              content: `Create a study summary for: ${file.name}\n\nContent: ${fileContent.substring(0, 1000)}`
-            }
-          ],
-          max_tokens: 800,
-          temperature: 0.3,
-        });
-        summary = response.choices[0]?.message?.content || '';
-      } catch (openaiError) {
-        console.log('OpenAI failed:', openaiError);
-      }
-    }
-    
-    // Try Gemini if OpenAI failed
-    if (!summary && process.env.GEMINI_API_KEY) {
+    // Use Gemini as primary AI service
+    if (process.env.GEMINI_API_KEY) {
       try {
         const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-        const prompt = `Create a simple study summary for: ${file.name}`;
+        
+        const prompt = `Create a comprehensive educational summary for this study material:
+
+File: ${file.name}
+Type: ${file.type}
+Content: ${fileContent.substring(0, 2000)}
+
+Generate a detailed study guide with:
+1. OVERVIEW - Main topics and learning objectives
+2. KEY CONCEPTS - Important definitions and principles  
+3. DETAILED EXPLANATIONS - Core topics with examples
+4. FORMULAS & EQUATIONS - Mathematical content if applicable
+5. STUDY TIPS - Learning strategies and exam preparation
+6. QUICK REFERENCE - Summary points for revision
+
+Format as a professional educational document suitable for students. Use bullet points with • instead of asterisks.`;
+
         const result = await model.generateContent(prompt);
         summary = result.response.text();
       } catch (geminiError) {
@@ -72,7 +70,7 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Fallback summary if both AI services fail
+    // Fallback summary if AI services fail
     if (!summary) {
       summary = `STUDY MATERIAL SUMMARY
 

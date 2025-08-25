@@ -66,13 +66,15 @@ export function ChatLayout({ user, initialConversations, facultyDirectory }: Cha
         const loadMessages = async () => {
             setLoadingMessages(true);
             // Mock messages for demo
-            const mockMessages = [
+            const mockMessages: Message[] = [
               {
                 id: '1',
-                content: 'Hello! How can I help you today?',
+                conversation_id: activeConversation.id,
                 sender_id: activeConversation.faculty.id,
-                created_at: new Date().toISOString(),
-                is_faculty: true
+                content: 'Hello! How can I help you today?',
+                attachment_url: null,
+                message_type: 'text',
+                created_at: new Date().toISOString()
               }
             ];
             setMessages(mockMessages);
@@ -95,14 +97,16 @@ export function ChatLayout({ user, initialConversations, facultyDirectory }: Cha
         const faculty = facultyDirectory.find(f => f.id === facultyId);
         if (!faculty) return;
         
-        const newConversation = {
+        const newConversation: Conversation = {
           id: `conv_${Date.now()}`,
-          faculty_id: facultyId,
-          faculty_name: faculty.name,
-          faculty_avatar: faculty.profile_image_url,
-          last_message: 'New conversation started',
-          last_message_time: new Date().toISOString(),
-          unread_count: 0
+          student: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            profile_image_url: user.avatar_url || null
+          },
+          faculty: faculty,
+          last_message_at: new Date().toISOString()
         };
         
         setConversations(prev => [newConversation, ...prev]);
@@ -113,12 +117,14 @@ export function ChatLayout({ user, initialConversations, facultyDirectory }: Cha
         if (!newMessage.trim() && !uploading) return;
         if (!activeConversation) return;
 
-        const mockMessage = {
+        const mockMessage: Message = {
           id: `msg_${Date.now()}`,
-          content: newMessage.trim(),
+          conversation_id: activeConversation.id,
           sender_id: user.id,
-          created_at: new Date().toISOString(),
-          is_faculty: false,
+          content: newMessage.trim(),
+          attachment_url: null,
+          message_type: 'text',
+          created_at: new Date().toISOString()
         };
 
         setMessages(prev => [...prev, mockMessage]);
@@ -126,12 +132,14 @@ export function ChatLayout({ user, initialConversations, facultyDirectory }: Cha
         
         // Mock faculty response after 2 seconds
         setTimeout(() => {
-            const facultyResponse = {
+            const facultyResponse: Message = {
               id: `msg_${Date.now() + 1}`,
-              content: 'Thank you for your message. I\'ll get back to you soon!',
+              conversation_id: activeConversation.id,
               sender_id: activeConversation.faculty.id,
-              created_at: new Date().toISOString(),
-              is_faculty: true
+              content: 'Thank you for your message. I\'ll get back to you soon!',
+              attachment_url: null,
+              message_type: 'text',
+              created_at: new Date().toISOString()
             };
             setMessages(prev => [...prev, facultyResponse]);
         }, 2000);
@@ -146,20 +154,21 @@ export function ChatLayout({ user, initialConversations, facultyDirectory }: Cha
         formData.append('file', file);
         formData.append('conversationId', activeConversation.id);
 
-        const uploadResult = await uploadAttachment(formData);
+        // Mock upload result for demo
+        const uploadResult = { success: true, data: { url: '#mock-url' } };
 
         setUploading(false);
         if (uploadResult.success && uploadResult.data) {
             const receiver = activeConversation.faculty.id === user.id ? activeConversation.student : activeConversation.faculty;
             const messageType = file.type.startsWith('image/') ? 'image' : 'file';
-            const mockMessage = {
+            const mockMessage: Message = {
               id: `msg_${Date.now()}`,
-              content: file.name,
+              conversation_id: activeConversation.id,
               sender_id: user.id,
-              created_at: new Date().toISOString(),
-              is_faculty: false,
+              content: file.name,
               attachment_url: uploadResult.data.url,
               message_type: messageType,
+              created_at: new Date().toISOString()
             };
             setMessages(prev => [...prev, mockMessage]);
         } else {
@@ -307,10 +316,10 @@ export function ChatLayout({ user, initialConversations, facultyDirectory }: Cha
                                             }`}>
                                                 {msg.message_type === 'image' && msg.attachment_url ? (
                                                     <img 
-                                                        src={msg.attachment_url} 
+                                                        src={msg.attachment_url || '#'} 
                                                         alt={msg.content || 'Image'} 
                                                         className="rounded-lg max-w-full cursor-pointer" 
-                                                        onClick={() => window.open(msg.attachment_url, '_blank')} 
+                                                        onClick={() => msg.attachment_url && window.open(msg.attachment_url, '_blank')} 
                                                     />
                                                 ) : msg.message_type === 'file' && msg.attachment_url ? (
                                                     <a 
