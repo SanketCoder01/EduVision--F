@@ -82,6 +82,54 @@ export async function authenticateUniversityAdmin(email: string, password: strin
 // Faculty Authentication
 export async function authenticateFaculty(email: string, password: string) {
   try {
+    // Demo faculty credentials check first
+    if (email === 'faculty@sanjivani.edu.in' && password === 'EduVision2024@Faculty!') {
+      return {
+        id: 'demo-faculty-1',
+        employee_id: 'EMP001',
+        name: 'Dr. Faculty Member',
+        email: email,
+        department: 'Computer Science Engineering',
+        designation: 'Professor',
+        qualification: 'Ph.D.',
+        experience_years: 10,
+        status: 'active' as const,
+        created_at: new Date().toISOString()
+      }
+    }
+
+    // Additional demo faculty accounts
+    if (email === 'dr.smith@sanjivani.edu.in' && password === 'DrSmith2024!') {
+      return {
+        id: 'demo-faculty-2',
+        employee_id: 'EMP002',
+        name: 'Dr. John Smith',
+        email: email,
+        department: 'Computer Science Engineering',
+        designation: 'Associate Professor',
+        qualification: 'Ph.D.',
+        experience_years: 8,
+        status: 'active' as const,
+        created_at: new Date().toISOString()
+      }
+    }
+
+    if (email === 'prof.jones@sanjivani.edu.in' && password === 'ProfJones2024!') {
+      return {
+        id: 'demo-faculty-3',
+        employee_id: 'EMP003',
+        name: 'Prof. Sarah Jones',
+        email: email,
+        department: 'Information Technology',
+        designation: 'Assistant Professor',
+        qualification: 'M.Tech',
+        experience_years: 5,
+        status: 'active' as const,
+        created_at: new Date().toISOString()
+      }
+    }
+
+    // Try database connection only if not demo credentials
     const { data: faculty, error } = await supabase
       .from("faculty")
       .select("*")
@@ -108,6 +156,38 @@ export async function authenticateFaculty(email: string, password: string) {
 // Student Authentication
 export async function authenticateStudent(prn: string, password: string) {
   try {
+    // Demo credentials check first
+    if (prn === '2024CSE0001' && password === 'student123') {
+      return {
+        id: 'demo-student-1',
+        prn: '2024CSE0001',
+        name: 'Demo Student',
+        email: '2024CSE0001@sanjivani.edu.in',
+        department: 'Computer Science Engineering',
+        year: 'first' as const,
+        status: 'active' as const,
+        created_at: new Date().toISOString()
+      }
+    }
+
+    // Check for other demo PRN patterns (any year CSE students with student123 password)
+    const prnPattern = /^(\d{4})(CSE)(\d{4})$/;
+    const match = prn.match(prnPattern);
+    if (match && password === 'student123') {
+      const [, year, dept, number] = match;
+      return {
+        id: `demo-student-${number}`,
+        prn: prn,
+        name: `Demo Student ${number}`,
+        email: `${prn}@sanjivani.edu.in`,
+        department: 'Computer Science Engineering',
+        year: 'first' as const,
+        status: 'active' as const,
+        created_at: new Date().toISOString()
+      }
+    }
+
+    // Try database connection only if not demo credentials
     const { data: student, error } = await supabase
       .from("students")
       .select("*")

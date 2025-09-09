@@ -37,6 +37,10 @@ interface Assignment {
   fileType: string
   createdAt: string
   facultyId: string
+  year: string
+  difficulty?: string
+  ai_generated?: boolean
+  file_based?: boolean
 }
 
 export default function AssignmentsPage() {
@@ -63,11 +67,29 @@ export default function AssignmentsPage() {
 
   const loadAssignments = (user: any) => {
     try {
-      const savedAssignments = JSON.parse(localStorage.getItem("facultyAssignments") || "[]")
-      // Filter assignments by faculty ID and department
+      // Load assignments from the new storage key used in create page
+      const savedAssignments = JSON.parse(localStorage.getItem("assignments") || "[]")
+      // Filter assignments by faculty ID
       const userAssignments = savedAssignments.filter(
-        (assignment: Assignment) => assignment.facultyId === user.id || assignment.department === user.department,
-      )
+        (assignment: any) => assignment.faculty_id === user.id
+      ).map((assignment: any) => ({
+        id: assignment.id.toString(),
+        title: assignment.title,
+        description: assignment.description.substring(0, 150) + '...',
+        department: assignment.department,
+        subject: assignment.assignment_type || 'General',
+        dueDate: assignment.due_date,
+        status: assignment.status,
+        submissions: 0,
+        totalStudents: 25, // Mock data
+        fileType: assignment.allowed_file_types?.[0] || 'pdf',
+        createdAt: new Date().toISOString(),
+        facultyId: assignment.faculty_id,
+        year: assignment.year,
+        difficulty: assignment.difficulty,
+        ai_generated: assignment.ai_generated,
+        file_based: assignment.file_based
+      }))
       setAssignments(userAssignments)
     } catch (error) {
       console.error("Error loading assignments:", error)
@@ -114,9 +136,9 @@ export default function AssignmentsPage() {
     setAssignments(updatedAssignments)
 
     // Update localStorage
-    const allAssignments = JSON.parse(localStorage.getItem("facultyAssignments") || "[]")
-    const filteredAll = allAssignments.filter((a: Assignment) => a.id !== id)
-    localStorage.setItem("facultyAssignments", JSON.stringify(filteredAll))
+    const allAssignments = JSON.parse(localStorage.getItem("assignments") || "[]")
+    const filteredAll = allAssignments.filter((a: any) => a.id.toString() !== id)
+    localStorage.setItem("assignments", JSON.stringify(filteredAll))
   }
 
   const stats = [
@@ -281,10 +303,10 @@ export default function AssignmentsPage() {
                         </Badge>
                       </div>
                       <p className="text-gray-600 mb-3">{assignment.description}</p>
-                      <div className="flex flex-wrap gap-4 text-sm text-gray-500">
+                      <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-3">
                         <div className="flex items-center gap-1">
                           <Users className="h-4 w-4" />
-                          {assignment.department}
+                          {assignment.department} - Year {assignment.year}
                         </div>
                         <div className="flex items-center gap-1">
                           <BookOpen className="h-4 w-4" />
@@ -298,6 +320,23 @@ export default function AssignmentsPage() {
                           <CheckCircle className="h-4 w-4" />
                           {assignment.submissions}/{assignment.totalStudents} submitted
                         </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {assignment.ai_generated && (
+                          <Badge className="bg-purple-100 text-purple-800 border-0 text-xs">
+                            🤖 AI Generated
+                          </Badge>
+                        )}
+                        {assignment.file_based && (
+                          <Badge className="bg-blue-100 text-blue-800 border-0 text-xs">
+                            📁 File Based
+                          </Badge>
+                        )}
+                        {assignment.difficulty && (
+                          <Badge className="bg-orange-100 text-orange-800 border-0 text-xs">
+                            {assignment.difficulty.charAt(0).toUpperCase() + assignment.difficulty.slice(1)}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                     <DropdownMenu>

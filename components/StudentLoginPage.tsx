@@ -34,13 +34,18 @@ export default function StudentLoginPage({ onBack }: StudentLoginPageProps) {
       const student = await authenticateStudent(prn, password)
 
       // Store student data in localStorage
-      localStorage.setItem(
-        "student_session",
-        JSON.stringify({
-          ...student,
-          loginTime: new Date().toISOString(),
-        }),
-      )
+      localStorage.setItem("student_session", JSON.stringify({
+        ...student,
+        loginTime: new Date().toISOString(),
+      }))
+      localStorage.setItem("studentSession", JSON.stringify({
+        ...student,
+        loginTime: new Date().toISOString(),
+      }))
+      localStorage.setItem("currentUser", JSON.stringify({
+        ...student,
+        loginTime: new Date().toISOString(),
+      }))
 
       toast({
         title: "Login Successful",

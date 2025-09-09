@@ -189,11 +189,11 @@ export default function LibraryBookingPage() {
     let matchesRoomType = true
     let matchesCapacity = true
 
-    if (selectedLocation) {
+    if (selectedLocation && selectedLocation !== "all") {
       matchesLocation = room.location.includes(selectedLocation)
     }
 
-    if (selectedRoomType) {
+    if (selectedRoomType && selectedRoomType !== "all") {
       // This is a simplified check - in a real app, you'd have a roomType field
       matchesRoomType = room.name.includes(selectedRoomType)
     }
@@ -668,7 +668,7 @@ export default function LibraryBookingPage() {
                         <SelectValue placeholder="Select a library" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">All Libraries</SelectItem>
+                        <SelectItem value="all">All Libraries</SelectItem>
                         {libraryLocations.map((location) => (
                           <SelectItem key={location.id} value={location.name}>
                             {location.name}
@@ -683,7 +683,7 @@ export default function LibraryBookingPage() {
                         <SelectValue placeholder="Select room type" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">All Room Types</SelectItem>
+                        <SelectItem value="all">All Room Types</SelectItem>
                         {roomTypes.map((type) => (
                           <SelectItem key={type.id} value={type.name}>
                             {type.name}

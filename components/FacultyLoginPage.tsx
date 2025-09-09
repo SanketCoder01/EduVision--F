@@ -31,7 +31,7 @@ export default function FacultyLoginPage({ onBack }: FacultyLoginPageProps) {
 
     try {
       // Demo faculty credentials
-      if (email === "faculty@sanjivani.edu.in" && password === "faculty123") {
+      if (email === "faculty@sanjivani.edu.in" && password === "EduVision2024@Faculty!") {
         localStorage.setItem(
           "faculty_session",
           JSON.stringify({
@@ -205,7 +205,7 @@ export default function FacultyLoginPage({ onBack }: FacultyLoginPageProps) {
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <h4 className="font-medium text-blue-900 mb-2">Demo Credentials:</h4>
                 <p className="text-sm text-blue-700">Email: faculty@sanjivani.edu.in</p>
-                <p className="text-sm text-blue-700">Password: faculty123</p>
+                <p className="text-sm text-blue-700">Password: EduVision2024@Faculty!</p>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">

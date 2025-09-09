@@ -7,7 +7,6 @@ import {
   BookOpen,
   Users,
   Calendar,
-  Video,
   MessageCircle,
   Bell,
   Code,
@@ -16,22 +15,23 @@ import {
   TrendingUp,
   Clock,
   CheckCircle,
-  Coins,
   AlertCircle,
+  FileText,
+  Bot,
+  GraduationCap,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 
 export default function StudentDashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<any>(null)
-  const [stats, setStats] = useState({
-    totalAssignments: 0,
-    completedAssignments: 0,
-    pendingTasks: 0,
-    studyHours: 0,
-  })
+
+  // Static stats to prevent infinite loops
+  const stats = {
+    totalAssignments: 5,
+    completedAssignments: 3,
+    pendingTasks: 2,
+    studyHours: 24,
+  }
 
   useEffect(() => {
     // Get user data from localStorage
@@ -54,9 +54,6 @@ export default function StudentDashboardPage() {
       }
     }
 
-    // Load dynamic stats
-    loadStats()
-
     // Simulate loading
     const timer = setTimeout(() => {
       setIsLoading(false)
@@ -65,95 +62,74 @@ export default function StudentDashboardPage() {
     return () => clearTimeout(timer)
   }, [])
 
-  const loadStats = () => {
-    try {
-      // Get assignments for this student's department
-      const allAssignments = JSON.parse(localStorage.getItem("facultyAssignments") || "[]")
-      const departmentAssignments = currentUser?.department
-        ? allAssignments.filter((assignment: any) => assignment.department === currentUser.department)
-        : []
+  const [assignments, setAssignments] = useState<any[]>([])
 
-      // Get student's submissions
-      const allSubmissions = JSON.parse(localStorage.getItem("assignmentSubmissions") || "[]")
-      const studentSubmissions = allSubmissions.filter((submission: any) => submission.studentId === currentUser?.id)
-
-      setStats({
-        totalAssignments: departmentAssignments.length,
-        completedAssignments: studentSubmissions.filter((s: any) => s.status === "submitted" || s.status === "graded")
-          .length,
-        pendingTasks: departmentAssignments.length - studentSubmissions.length,
-        studyHours: 0, // This would be tracked separately
-      })
-    } catch (error) {
-      console.error("Error loading stats:", error)
+  useEffect(() => {
+    if (currentUser) {
+      // Load published assignments for this student
+      const savedAssignments = JSON.parse(localStorage.getItem("assignments") || "[]")
+      const studentAssignments = savedAssignments.filter((assignment: any) => 
+        assignment.status === "published" && 
+        assignment.department === currentUser.department && 
+        assignment.year === currentUser.year
+      )
+      setAssignments(studentAssignments)
     }
-  }
+  }, [currentUser])
 
-  const menuItems = [
+  // Today's Hub data - faculty posts and notifications with real assignment data
+  const todaysHubItems = [
+    ...assignments.slice(0, 2).map((assignment, index) => ({
+      id: `assignment_${assignment.id}`,
+      type: "assignment",
+      title: assignment.title,
+      description: `Due: ${new Date(assignment.due_date).toLocaleDateString()} - ${assignment.ai_generated ? '🤖 AI Generated' : ''} ${assignment.difficulty ? `(${assignment.difficulty})` : ''}`,
+      author: "Faculty",
+      time: "Recently published",
+      urgent: new Date(assignment.due_date).getTime() - new Date().getTime() < 3 * 24 * 60 * 60 * 1000, // Due within 3 days
+      department: assignment.department,
+      assignment_id: assignment.id
+    })),
     {
-      icon: <BookOpen className="h-8 w-8 text-green-600" />,
-      title: "Assignments",
-      href: "/student-dashboard/assignments",
-      description: "View and submit your assignments",
-      color: "from-green-500 to-green-700",
-      count: `${stats.pendingTasks} Pending`,
+      id: 1,
+      type: "assignment",
+      title: "Data Structures Assignment 3",
+      description: "Complete the binary tree implementation by Friday",
+      author: "Dr. Smith",
+      time: "2 hours ago",
+      urgent: true,
+      department: currentUser?.department || "CSE"
     },
     {
-      icon: <Code className="h-8 w-8 text-teal-600" />,
-      title: "Compiler",
-      href: "/student-dashboard/compiler",
-      description: "Access online coding environment",
-      color: "from-teal-500 to-teal-700",
-      count: "Available",
+      id: 2,
+      type: "announcement",
+      title: "Mid-term Exam Schedule Released",
+      description: "Check your exam timetable on the portal",
+      author: "Academic Office",
+      time: "4 hours ago",
+      urgent: false,
+      department: "All"
     },
     {
-      icon: <Users className="h-8 w-8 text-blue-600" />,
-      title: "Study Groups",
-      href: "/student-dashboard/study-groups",
-      description: "Join and participate in study groups",
-      color: "from-blue-500 to-blue-700",
-      count: "Available",
+      id: 3,
+      type: "event",
+      title: "Tech Fest 2024 Registration Open",
+      description: "Register for coding competitions and workshops",
+      author: "Student Council",
+      time: "6 hours ago",
+      urgent: false,
+      department: "All"
     },
     {
-      icon: <Video className="h-8 w-8 text-red-600" />,
-      title: "Virtual Classroom",
-      href: "/student-dashboard/virtual-classroom",
-      description: "Attend online classes and lectures",
-      color: "from-red-500 to-red-700",
-      count: "Available",
-    },
-    {
-      icon: <Calendar className="h-8 w-8 text-orange-600" />,
-      title: "Events",
-      href: "/student-dashboard/events",
-      description: "View and register for upcoming events",
-      color: "from-orange-500 to-orange-700",
-      count: "Available",
-    },
-    {
-      icon: <MessageCircle className="h-8 w-8 text-yellow-600" />,
-      title: "Queries",
-      href: "/student-dashboard/queries",
-      description: "Ask questions and get help from faculty",
-      color: "from-yellow-500 to-yellow-700",
-      count: "Available",
-    },
-    {
-      icon: <Bell className="h-8 w-8 text-pink-600" />,
-      title: "Announcements",
-      href: "/student-dashboard/announcements",
-      description: "View important announcements",
-      color: "from-pink-500 to-pink-700",
-      count: "Available",
-    },
-    {
-      icon: <Coins className="h-8 w-8 text-cyan-600" />,
-      title: "Web3",
-      href: "/student-dashboard/web3",
-      description: "Explore blockchain and Web3 features",
-      color: "from-cyan-500 to-cyan-700",
-      count: "New",
-    },
+      id: 4,
+      type: "lost_found",
+      title: "Lost: Black Laptop Bag",
+      description: "Found near library, contact if yours",
+      author: "Security Desk",
+      time: "1 day ago",
+      urgent: false,
+      department: "All"
+    }
   ]
 
   const statsCards = [
@@ -193,7 +169,7 @@ export default function StudentDashboardPage() {
     },
   ]
 
-  const upcomingDeadlines = [
+  const upcomingDeadlines: any[] = [
     // This will be populated with real assignment deadlines
   ]
 
@@ -272,15 +248,20 @@ export default function StudentDashboardPage() {
       >
         {statsCards.map((stat, index) => (
           <motion.div key={index} variants={item}>
-            <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
-              <CardContent className="p-6">
+            <div className="border-0 shadow-lg bg-white/80 backdrop-blur-sm rounded-lg">
+              <div className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-600">{stat.title}</p>
                     <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
                     {stat.percentage !== undefined && (
                       <div className="mt-2">
-                        <Progress value={stat.percentage} className="h-2" />
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-green-600 h-2 rounded-full transition-all duration-300" 
+                            style={{ width: `${stat.percentage}%` }}
+                          ></div>
+                        </div>
                         <p className="text-xs text-gray-500 mt-1">{stat.percentage}% Complete</p>
                       </div>
                     )}
@@ -290,81 +271,89 @@ export default function StudentDashboardPage() {
                     <stat.icon className={`h-6 w-6 ${stat.color}`} />
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </motion.div>
         ))}
       </motion.div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-        {/* Main Menu Items */}
+        {/* Today's Hub */}
         <div className="xl:col-span-2">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Quick Access</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Today's Hub</h2>
           <motion.div
             variants={container}
             initial="hidden"
             animate="show"
-            className="grid grid-cols-1 md:grid-cols-2 gap-6"
+            className="space-y-4"
           >
-            {menuItems.map((menuItem, index) => (
-              <motion.div key={index} variants={item}>
-                <Link href={menuItem.href}>
-                  <Card className="group hover:shadow-xl transition-all duration-300 h-full border-0 bg-white/80 backdrop-blur-sm hover:bg-white cursor-pointer">
-                    <CardContent className="p-6 flex flex-col h-full relative overflow-hidden">
-                      {/* Background Gradient */}
-                      <div
-                        className={`absolute inset-0 bg-gradient-to-br ${menuItem.color} opacity-0 group-hover:opacity-5 transition-opacity duration-300`}
-                      ></div>
-
-                      {/* Icon and Badge */}
-                      <div className="flex items-start justify-between mb-4 relative z-10">
-                        <motion.div
-                          className="p-3 bg-gray-50 rounded-xl group-hover:bg-white transition-colors duration-300"
-                          whileHover={{ scale: 1.05 }}
-                        >
-                          {menuItem.icon}
-                        </motion.div>
-                        <Badge variant="secondary" className="text-xs">
-                          {menuItem.count}
-                        </Badge>
+            {todaysHubItems.map((item, index) => (
+              <motion.div key={item.id} variants={item}>
+                <div className={`p-4 rounded-lg border-l-4 ${
+                  item.urgent ? 'border-red-500 bg-red-50' :
+                  item.type === 'assignment' ? 'border-green-500 bg-green-50' :
+                  item.type === 'announcement' ? 'border-blue-500 bg-blue-50' :
+                  item.type === 'event' ? 'border-purple-500 bg-purple-50' :
+                  'border-gray-500 bg-gray-50'
+                } hover:shadow-md transition-shadow`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          item.type === 'assignment' ? 'bg-green-100 text-green-700' :
+                          item.type === 'announcement' ? 'bg-blue-100 text-blue-700' :
+                          item.type === 'event' ? 'bg-purple-100 text-purple-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {item.type.charAt(0).toUpperCase() + item.type.slice(1).replace('_', ' ')}
+                        </span>
+                        {item.urgent && (
+                          <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium">
+                            Urgent
+                          </span>
+                        )}
                       </div>
-
-                      {/* Content */}
-                      <div className="flex-grow relative z-10">
-                        <h3 className="text-xl font-semibold mb-2 text-gray-900 group-hover:text-gray-800 transition-colors">
-                          {menuItem.title}
-                        </h3>
-                        <p className="text-gray-600 text-sm leading-relaxed group-hover:text-gray-700 transition-colors">
-                          {menuItem.description}
-                        </p>
+                      <h4 className="font-semibold text-gray-900 mb-1">{item.title}</h4>
+                      <p className="text-sm text-gray-600 mb-2">{item.description}</p>
+                      <div className="flex items-center gap-4 text-xs text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <Users className="h-3 w-3" />
+                          {item.author}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {item.time}
+                        </span>
                       </div>
-
-                      {/* Arrow */}
-                      <div className="flex justify-end mt-4 relative z-10">
-                        <motion.div
-                          className="text-gray-400 group-hover:text-gray-600"
-                          whileHover={{ x: 5 }}
-                          transition={{ type: "spring", stiffness: 300 }}
-                        >
-                          <ChevronRight className="h-5 w-5" />
-                        </motion.div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
+                    </div>
+                    <div className="ml-4">
+                      {item.type === 'assignment' && <BookOpen className="h-5 w-5 text-green-600" />}
+                      {item.type === 'announcement' && <Bell className="h-5 w-5 text-blue-600" />}
+                      {item.type === 'event' && <Calendar className="h-5 w-5 text-purple-600" />}
+                      {item.type === 'lost_found' && <AlertCircle className="h-5 w-5 text-gray-600" />}
+                    </div>
+                  </div>
+                </div>
               </motion.div>
             ))}
+            
+            {/* View All Button */}
+            <motion.div variants={item} className="text-center pt-4">
+              <button className="px-6 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 transition-colors">
+                View All Notifications
+              </button>
+            </motion.div>
           </motion.div>
         </div>
 
         {/* Upcoming Deadlines */}
         <div>
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Upcoming Deadlines</h2>
-          <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="text-lg">Tasks & Assignments</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <div className="border-0 shadow-lg bg-white/80 backdrop-blur-sm rounded-lg">
+            <div className="p-6 pb-0">
+              <h3 className="text-lg font-semibold">Tasks & Assignments</h3>
+            </div>
+            <div className="p-6 pt-2 space-y-4">
               {upcomingDeadlines.length === 0 ? (
                 <div className="text-center py-8">
                   <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -391,8 +380,8 @@ export default function StudentDashboardPage() {
                   </motion.div>
                 ))
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       </div>
     </div>

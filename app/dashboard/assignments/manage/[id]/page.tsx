@@ -7,149 +7,110 @@ import {
   Calendar,
   Clock,
   FileText,
-  Download,
-  Check,
-  AlertTriangle,
-  Users,
-  Eye,
-  Edit,
+  Edit3,
   Trash2,
   Bell,
-  BarChart,
-  PieChart,
-  Shield,
-  Send,
-  RefreshCw,
-  Search,
   ExternalLink,
+  BarChart3,
+  Users,
+  Search,
+  Download,
+  Eye,
+  RefreshCw,
+  Check,
+  Shield,
+  AlertTriangle,
+  Send,
+  PieChart,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { useToast } from "@/components/ui/use-toast"
-import { Progress } from "@/components/ui/progress"
+import { useToast } from "@/hooks/use-toast"
 import { Textarea } from "@/components/ui/textarea"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Progress } from "@/components/ui/progress"
+
+interface Assignment {
+  id: string
+  title: string
+  description: string
+  class_id: string
+  department: string
+  year: string
+  subject: string
+  due_date: string
+  created_at: string
+  assignment_type: string
+  status: string
+  total_marks: number
+  visibility: boolean
+  allow_late_submission: boolean
+  allow_resubmission: boolean
+  enable_plagiarism_check: boolean
+  allow_group_submission: boolean
+  word_limit?: number
+  allowed_file_types?: string[]
+}
+
+interface Resource {
+  id: string
+  assignment_id: string
+  name: string
+  file_type: string
+  file_url: string
+}
+
+interface Student {
+  id: string
+  name: string
+  email: string
+  prn: string
+  class: string
+}
+
+interface Submission {
+  id: string
+  assignment_id: string
+  student_id: string
+  submitted_at: string
+  status: string
+  submission_type: string
+  files?: { name: string; file_type: string; file_size: number }[]
+  content?: string
+  grade?: string
+  feedback?: string
+  plagiarism_score?: number
+  graded_at?: string
+}
 
 export default function ManageAssignmentPage({ params }: { params: { id: string } }) {
   const { toast } = useToast()
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState("submissions")
-  const [assignment, setAssignment] = useState<any>(null)
-  const [submissions, setSubmissions] = useState<any[]>([])
-  const [resources, setResources] = useState<any[]>([])
+  const [assignment, setAssignment] = useState<Assignment | null>(null)
+  const [resources, setResources] = useState<Resource[]>([])
+  const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [students, setStudents] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedSubmission, setSelectedSubmission] = useState<any>(null)
-  const [feedback, setFeedback] = useState("")
-  const [grade, setGrade] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showNotifyDialog, setShowNotifyDialog] = useState(false)
   const [notificationMessage, setNotificationMessage] = useState("")
   const [notificationType, setNotificationType] = useState("deadline_reminder")
+  const [activeTab, setActiveTab] = useState("submissions")
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
+  const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null)
+  const [grade, setGrade] = useState("")
+  const [feedback, setFeedback] = useState("")
 
-  // Mock students data
-  const students = [
-    { id: "s1", name: "Rahul Sharma", email: "rahul.s@example.com", class: "FY CSE" },
-    { id: "s2", name: "Priya Patel", email: "priya.p@example.com", class: "FY CSE" },
-    { id: "s3", name: "Amit Kumar", email: "amit.k@example.com", class: "FY CSE" },
-    { id: "s4", name: "Sneha Gupta", email: "sneha.g@example.com", class: "FY CSE" },
-    { id: "s5", name: "Vikram Singh", email: "vikram.s@example.com", class: "FY CSE" },
-    { id: "s6", name: "Neha Sharma", email: "neha.s@example.com", class: "FY CSE" },
-    { id: "s7", name: "Raj Malhotra", email: "raj.m@example.com", class: "FY CSE" },
-    { id: "s8", name: "Ananya Desai", email: "ananya.d@example.com", class: "FY CSE" },
-  ]
-
-  // Mock submissions data
-  const mockSubmissions = [
-    {
-      id: "sub1",
-      student_id: "s1",
-      assignment_id: params.id,
-      submission_type: "file",
-      status: "submitted",
-      submitted_at: "2023-10-10T14:30:00Z",
-      plagiarism_score: 3,
-      files: [{ name: "assignment1_solution.pdf", file_type: "application/pdf", file_size: 1240000 }],
-    },
-    {
-      id: "sub2",
-      student_id: "s2",
-      assignment_id: params.id,
-      submission_type: "file",
-      status: "graded",
-      submitted_at: "2023-10-09T16:45:00Z",
-      graded_at: "2023-10-12T10:20:00Z",
-      grade: "A",
-      feedback: "Excellent work! Your implementation is very efficient and well-documented.",
-      plagiarism_score: 2,
-      files: [{ name: "priya_assignment.pdf", file_type: "application/pdf", file_size: 980000 }],
-    },
-    {
-      id: "sub3",
-      student_id: "s3",
-      assignment_id: params.id,
-      submission_type: "file",
-      status: "late",
-      submitted_at: "2023-10-16T09:15:00Z",
-      plagiarism_score: 12,
-      files: [
-        { name: "late_submission.pdf", file_type: "application/pdf", file_size: 1450000 },
-        { name: "code_files.zip", file_type: "application/zip", file_size: 3200000 },
-      ],
-    },
-    {
-      id: "sub4",
-      student_id: "s4",
-      assignment_id: params.id,
-      submission_type: "text",
-      content: "This is a text-based submission with detailed explanations...",
-      status: "submitted",
-      submitted_at: "2023-10-11T11:20:00Z",
-      plagiarism_score: 5,
-    },
-    {
-      id: "sub5",
-      student_id: "s5",
-      assignment_id: params.id,
-      submission_type: "file",
-      status: "returned",
-      submitted_at: "2023-10-10T15:40:00Z",
-      feedback: "Please revise your implementation. There are some issues with the algorithm efficiency.",
-      plagiarism_score: 4,
-      files: [{ name: "vikram_solution.docx", file_type: "application/docx", file_size: 890000 }],
-    },
-  ]
-
-  // Mock assignment data
-  const mockAssignment = {
-    id: params.id,
-    title: "Data Structures Implementation",
-    description: "Implement a priority queue using a binary heap and analyze its time complexity.",
-    faculty_id: "faculty-id",
-    class_id: "2", // FY CSE
-    assignment_type: "file_upload",
-    allowed_file_types: ["pdf", "docx", "zip"],
-    word_limit: 1500,
-    start_date: "2023-10-01T10:00:00Z",
-    due_date: "2023-10-15T23:59:59Z",
-    visibility: true,
-    allow_late_submission: true,
-    allow_resubmission: true,
-    enable_plagiarism_check: true,
-    allow_group_submission: false,
-    created_at: "2023-09-30T14:20:00Z",
-  }
-
-  // Mock resources
-  const mockResources = [
+  // Mock data
+  const mockResources: Resource[] = [
     {
       id: "res1",
       assignment_id: params.id,
@@ -166,22 +127,82 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     },
   ]
 
-  // Mock classes data
-  const classes = [
+  const mockClasses = [
     { id: "1", name: "10th Grade" },
     { id: "2", name: "FY CSE" },
     { id: "3", name: "SY CSE" },
+  ]
+
+  const mockStudents: Student[] = [
+    { id: "1", name: "John Doe", email: "john.doe@example.com", prn: "PRN001", class: "FY CSE" },
+    { id: "2", name: "Jane Smith", email: "jane.smith@example.com", prn: "PRN002", class: "SY CSE" },
+  ]
+
+  const mockSubmissions: Submission[] = [
+    {
+      id: "sub1",
+      assignment_id: params.id,
+      student_id: "1",
+      submitted_at: new Date().toISOString(),
+      status: "submitted",
+      submission_type: "file",
+      files: [
+        { name: "submission.pdf", file_type: "application/pdf", file_size: 1024000 },
+      ],
+      plagiarism_score: 8,
+    },
+    {
+      id: "sub2",
+      assignment_id: params.id,
+      student_id: "2",
+      submitted_at: new Date().toISOString(),
+      status: "graded",
+      submission_type: "text",
+      content: "This is a text submission.",
+      grade: "A",
+      feedback: "Well done!",
+      plagiarism_score: 2,
+      graded_at: new Date().toISOString(),
+    },
   ]
 
   // Fetch assignment data
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // In a real implementation, fetch from Supabase
-        // For now, use mock data
-        setAssignment(mockAssignment)
-        setSubmissions(mockSubmissions)
+        // Load assignment from localStorage
+        const storedAssignments = localStorage.getItem("assignments")
+        if (storedAssignments) {
+          const assignments = JSON.parse(storedAssignments)
+          const foundAssignment = assignments.find((a: any) => a.id.toString() === params.id)
+          if (foundAssignment) {
+            setAssignment({
+              ...foundAssignment,
+              class_id: foundAssignment.department,
+              due_date: foundAssignment.due_date,
+              created_at: foundAssignment.created_at || new Date().toISOString(),
+              visibility: foundAssignment.visibility ?? true,
+              allow_late_submission: foundAssignment.allow_late_submission ?? true,
+              allow_resubmission: foundAssignment.allow_resubmission ?? true,
+              enable_plagiarism_check: foundAssignment.enable_plagiarism_check ?? true,
+              allow_group_submission: foundAssignment.allow_group_submission ?? false,
+              word_limit: foundAssignment.word_limit,
+              allowed_file_types: foundAssignment.allowed_file_types,
+            })
+          } else {
+            toast({
+              title: "Assignment not found",
+              description: "The assignment you're looking for doesn't exist.",
+              variant: "destructive",
+            })
+            router.push("/dashboard/assignments")
+            return
+          }
+        }
+
         setResources(mockResources)
+        setStudents(mockStudents)
+        setSubmissions(mockSubmissions)
       } catch (error) {
         console.error("Error fetching assignment data:", error)
         toast({
@@ -195,19 +216,7 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     }
 
     fetchData()
-  }, [params.id, toast])
-
-  // Get student by ID
-  const getStudent = (studentId: string) => {
-    return (
-      students.find((student) => student.id === studentId) || {
-        id: studentId,
-        name: "Unknown Student",
-        email: "unknown@example.com",
-        class: "Unknown",
-      }
-    )
-  }
+  }, [params.id, toast, router])
 
   // Format date
   const formatDate = (dateString: string) => {
@@ -215,36 +224,13 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   }
 
-  // Get status badge
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "submitted":
-        return (
-          <Badge variant="outline" className="bg-green-100 text-green-800">
-            Submitted
-          </Badge>
-        )
-      case "graded":
-        return (
-          <Badge variant="outline" className="bg-purple-100 text-purple-800">
-            Graded
-          </Badge>
-        )
-      case "late":
-        return (
-          <Badge variant="outline" className="bg-orange-100 text-orange-800">
-            Late
-          </Badge>
-        )
-      case "returned":
-        return (
-          <Badge variant="outline" className="bg-blue-100 text-blue-800">
-            Returned
-          </Badge>
-        )
-      default:
-        return <Badge variant="outline">{status.charAt(0).toUpperCase() + status.slice(1)}</Badge>
-    }
+  // Format file size
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return "0 Bytes"
+    const k = 1024
+    const sizes = ["Bytes", "KB", "MB", "GB"]
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
   }
 
   // Get file icon based on type
@@ -260,127 +246,29 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     }
   }
 
-  // Format file size
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return bytes + " B"
-    else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB"
-    else return (bytes / 1048576).toFixed(1) + " MB"
-  }
-
-  // Handle grade submission
-  const handleSubmitGrade = async () => {
-    if (!grade.trim()) {
-      toast({
-        title: "Error",
-        description: "Please enter a grade",
-        variant: "destructive",
-      })
-      return
-    }
-
-    setIsSubmitting(true)
-
-    try {
-      // Update local submissions
-      const updatedSubmissions = submissions.map((sub) => {
-        if (sub.id === selectedSubmission.id) {
-          return {
-            ...sub,
-            status: "graded",
-            grade,
-            feedback,
-            graded_at: new Date().toISOString(),
-          }
-        }
-        return sub
-      })
-
-      setSubmissions(updatedSubmissions)
-
-      // Update student submissions in localStorage so students can see grades
-      const studentSubmissions = JSON.parse(localStorage.getItem("studentSubmissions") || "[]")
-      const updatedStudentSubmissions = studentSubmissions.map((sub) => {
-        if (sub.assignmentId === selectedSubmission.assignment_id && sub.studentId === selectedSubmission.student_id) {
-          return {
-            ...sub,
-            grade,
-            feedback,
-            status: "graded",
-            gradedAt: new Date().toISOString(),
-          }
-        }
-        return sub
-      })
-      localStorage.setItem("studentSubmissions", JSON.stringify(updatedStudentSubmissions))
-
-      toast({
-        title: "Success",
-        description: "Grade and feedback submitted successfully",
-      })
-
-      setSelectedSubmission(null)
-      setFeedback("")
-      setGrade("")
-    } catch (error) {
-      console.error("Error submitting grade:", error)
-      toast({
-        title: "Error",
-        description: "Failed to submit grade and feedback",
-        variant: "destructive",
-      })
-    } finally {
-      setIsSubmitting(false)
+  // Get student by ID
+  const getStudent = (studentId: string) => {
+    return students.find((student) => student.id === studentId) || {
+      name: "Unknown Student",
+      email: "N/A",
+      prn: "N/A",
+      class: "N/A",
     }
   }
 
-  // Handle return for resubmission
-  const handleReturnForResubmission = async () => {
-    if (!feedback.trim()) {
-      toast({
-        title: "Error",
-        description: "Please provide feedback for resubmission",
-        variant: "destructive",
-      })
-      return
-    }
-
-    setIsSubmitting(true)
-
-    try {
-      // In a real implementation, update in Supabase
-      // For now, update local state
-      const updatedSubmissions = submissions.map((sub) => {
-        if (sub.id === selectedSubmission.id) {
-          return {
-            ...sub,
-            status: "returned",
-            feedback,
-            grade: null,
-            graded_at: null,
-          }
-        }
-        return sub
-      })
-
-      setSubmissions(updatedSubmissions)
-
-      toast({
-        title: "Success",
-        description: "Submission returned for resubmission",
-      })
-
-      setSelectedSubmission(null)
-      setFeedback("")
-      setGrade("")
-    } catch (error) {
-      console.error("Error returning submission:", error)
-      toast({
-        title: "Error",
-        description: "Failed to return submission",
-        variant: "destructive",
-      })
-    } finally {
-      setIsSubmitting(false)
+  // Get status badge
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "submitted":
+        return <Badge className="bg-green-100 text-green-800">Submitted</Badge>
+      case "graded":
+        return <Badge className="bg-purple-100 text-purple-800">Graded</Badge>
+      case "late":
+        return <Badge className="bg-orange-100 text-orange-800">Late</Badge>
+      case "returned":
+        return <Badge className="bg-blue-100 text-blue-800">Returned</Badge>
+      default:
+        return <Badge variant="outline">Unknown</Badge>
     }
   }
 
@@ -389,8 +277,21 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     setIsSubmitting(true)
 
     try {
-      // In a real implementation, delete from Supabase
-      // For now, just navigate back
+      // Delete from localStorage
+      const storedAssignments = localStorage.getItem("assignments")
+      if (storedAssignments) {
+        const assignments = JSON.parse(storedAssignments)
+        const updatedAssignments = assignments.filter((a: any) => a.id.toString() !== params.id)
+        localStorage.setItem("assignments", JSON.stringify(updatedAssignments))
+      }
+
+      // Also delete related submissions
+      const storedSubmissions = localStorage.getItem("assignmentSubmissions")
+      if (storedSubmissions) {
+        const allSubmissions = JSON.parse(storedSubmissions)
+        const updatedSubmissions = allSubmissions.filter((sub: any) => sub.assignmentId !== params.id)
+        localStorage.setItem("assignmentSubmissions", JSON.stringify(updatedSubmissions))
+      }
 
       toast({
         title: "Success",
@@ -425,8 +326,7 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     setIsSubmitting(true)
 
     try {
-      // In a real implementation, send notification via Supabase
-
+      // In a real implementation, send notification via API (e.g., Supabase)
       toast({
         title: "Success",
         description: "Notification sent successfully",
@@ -439,6 +339,75 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
       toast({
         title: "Error",
         description: "Failed to send notification",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Handle submit grade
+  const handleSubmitGrade = async () => {
+    if (!selectedSubmission) return
+
+    setIsSubmitting(true)
+
+    try {
+      const updatedSubmissions = submissions.map((sub) =>
+        sub.id === selectedSubmission.id
+          ? { ...sub, grade, feedback, status: "graded", graded_at: new Date().toISOString() }
+          : sub,
+      )
+      setSubmissions(updatedSubmissions)
+      localStorage.setItem("assignmentSubmissions", JSON.stringify(updatedSubmissions))
+
+      toast({
+        title: "Success",
+        description: "Grade and feedback submitted successfully",
+      })
+
+      setSelectedSubmission(null)
+      setGrade("")
+      setFeedback("")
+    } catch (error) {
+      console.error("Error submitting grade:", error)
+      toast({
+        title: "Error",
+        description: "Failed to submit grade",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Handle return for resubmission
+  const handleReturnForResubmission = async () => {
+    if (!selectedSubmission) return
+
+    setIsSubmitting(true)
+
+    try {
+      const updatedSubmissions = submissions.map((sub) =>
+        sub.id === selectedSubmission.id
+          ? { ...sub, status: "returned", feedback, graded_at: undefined, grade: undefined }
+          : sub,
+      )
+      setSubmissions(updatedSubmissions)
+      localStorage.setItem("assignmentSubmissions", JSON.stringify(updatedSubmissions))
+
+      toast({
+        title: "Success",
+        description: "Submission returned for resubmission",
+      })
+
+      setSelectedSubmission(null)
+      setFeedback("")
+    } catch (error) {
+      console.error("Error returning submission:", error)
+      toast({
+        title: "Error",
+        description: "Failed to return submission",
         variant: "destructive",
       })
     } finally {
@@ -466,14 +435,13 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     returned: submissions.filter((sub) => sub.status === "returned").length,
     missing: students.length - submissions.length,
     onTime: submissions.filter((sub) => sub.status !== "late").length,
-    highPlagiarism: submissions.filter((sub) => sub.plagiarism_score > 10).length,
+    highPlagiarism: submissions.filter((sub) => (sub.plagiarism_score || 0) > 10).length,
   }
 
   // Generate student report
-  const generateStudentReport = (submission) => {
+  const generateStudentReport = (submission: Submission) => {
     const student = getStudent(submission.student_id)
 
-    // Create a new window for PDF generation
     const printWindow = window.open("", "_blank")
 
     if (!printWindow) {
@@ -566,10 +534,10 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
               margin: 10px 0;
             }
             .plagiarism-section {
-              background: ${submission.plagiarism_score > 10 ? "#fee2e2" : submission.plagiarism_score > 5 ? "#fef3c7" : "#dcfce7"};
+              background: ${submission.plagiarism_score && submission.plagiarism_score > 10 ? "#fee2e2" : submission.plagiarism_score && submission.plagiarism_score > 5 ? "#fef3c7" : "#dcfce7"};
               padding: 20px;
               border-radius: 10px;
-              border-left: 4px solid ${submission.plagiarism_score > 10 ? "#ef4444" : submission.plagiarism_score > 5 ? "#f59e0b" : "#22c55e"};
+              border-left: 4px solid ${submission.plagiarism_score && submission.plagiarism_score > 10 ? "#ef4444" : submission.plagiarism_score && submission.plagiarism_score > 5 ? "#f59e0b" : "#22c55e"};
             }
             .files-list {
               background: #f8f9fa;
@@ -633,7 +601,7 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
                 <div class="info-grid">
                   <div class="info-item">
                     <span class="info-label">Title:</span>
-                    <span>${assignment.title}</span>
+                    <span>${assignment?.title}</span>
                   </div>
                   <div class="info-item">
                     <span class="info-label">Submission Date:</span>
@@ -664,14 +632,14 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
 
               <div class="plagiarism-section">
                 <h3>🛡️ Plagiarism Analysis</h3>
-                <div style="font-size: 2em; font-weight: bold; margin: 10px 0; color: ${submission.plagiarism_score > 10 ? "#dc2626" : submission.plagiarism_score > 5 ? "#d97706" : "#16a34a"};">
-                  ${submission.plagiarism_score}% Similarity
+                <div style="font-size: 2em; font-weight: bold; margin: 10px 0; color: ${submission.plagiarism_score && submission.plagiarism_score > 10 ? "#dc2626" : submission.plagiarism_score && submission.plagiarism_score > 5 ? "#d97706" : "#16a34a"};">
+                  ${submission.plagiarism_score || 0}% Similarity
                 </div>
                 <p style="margin: 0; color: #666;">
                   ${
-                    submission.plagiarism_score > 10
+                    submission.plagiarism_score && submission.plagiarism_score > 10
                       ? "High similarity detected - requires review"
-                      : submission.plagiarism_score > 5
+                      : submission.plagiarism_score && submission.plagiarism_score > 5
                         ? "Moderate similarity - acceptable range"
                         : "Low similarity - original work"
                   }
@@ -739,7 +707,6 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     printWindow.document.write(htmlContent)
     printWindow.document.close()
 
-    // Wait for content to load then print
     setTimeout(() => {
       printWindow.print()
       toast({
@@ -771,7 +738,7 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto p-4">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div className="flex items-center">
           <Button variant="ghost" size="icon" className="mr-2" onClick={() => router.push("/dashboard/assignments")}>
@@ -782,8 +749,12 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
 
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => router.push(`/dashboard/assignments/edit/${params.id}`)}>
-            <Edit className="mr-2 h-4 w-4" />
+            <Edit3 className="mr-2 h-4 w-4" />
             Edit
+          </Button>
+          <Button variant="outline" onClick={() => router.push(`/dashboard/assignments/submissions/${params.id}`)}>
+            <BarChart3 className="mr-2 h-4 w-4" />
+            View Submissions
           </Button>
           <Button variant="outline" onClick={() => setShowNotifyDialog(true)}>
             <Bell className="mr-2 h-4 w-4" />
@@ -802,7 +773,7 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
             <div className="flex-1">
               <h2 className="text-xl font-bold mb-2">{assignment.title}</h2>
               <p className="text-gray-500 mb-4">
-                Class: {classes.find((c) => c.id === assignment.class_id)?.name || "Unknown Class"}
+                Class: {mockClasses.find((c) => c.id === assignment.class_id)?.name || assignment.department || "Unknown Class"}
               </p>
 
               <div className="flex flex-wrap gap-3 mb-4">
@@ -818,7 +789,7 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
 
                 <Badge variant="outline" className="bg-gray-100">
                   <FileText className="h-3 w-3 mr-1" />
-                  Type: {assignment.assignment_type.replace("_", " ")}
+                  Type: {assignment.assignment_type?.replace("_", " ") || "Assignment"}
                 </Badge>
               </div>
 
@@ -854,6 +825,31 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
             <div className="flex-1">
               <h3 className="font-medium mb-3">Settings:</h3>
               <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Status:</span>
+                  <span className="font-medium">{assignment.status || "Published"}</span>
+                </div>
+
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Department:</span>
+                  <span className="font-medium">{assignment.department || "N/A"}</span>
+                </div>
+
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Year:</span>
+                  <span className="font-medium">{assignment.year || "N/A"}</span>
+                </div>
+
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Subject:</span>
+                  <span className="font-medium">{assignment.subject || "N/A"}</span>
+                </div>
+
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Total Marks:</span>
+                  <span className="font-medium">{assignment.total_marks || 100}</span>
+                </div>
+
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Visibility:</span>
                   <span className="font-medium">{assignment.visibility ? "Visible to students" : "Hidden"}</span>
@@ -913,7 +909,7 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
             value="analytics"
             className="data-[state=active]:bg-purple-100 data-[state=active]:text-purple-700"
           >
-            <BarChart className="mr-2 h-4 w-4" />
+            <BarChart3 className="mr-2 h-4 w-4" />
             Analytics
           </TabsTrigger>
         </TabsList>
@@ -997,7 +993,7 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
                                   {submission.files.map((file: any, index: number) => (
                                     <div key={index} className="flex items-center">
                                       {getFileIcon(file.file_type)}
-                                      <span className="ml-1 text-xs">{file.name}</span>
+                                      <span className="ml-1">{file.name}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -1453,7 +1449,7 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
                 <div>
                   <h4 className="font-medium text-amber-800 text-sm">Notification will be sent to:</h4>
                   <p className="text-amber-700 text-xs mt-1">
-                    All students in {classes.find((c) => c.id === assignment.class_id)?.name || "the selected class"}
+                    All students in {mockClasses.find((c) => c.id === assignment.class_id)?.name || "the selected class"}
                   </p>
                 </div>
               </div>

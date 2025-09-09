@@ -11,11 +11,6 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "@/hooks/use-toast"
-import {
-  getAssignmentsByDepartmentAndYear,
-  getStudentSubmissionForAssignment,
-  subscribeToAssignments,
-} from "@/lib/supabase"
 
 interface Assignment {
   id: string
@@ -41,6 +36,9 @@ interface Assignment {
   }
   resources: any[]
   submission?: any
+  ai_generated?: boolean
+  file_based?: boolean
+  difficulty?: string
 }
 
 export default function StudentAssignmentsPage() {
@@ -75,46 +73,45 @@ export default function StudentAssignmentsPage() {
     }
   }, [])
 
-  const loadAssignments = async (user: any) => {
+  const loadAssignments = (user: any) => {
     try {
       setIsLoading(true)
 
-      // Fetch assignments for the student's department and year
-      const assignmentsData = await getAssignmentsByDepartmentAndYear(user.department, user.year)
+      // Get assignments from localStorage (using the correct key)
+      const allAssignments = JSON.parse(localStorage.getItem("assignments") || "[]")
+      const allSubmissions = JSON.parse(localStorage.getItem("assignmentSubmissions") || "[]")
 
-      // For each assignment, check if student has submitted
-      const assignmentsWithSubmissions = await Promise.all(
-        assignmentsData.map(async (assignment) => {
-          try {
-            const submission = await getStudentSubmissionForAssignment(user.id, assignment.id)
-            return {
-              ...assignment,
-              submission,
-              status: getAssignmentStatus(assignment, submission),
-            }
-          } catch (error) {
-            return {
-              ...assignment,
-              submission: null,
-              status: getAssignmentStatus(assignment, null),
-            }
-          }
-        }),
-      )
-
-      setAssignments(assignmentsWithSubmissions)
-
-      // Set up real-time subscription for new assignments
-      const subscription = subscribeToAssignments(user.department, user.year, (payload) => {
-        console.log("Assignment update:", payload)
-        // Reload assignments when there's a change
-        loadAssignments(user)
+      // Filter assignments for the student's department and year
+      const departmentAssignments = allAssignments.filter((assignment: any) => {
+        // Check if assignment targets this student's department and year
+        const matchesDepartment = assignment.department === user.department
+        const matchesYear = assignment.year === user.year
+        const isPublished = assignment.status === "published"
+        
+        return matchesDepartment && matchesYear && isPublished
       })
 
-      // Cleanup subscription on unmount
-      return () => {
-        subscription.unsubscribe()
-      }
+      // For each assignment, check if student has submitted and add faculty info
+      const assignmentsWithSubmissions = departmentAssignments.map((assignment: any) => {
+        const submission = allSubmissions.find(
+          (sub: any) => sub.assignmentId === assignment.id && sub.studentId === user.id
+        )
+        
+        return {
+          ...assignment,
+          submission,
+          status: getAssignmentStatus(assignment, submission),
+          faculty: {
+            name: "Faculty Name", // Mock data since we don't have faculty info linked
+            email: "faculty@university.edu"
+          },
+          ai_generated: assignment.ai_generated,
+          file_based: assignment.file_based,
+          difficulty: assignment.difficulty
+        }
+      })
+
+      setAssignments(assignmentsWithSubmissions)
     } catch (error) {
       console.error("Error loading assignments:", error)
       toast({
@@ -355,6 +352,23 @@ export default function StudentAssignmentsPage() {
                         </Badge>
                       </div>
                       <p className="text-gray-600 mb-3 line-clamp-2">{assignment.description}</p>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {assignment.ai_generated && (
+                          <Badge className="bg-purple-100 text-purple-800 border-0 text-xs">
+                            🤖 AI Generated
+                          </Badge>
+                        )}
+                        {assignment.file_based && (
+                          <Badge className="bg-blue-100 text-blue-800 border-0 text-xs">
+                            📁 File Based
+                          </Badge>
+                        )}
+                        {assignment.difficulty && (
+                          <Badge className="bg-orange-100 text-orange-800 border-0 text-xs">
+                            {assignment.difficulty.charAt(0).toUpperCase() + assignment.difficulty.slice(1)}
+                          </Badge>
+                        )}
+                      </div>
                       <div className="flex flex-wrap gap-4 text-sm text-gray-500">
                         <div className="flex items-center gap-1">
                           <BookOpen className="h-4 w-4" />

@@ -30,7 +30,12 @@ function LoginContent() {
   const type = searchParams.get("type")
 
   if (type === "student") {
-    return <StudentLoginPage />
+    return <StudentLoginPage onBack={() => router.push("/")} />
+  }
+
+  if (type === "faculty") {
+    // Show faculty-specific login form (current form is already for faculty)
+    // Continue with the existing faculty login form below
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,18 +44,22 @@ function LoginContent() {
     setError("")
 
     try {
+      console.log("Attempting login with:", { email, password })
       const faculty = await authenticateFaculty(email, password)
+      console.log("Authentication successful:", faculty)
 
       // Store faculty data in localStorage
-      localStorage.setItem("faculty", JSON.stringify(faculty))
+      localStorage.setItem("facultySession", JSON.stringify(faculty))
 
       toast({
         title: "Login Successful",
         description: `Welcome back, ${faculty.name}!`,
       })
 
+      console.log("Redirecting to dashboard...")
       router.push("/dashboard")
     } catch (error: any) {
+      console.error("Login error:", error)
       setError(error.message || "Login failed. Please try again.")
       toast({
         title: "Login Failed",
@@ -150,6 +159,13 @@ function LoginContent() {
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
+
+              {/* Demo Credentials */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-medium text-blue-900 mb-2">Demo Credentials:</h4>
+                <p className="text-sm text-blue-700">Email: faculty@sanjivani.edu.in</p>
+                <p className="text-sm text-blue-700">Password: EduVision2024@Faculty!</p>
+              </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">

@@ -5,87 +5,113 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "")
 
 export async function POST(request: NextRequest) {
   try {
-    const { prompt } = await request.json()
+    const { prompt, difficulty, fileContent } = await request.json()
 
     if (!prompt) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 })
     }
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: prompt,
-                },
-              ],
-            },
-          ],
-        }),
-      },
-    )
-
-    if (!response.ok) {
-      throw new Error(`Gemini API error: ${response.status}`)
+    if (!process.env.GEMINI_API_KEY) {
+      console.error("Gemini API key not found")
+      return NextResponse.json({ error: "API key not configured" }, { status: 500 })
     }
 
-    const data = await response.json()
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response generated"
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" })
+    
+    // Enhanced prompt with difficulty and file content
+    let enhancedPrompt = prompt
+    
+    if (difficulty) {
+      enhancedPrompt += `\n\nDifficulty Level: ${difficulty}`
+      
+      switch (difficulty.toLowerCase()) {
+        case 'normal':
+        case 'beginner':
+          enhancedPrompt += "\nMake this assignment suitable for beginners with basic concepts and step-by-step guidance."
+          break
+        case 'intermediate':
+          enhancedPrompt += "\nMake this assignment moderately challenging with some advanced concepts and problem-solving."
+          break
+        case 'hard':
+        case 'advanced':
+          enhancedPrompt += "\nMake this assignment challenging with complex concepts, critical thinking, and advanced problem-solving."
+          break
+      }
+    }
+    
+    if (fileContent) {
+      enhancedPrompt += `\n\nBased on the following file content, generate relevant questions and assignments:\n${fileContent}`
+    }
+
+    const result = await model.generateContent(enhancedPrompt)
+    const response = await result.response
+    const content = response.text() || "No response generated"
 
     return NextResponse.json({ content })
   } catch (error) {
     console.error("Error calling Gemini API:", error)
-    return NextResponse.json({ error: "Failed to generate content" }, { status: 500 })
+    
+    // Fallback to template-based generation if Gemini fails
+    const { prompt, difficulty } = await request.json().catch(() => ({ prompt: "", difficulty: "intermediate" }))
+    const fallbackContent = generateSmartContent(prompt, difficulty)
+    
+    return NextResponse.json({ 
+      content: fallbackContent,
+      fallback: true,
+      message: "Generated using fallback template due to API issues"
+    })
   }
 }
 
 export async function GET() {
   return NextResponse.json({
-    message: "Gemini API endpoint is working",
+    message: "Enhanced Gemini API endpoint is working",
     status: "healthy",
+    features: ["difficulty-based-generation", "file-content-processing", "fallback-templates"]
   })
 }
 
-function generateSmartContent(prompt: string): string {
+
+function generateSmartContent(prompt: string, difficulty: string = "intermediate"): string {
   const lowerPrompt = prompt.toLowerCase()
 
   // Assignment generation templates
   if (lowerPrompt.includes("assignment") || lowerPrompt.includes("problem") || lowerPrompt.includes("exercise")) {
     if (lowerPrompt.includes("programming") || lowerPrompt.includes("coding") || lowerPrompt.includes("algorithm")) {
-      return `Programming Assignment: Algorithm Implementation
+      const difficultyText = getDifficultyBasedContent(difficulty)
+      return `Programming Assignment: Algorithm Implementation (${difficulty.toUpperCase()} Level)
 
 Objective: Implement and analyze fundamental algorithms
+
+${difficultyText.objectives}
 
 Tasks:
 1. Design and implement the specified algorithm
 2. Analyze time and space complexity
 3. Test with multiple input cases
 4. Document your approach and findings
+${difficultyText.additionalTasks}
 
 Requirements:
 - Clean, well-commented code
 - Proper error handling
 - Performance analysis
 - Test cases with expected outputs
+${difficultyText.additionalRequirements}
 
 Evaluation Criteria:
 - Code correctness and efficiency
 - Documentation quality
 - Test coverage
 - Analysis depth
+${difficultyText.evaluationCriteria}
 
 Submission Guidelines:
 - Submit source code files
 - Include a detailed report
 - Provide test results and analysis
-- Follow coding standards`
+- Follow coding standards
+${difficultyText.submissionGuidelines}`
     }
 
     if (lowerPrompt.includes("research") || lowerPrompt.includes("paper") || lowerPrompt.includes("study")) {
@@ -439,4 +465,43 @@ function cleanContent(content: string): string {
   cleaned = cleaned.replace(/^#+\s*/gm, "")
 
   return cleaned
+}
+
+function getDifficultyBasedContent(difficulty: string) {
+  switch (difficulty.toLowerCase()) {
+    case 'normal':
+    case 'beginner':
+      return {
+        objectives: "Focus on understanding basic programming concepts and simple algorithm implementation.",
+        additionalTasks: "5. Follow provided pseudocode or templates\n6. Use basic data structures (arrays, simple loops)",
+        additionalRequirements: "- Use simple, readable code structure\n- Include comments explaining each step\n- Provide basic test cases",
+        evaluationCriteria: "- Code functionality (60%)\n- Code readability (25%)\n- Basic documentation (15%)",
+        submissionGuidelines: "- Use provided code templates\n- Include screenshots of working code\n- Submit within 3-5 days"
+      }
+    case 'intermediate':
+      return {
+        objectives: "Demonstrate solid understanding of algorithms and data structures with moderate complexity.",
+        additionalTasks: "5. Implement error handling and edge cases\n6. Compare with alternative approaches\n7. Optimize for better performance",
+        additionalRequirements: "- Implement multiple solution approaches\n- Include comprehensive test suite\n- Provide complexity analysis",
+        evaluationCriteria: "- Algorithm correctness (40%)\n- Code quality and optimization (30%)\n- Analysis and documentation (30%)",
+        submissionGuidelines: "- Include multiple implementation versions\n- Provide performance benchmarks\n- Submit within 1-2 weeks"
+      }
+    case 'hard':
+    case 'advanced':
+      return {
+        objectives: "Master advanced algorithmic concepts and demonstrate expertise in complex problem-solving.",
+        additionalTasks: "5. Implement advanced optimizations\n6. Handle complex edge cases and constraints\n7. Provide mathematical proof of correctness\n8. Compare with state-of-the-art solutions",
+        additionalRequirements: "- Implement from scratch without templates\n- Include formal complexity proofs\n- Provide extensive benchmarking\n- Research and cite relevant literature",
+        evaluationCriteria: "- Algorithmic innovation (35%)\n- Mathematical rigor (25%)\n- Performance optimization (25%)\n- Research quality (15%)",
+        submissionGuidelines: "- Submit research paper format\n- Include experimental results\n- Provide source code with documentation\n- Submit within 2-3 weeks"
+      }
+    default:
+      return {
+        objectives: "Demonstrate understanding of programming concepts.",
+        additionalTasks: "",
+        additionalRequirements: "",
+        evaluationCriteria: "",
+        submissionGuidelines: ""
+      }
+  }
 }

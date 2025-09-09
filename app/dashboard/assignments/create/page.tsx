@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "@/hooks/use-toast"
-import { createAssignment, addAssignmentResources, uploadFile } from "@/lib/supabase"
+// import { createAssignment, addAssignmentResources, uploadFile } from "@/lib/supabase"
 
 const departments = [
   { id: "cse", name: "Computer Science & Engineering", code: "CSE" },
@@ -58,9 +58,12 @@ export default function CreateAssignmentPage() {
     allowGroupSubmission: false,
     visibility: true,
     aiPrompt: "",
-    difficulty: "medium",
+    difficulty: "intermediate",
     estimatedTime: 60,
   })
+  
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const [fileContent, setFileContent] = useState<string>("")
 
   useEffect(() => {
     // Get current user from localStorage or session
@@ -95,14 +98,15 @@ export default function CreateAssignmentPage() {
     setIsLoading(true)
 
     try {
-      // Create assignment
+      // Mock assignment creation for now
       const assignmentData = {
+        id: Date.now(),
         title: formData.title,
         description: formData.description,
         faculty_id: currentUser.id,
         department: formData.department,
-        year: formData.year as any,
-        assignment_type: formData.assignmentType as any,
+        year: formData.year,
+        assignment_type: formData.assignmentType,
         allowed_file_types: formData.allowedFileTypes,
         max_marks: formData.maxMarks,
         due_date: new Date(`${formData.dueDate}T${formData.dueTime}`).toISOString(),
@@ -115,42 +119,23 @@ export default function CreateAssignmentPage() {
         enable_plagiarism_check: formData.enablePlagiarismCheck,
         allow_group_submission: formData.allowGroupSubmission,
         status: status,
+        difficulty: formData.difficulty,
+        estimated_time: formData.estimatedTime,
+        ai_generated: assignmentType === "ai",
+        file_based: !!uploadedFile
       }
 
-      const assignment = await createAssignment(assignmentData)
-
-      // Upload resources if any
-      if (resources.length > 0) {
-        const resourceData = []
-
-        for (const file of resources) {
-          try {
-            const fileName = `${Date.now()}-${file.name}`
-            const filePath = `assignments/${assignment.id}/resources/${fileName}`
-            const { url } = await uploadFile(file, "assignment-resources", filePath)
-
-            resourceData.push({
-              assignment_id: assignment.id,
-              name: file.name,
-              file_type: file.type,
-              file_url: url,
-            })
-          } catch (error) {
-            console.error("Error uploading resource:", error)
-          }
-        }
-
-        if (resourceData.length > 0) {
-          await addAssignmentResources(resourceData)
-        }
-      }
+      // Store in localStorage for demo purposes
+      const existingAssignments = JSON.parse(localStorage.getItem('assignments') || '[]')
+      existingAssignments.push(assignmentData)
+      localStorage.setItem('assignments', JSON.stringify(existingAssignments))
 
       toast({
         title: status === "published" ? "Assignment Published" : "Assignment Saved",
         description:
           status === "published"
-            ? "Your assignment has been published and is now visible to students."
-            : "Your assignment has been saved as a draft.",
+            ? "Your AI-powered assignment has been published and is now visible to students."
+            : "Your AI-powered assignment has been saved as a draft.",
       })
 
       router.push("/dashboard/assignments")
@@ -166,11 +151,58 @@ export default function CreateAssignmentPage() {
     }
   }
 
-  const generateAIAssignment = async () => {
-    if (!formData.aiPrompt) {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setUploadedFile(file)
+    setIsLoading(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('/api/process-file', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setFileContent(data.content)
+        toast({
+          title: "File Processed",
+          description: `Successfully extracted content from ${file.name}. You can now generate questions based on this content.`,
+        })
+      } else {
+        throw new Error('Failed to process file')
+      }
+    } catch (error) {
+      console.error('Error processing file:', error)
       toast({
-        title: "Missing Prompt",
-        description: "Please enter an AI prompt to generate the assignment.",
+        title: "File Processing Failed",
+        description: "Failed to process the uploaded file. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const generateAIAssignment = async () => {
+    if (!formData.aiPrompt && !fileContent) {
+      toast({
+        title: "Missing Content",
+        description: "Please enter an AI prompt or upload a file to generate the assignment.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!formData.difficulty) {
+      toast({
+        title: "Missing Difficulty Level",
+        description: "Please select a difficulty level before generating the assignment.",
         variant: "destructive",
       })
       return
@@ -186,25 +218,38 @@ export default function CreateAssignmentPage() {
         },
         body: JSON.stringify({
           prompt: `Create a detailed assignment for ${formData.department} department, ${formData.year} year students. 
-                   Prompt: ${formData.aiPrompt}
+                   ${formData.aiPrompt ? `Prompt: ${formData.aiPrompt}` : ''}
                    
                    Please provide:
                    1. A clear assignment title
                    2. Detailed description with objectives
                    3. Requirements and guidelines
                    4. Evaluation criteria
+                   5. Specific questions based on the content
                    
                    Make it appropriate for ${formData.difficulty} difficulty level and estimated ${formData.estimatedTime} minutes completion time.`,
+          difficulty: formData.difficulty,
+          fileContent: fileContent || undefined,
         }),
       })
 
       if (response.ok) {
         const data = await response.json()
-        const content = data.content
+        let content = data.content
+
+        // Clean content - remove *** formatting and other markdown
+        content = content
+          .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1') // Remove *** bold formatting
+          .replace(/#{1,6}\s*/g, '') // Remove markdown headers
+          .replace(/`([^`]+)`/g, '$1') // Remove inline code formatting
+          .replace(/^\s*[-*+]\s+/gm, '• ') // Convert markdown lists to bullet points
+          .replace(/^\s*\d+\.\s+/gm, '') // Remove numbered list formatting
+          .replace(/\n{3,}/g, '\n\n') // Clean excessive line breaks
+          .trim()
 
         // Extract title from the generated content
         const titleMatch = content.match(/(?:Title|Assignment):\s*(.+)/i)
-        const title = titleMatch ? titleMatch[1].trim() : `AI Generated: ${formData.aiPrompt.substring(0, 50)}...`
+        const title = titleMatch ? titleMatch[1].trim() : `AI Generated: ${formData.aiPrompt ? formData.aiPrompt.substring(0, 50) : 'File-based Assignment'}...`
 
         setFormData((prev) => ({
           ...prev,
@@ -214,7 +259,9 @@ export default function CreateAssignmentPage() {
 
         toast({
           title: "Assignment Generated",
-          description: "AI has generated your assignment content. You can review and modify it before publishing.",
+          description: data.fallback ? 
+            "Assignment generated using fallback template. You can review and modify it before publishing." :
+            "AI has generated your assignment content. You can review and modify it before publishing.",
         })
       } else {
         throw new Error("Failed to generate assignment")
@@ -470,15 +517,66 @@ export default function CreateAssignmentPage() {
                     <h3 className="font-semibold text-purple-900">AI Assignment Generator</h3>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="aiPrompt">AI Prompt *</Label>
-                    <Textarea
-                      id="aiPrompt"
-                      placeholder="Describe what kind of assignment you want to create. For example: 'Create a programming assignment about data structures focusing on linked lists and arrays, suitable for intermediate level students'"
-                      value={formData.aiPrompt}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, aiPrompt: e.target.value }))}
-                      rows={4}
-                    />
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="aiPrompt">AI Prompt</Label>
+                      <Textarea
+                        id="aiPrompt"
+                        placeholder="Describe what kind of assignment you want to create. For example: 'Create a programming assignment about data structures focusing on linked lists and arrays, suitable for intermediate level students'"
+                        value={formData.aiPrompt}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, aiPrompt: e.target.value }))}
+                        rows={4}
+                      />
+                    </div>
+
+                    <div className="border-t pt-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-full h-px bg-gray-300"></div>
+                        <span className="text-sm text-gray-500 px-3">OR</span>
+                        <div className="w-full h-px bg-gray-300"></div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="fileUpload">Upload File to Generate Questions</Label>
+                        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-purple-400 transition-colors">
+                          <input
+                            id="fileUpload"
+                            type="file"
+                            accept=".pdf,.xlsx,.xls,.docx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif"
+                            onChange={handleFileUpload}
+                            className="hidden"
+                          />
+                          <label htmlFor="fileUpload" className="cursor-pointer">
+                            <div className="space-y-2">
+                              <div className="mx-auto w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                                <FileText className="h-6 w-6 text-purple-600" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">
+                                  Click to upload or drag and drop
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  PDF, Excel, Word, PowerPoint, Images, or Text files
+                                </p>
+                              </div>
+                            </div>
+                          </label>
+                        </div>
+                        
+                        {uploadedFile && (
+                          <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                            <div className="flex items-center gap-2">
+                              <FileText className="h-4 w-4 text-green-600" />
+                              <span className="text-sm font-medium text-green-800">{uploadedFile.name}</span>
+                              <span className="text-xs text-green-600">({(uploadedFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+                            </div>
+                            {fileContent && (
+                              <p className="text-xs text-green-600 mt-1">✓ Content extracted successfully</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -492,9 +590,9 @@ export default function CreateAssignmentPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="beginner">Beginner</SelectItem>
+                          <SelectItem value="normal">Normal</SelectItem>
                           <SelectItem value="intermediate">Intermediate</SelectItem>
-                          <SelectItem value="advanced">Advanced</SelectItem>
+                          <SelectItem value="hard">Hard</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -516,7 +614,7 @@ export default function CreateAssignmentPage() {
 
                   <Button
                     onClick={generateAIAssignment}
-                    disabled={isLoading || !formData.aiPrompt}
+                    disabled={isLoading || (!formData.aiPrompt && !fileContent) || !formData.difficulty}
                     className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
                   >
                     {isLoading ? (
