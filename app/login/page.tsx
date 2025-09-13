@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "@/hooks/use-toast"
-import { authenticateFaculty } from "@/lib/supabase"
+import { authenticateFaculty, supabase } from "@/lib/supabase"
 import UniversityPortal from "@/components/UniversityPortal"
 import StudentLoginPage from "@/components/StudentLoginPage"
 
@@ -45,19 +45,51 @@ function LoginContent() {
 
     try {
       console.log("Attempting login with:", { email, password })
-      const faculty = await authenticateFaculty(email, password)
-      console.log("Authentication successful:", faculty)
+      const authResult = await authenticateFaculty(email, password)
+      console.log("Authentication successful:", authResult)
 
-      // Store faculty data in localStorage
-      localStorage.setItem("facultySession", JSON.stringify(faculty))
+      // Check if this is first login - redirect to personal info collection
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('user_id', authResult.id)
+        .single()
 
-      toast({
-        title: "Login Successful",
-        description: `Welcome back, ${faculty.name}!`,
-      })
-
-      console.log("Redirecting to dashboard...")
-      router.push("/dashboard")
+      if (!profile) {
+        // First time login - store basic auth data and redirect to profile completion
+        localStorage.setItem("facultySession", JSON.stringify(authResult))
+        
+        toast({
+          title: "Welcome to EduVision!",
+          description: "Please complete your profile to get started.",
+        })
+        router.push("/complete-profile?type=faculty")
+      } else {
+        // Existing user - merge profile data with auth data
+        const completeUserData = {
+          ...authResult,
+          profile: profile,
+          name: profile.name,
+          full_name: profile.name,
+          department: profile.department,
+          designation: profile.designation,
+          phone: profile.phone,
+          address: profile.address,
+          face_url: profile.face_image,
+          photo: profile.face_image,
+          avatar: profile.face_image,
+          profile_completed: profile.profile_completed
+        }
+        
+        // Store complete user data including profile
+        localStorage.setItem("facultySession", JSON.stringify(completeUserData))
+        
+        toast({
+          title: `Welcome back, ${profile.name || authResult.email?.split('@')[0]}!`,
+          description: "You have successfully logged in to your faculty dashboard.",
+        })
+        router.push("/dashboard")
+      }
     } catch (error: any) {
       console.error("Login error:", error)
       setError(error.message || "Login failed. Please try again.")
@@ -160,12 +192,6 @@ function LoginContent() {
                 </Alert>
               )}
 
-              {/* Demo Credentials */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-medium text-blue-900 mb-2">Demo Credentials:</h4>
-                <p className="text-sm text-blue-700">Email: faculty@sanjivani.edu.in</p>
-                <p className="text-sm text-blue-700">Password: EduVision2024@Faculty!</p>
-              </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">

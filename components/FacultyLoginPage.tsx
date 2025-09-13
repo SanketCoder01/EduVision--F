@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "@/hooks/use-toast"
+import { authenticateFaculty, supabase } from "@/lib/supabase"
 
 interface FacultyLoginPageProps {
   onBack: () => void
@@ -30,26 +31,47 @@ export default function FacultyLoginPage({ onBack }: FacultyLoginPageProps) {
     setError("")
 
     try {
-      // Demo faculty credentials
-      if (email === "faculty@sanjivani.edu.in" && password === "EduVision2024@Faculty!") {
-        localStorage.setItem(
-          "faculty_session",
-          JSON.stringify({
-            email: email,
-            name: "Dr. Faculty Member",
-            role: "faculty",
-            department: "Computer Science",
-          }),
-        )
+      const authResult = await authenticateFaculty(email, password)
 
+      // Store authentication data
+      localStorage.setItem("facultySession", JSON.stringify(authResult))
+      localStorage.setItem("userType", "faculty")
+
+      // Always redirect to profile completion for testing - remove this condition later
+      const profileCompleted = localStorage.getItem('profileCompleted')
+      
+      if (!profileCompleted) {
+        // First time login - redirect to personal info collection
         toast({
-          title: "Login Successful",
-          description: "Welcome to Faculty Dashboard!",
+          title: "Welcome to EduVision!",
+          description: "Please complete your profile to get started.",
         })
-
-        router.push("/dashboard")
+        router.push("/complete-profile?type=faculty")
       } else {
-        throw new Error("Invalid faculty credentials")
+        // Check if profile exists in database
+        const { data: profile, error: profileError } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('user_id', authResult.id)
+          .single()
+
+        console.log('Profile check:', { profile, profileError, userId: authResult.id })
+
+        if (profile && !profileError) {
+          // Existing user - show welcome back message with name
+          toast({
+            title: `Welcome back, ${profile.name || authResult.email?.split('@')[0]}!`,
+            description: "You have successfully logged in to your faculty dashboard.",
+          })
+          router.push("/dashboard")
+        } else {
+          // Profile not found in database, redirect to complete profile
+          toast({
+            title: "Welcome to EduVision!",
+            description: "Please complete your profile to get started.",
+          })
+          router.push("/complete-profile?type=faculty")
+        }
       }
     } catch (error: any) {
       setError(error.message || "Login failed. Please try again.")

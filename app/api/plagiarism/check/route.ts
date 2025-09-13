@@ -62,6 +62,8 @@ export async function POST(request: NextRequest) {
     console.error('Plagiarism check error:', error)
     
     // Return mock data if API fails (for development)
+    const { text: requestText } = await request.json()
+    const wordCount = requestText.split(' ').length
     const mockResult = {
       similarity_percentage: Math.floor(Math.random() * 25), // Random 0-25%
       sources_count: Math.floor(Math.random() * 5),
@@ -74,9 +76,9 @@ export async function POST(request: NextRequest) {
       ],
       is_plagiarized: false,
       analysis: {
-        total_words: text.split(' ').length,
-        plagiarized_words: Math.floor(text.split(' ').length * 0.1),
-        unique_words: Math.floor(text.split(' ').length * 0.9)
+        total_words: wordCount,
+        plagiarized_words: Math.floor(wordCount * 0.1),
+        unique_words: Math.floor(wordCount * 0.9)
       },
       report_url: null,
       checked_at: new Date().toISOString()

@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { motion } from "framer-motion"
+import { useRouter } from "next/navigation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -12,13 +13,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Switch } from "@/components/ui/switch"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
-import { CalendarIcon, Search, Filter, Code, Users, Trophy, Clock, Calendar as CalendarIcon2, Laptop, Globe, BookOpen, Zap, CheckCircle, AlertCircle, User, Building, GraduationCap } from "lucide-react"
+import { CalendarIcon, Search, Filter, Code, Users, Trophy, Clock, Calendar as CalendarIcon2, Laptop, Globe, BookOpen, Zap, CheckCircle, AlertCircle, User, Building, GraduationCap, MapPin, ArrowLeft } from "lucide-react"
 
 // Mock data for hackathons
 const mockHackathons = [
@@ -260,10 +262,73 @@ const roles = [
 ]
 
 export default function HackathonPage() {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState("browse")
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("All")
   const [date, setDate] = useState<Date | undefined>(new Date())
+  
+  // Enhanced targeting state
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([])
+  const [selectedYears, setSelectedYears] = useState<string[]>([])
+  const [enableClassWiseTargeting, setEnableClassWiseTargeting] = useState(false)
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([])
+
+  // Department and year options
+  const departments = [
+    { id: "cse", name: "Computer Science Engineering" },
+    { id: "aids", name: "Artificial Intelligence & Data Science" },
+    { id: "aiml", name: "AI & Machine Learning" },
+    { id: "cyber", name: "Cyber Security" },
+    { id: "mech", name: "Mechanical Engineering" },
+    { id: "civil", name: "Civil Engineering" },
+    { id: "ece", name: "Electronics & Communication" }
+  ]
+
+  const years = [
+    { id: "1st", name: "1st Year" },
+    { id: "2nd", name: "2nd Year" },
+    { id: "3rd", name: "3rd Year" },
+    { id: "4th", name: "4th Year" }
+  ]
+
+  // Classes for each department and year combination
+  const classes = [
+    "CSE-A", "CSE-B", "CSE-C",
+    "AIDS-A", "AIDS-B", 
+    "AIML-A", "AIML-B",
+    "CYBER-A", "CYBER-B",
+    "MECH-A", "MECH-B", "MECH-C",
+    "CIVIL-A", "CIVIL-B",
+    "ECE-A", "ECE-B", "ECE-C"
+  ]
+
+  // Handle department selection
+  const handleDepartmentChange = (departmentId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedDepartments([...selectedDepartments, departmentId])
+    } else {
+      setSelectedDepartments(selectedDepartments.filter(id => id !== departmentId))
+    }
+  }
+
+  // Handle year selection
+  const handleYearChange = (yearId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedYears([...selectedYears, yearId])
+    } else {
+      setSelectedYears(selectedYears.filter(id => id !== yearId))
+    }
+  }
+
+  // Handle class selection
+  const handleClassChange = (classId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedClasses([...selectedClasses, classId])
+    } else {
+      setSelectedClasses(selectedClasses.filter(id => id !== classId))
+    }
+  }
   
   // Filter hackathons based on search query and status filter
   const filteredHackathons = mockHackathons.filter(hackathon => {
@@ -284,6 +349,16 @@ export default function HackathonPage() {
         transition={{ duration: 0.5 }}
       >
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="ghost"
+              onClick={() => router.push('/dashboard/other-services')}
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Other Services
+            </Button>
+          </div>
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Hackathon Portal</h1>
             <p className="text-gray-500 mt-1">Organize and participate in coding competitions</p>
@@ -293,7 +368,7 @@ export default function HackathonPage() {
         <Tabs defaultValue="browse" className="mb-8" onValueChange={setActiveTab}>
           <TabsList className="grid w-full md:w-[600px] grid-cols-3">
             <TabsTrigger value="browse">Browse Hackathons</TabsTrigger>
-            <TabsTrigger value="propose">Propose Hackathon</TabsTrigger>
+            <TabsTrigger value="post">Post Hackathon</TabsTrigger>
             <TabsTrigger value="resources">Resources</TabsTrigger>
           </TabsList>
           
@@ -426,149 +501,350 @@ export default function HackathonPage() {
             )}
           </TabsContent>
           
-          {/* Propose Hackathon Tab */}
-          <TabsContent value="propose" className="mt-6">
+          {/* Post Hackathon Tab */}
+          <TabsContent value="post" className="mt-6">
             <Card>
               <CardHeader>
-                <CardTitle>Propose a New Hackathon</CardTitle>
+                <CardTitle>Post New Hackathon</CardTitle>
                 <CardDescription>
-                  Fill out the form below to propose a new hackathon event. Your proposal will be reviewed by the administration.
+                  Create and publish a new hackathon event for students. Include all necessary details, poster, and registration information.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="title">Hackathon Title</Label>
-                    <Input id="title" placeholder="Enter a catchy title" />
+              <CardContent className="space-y-6">
+                {/* Basic Information */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Basic Information</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="title">Hackathon Title *</Label>
+                      <Input id="title" placeholder="Enter hackathon title" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="theme">Theme/Category *</Label>
+                      <Select>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {categories.map((category) => (
+                            <SelectItem key={category} value={category}>
+                              {category}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
+                  
                   <div className="space-y-2">
-                    <Label htmlFor="theme">Theme/Focus Area</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categories.map((category) => (
-                          <SelectItem key={category} value={category}>
-                            {category}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="description">Description *</Label>
+                    <Textarea 
+                      id="description" 
+                      placeholder="Describe the hackathon objectives, challenges, and expected outcomes..." 
+                      className="min-h-[120px]"
+                    />
                   </div>
                 </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea 
-                    id="description" 
-                    placeholder="Describe the hackathon, its goals, and expected outcomes" 
-                    className="min-h-[100px]"
-                  />
+
+                {/* Dates and Location */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Event Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Start Date *</Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-start text-left font-normal">
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {date ? format(date, "PPP") : "Pick start date"}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0">
+                          <Calendar mode="single" selected={date} onSelect={setDate} initialFocus />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>End Date *</Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-start text-left font-normal">
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            Pick end date
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0">
+                          <Calendar mode="single" initialFocus />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Registration Deadline *</Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-start text-left font-normal">
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            Registration deadline
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0">
+                          <Calendar mode="single" initialFocus />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="location">Location *</Label>
+                      <Input id="location" placeholder="e.g., Main Auditorium, Online, Hybrid" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="maxTeams">Maximum Teams</Label>
+                      <Input id="maxTeams" type="number" placeholder="e.g., 50" />
+                    </div>
+                  </div>
                 </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label>Start Date</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant={"outline"}
-                          className={cn(
-                            "w-full justify-start text-left font-normal",
-                            !date && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {date ? format(date, "PPP") : <span>Pick a date</span>}
+
+                {/* Poster Upload */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Hackathon Poster</h3>
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
+                    <div className="text-center">
+                      <Globe className="mx-auto h-12 w-12 text-gray-400" />
+                      <div className="mt-4">
+                        <Button variant="outline">
+                          Upload Poster
                         </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={date}
-                          onSelect={setDate}
-                          initialFocus
+                        <p className="mt-2 text-sm text-gray-500">
+                          PNG, JPG, or PDF up to 10MB
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Registration Link */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Registration & Links</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="regLink">Registration Link</Label>
+                      <Input id="regLink" placeholder="https://forms.google.com/..." />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="website">Event Website (Optional)</Label>
+                      <Input id="website" placeholder="https://hackathon-website.com" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Target Audience */}
+                <div className="space-y-6">
+                  <h3 className="text-lg font-semibold">Target Audience & Participation</h3>
+                  
+                  {/* Department Selection */}
+                  <div className="space-y-3">
+                    <Label className="text-base font-medium">Target Departments *</Label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {departments.map((dept) => (
+                        <div key={dept.id} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={dept.id}
+                            checked={selectedDepartments.includes(dept.id)}
+                            onCheckedChange={(checked) => handleDepartmentChange(dept.id, checked as boolean)}
+                          />
+                          <Label htmlFor={dept.id} className="text-sm font-normal cursor-pointer">
+                            {dept.name}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedDepartments.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {selectedDepartments.map((deptId) => {
+                          const dept = departments.find(d => d.id === deptId)
+                          return (
+                            <Badge key={deptId} variant="secondary" className="text-xs">
+                              {dept?.name}
+                            </Badge>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Year Selection */}
+                  <div className="space-y-3">
+                    <Label className="text-base font-medium">Target Years *</Label>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {years.map((year) => (
+                        <div key={year.id} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={year.id}
+                            checked={selectedYears.includes(year.id)}
+                            onCheckedChange={(checked) => handleYearChange(year.id, checked as boolean)}
+                          />
+                          <Label htmlFor={year.id} className="text-sm font-normal cursor-pointer">
+                            {year.name}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedYears.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {selectedYears.map((yearId) => {
+                          const year = years.find(y => y.id === yearId)
+                          return (
+                            <Badge key={yearId} variant="secondary" className="text-xs">
+                              {year?.name}
+                            </Badge>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Optional Class-wise Targeting */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-base font-medium">Class-wise Targeting (Optional)</Label>
+                      <div className="flex items-center space-x-2">
+                        <Switch
+                          id="class-targeting"
+                          checked={enableClassWiseTargeting}
+                          onCheckedChange={setEnableClassWiseTargeting}
                         />
-                      </PopoverContent>
-                    </Popover>
+                        <Label htmlFor="class-targeting" className="text-sm">
+                          Enable specific class targeting
+                        </Label>
+                      </div>
+                    </div>
+                    
+                    {enableClassWiseTargeting && (
+                      <div className="border rounded-lg p-4 bg-gray-50">
+                        <p className="text-sm text-gray-600 mb-3">
+                          Select specific classes to target. If no classes are selected, all classes within the selected departments and years will be included.
+                        </p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {classes.map((className) => (
+                            <div key={className} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={className}
+                                checked={selectedClasses.includes(className)}
+                                onCheckedChange={(checked) => handleClassChange(className, checked as boolean)}
+                              />
+                              <Label htmlFor={className} className="text-sm font-normal cursor-pointer">
+                                {className}
+                              </Label>
+                            </div>
+                          ))}
+                        </div>
+                        {selectedClasses.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            {selectedClasses.map((className) => (
+                              <Badge key={className} variant="outline" className="text-xs">
+                                {className}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Team Size */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="teamSize">Team Size *</Label>
+                      <Input id="teamSize" placeholder="e.g., 2-5 members" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="participationType">Participation Type</Label>
+                      <Select>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select participation type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="individual">Individual</SelectItem>
+                          <SelectItem value="team">Team-based</SelectItem>
+                          <SelectItem value="both">Both Individual & Team</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Targeting Summary */}
+                  {(selectedDepartments.length > 0 || selectedYears.length > 0) && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <h4 className="font-medium text-blue-900 mb-2">Targeting Summary</h4>
+                      <div className="text-sm text-blue-800 space-y-1">
+                        {selectedDepartments.length > 0 && (
+                          <p>
+                            <span className="font-medium">Departments:</span> {selectedDepartments.length} selected
+                          </p>
+                        )}
+                        {selectedYears.length > 0 && (
+                          <p>
+                            <span className="font-medium">Years:</span> {selectedYears.length} selected
+                          </p>
+                        )}
+                        {enableClassWiseTargeting && selectedClasses.length > 0 && (
+                          <p>
+                            <span className="font-medium">Specific Classes:</span> {selectedClasses.length} selected
+                          </p>
+                        )}
+                        <p className="text-xs mt-2 text-blue-600">
+                          This hackathon will be visible to students matching the above criteria.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Prizes and Eligibility */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Prizes & Eligibility</h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="prizes">Prize Details</Label>
+                    <Textarea 
+                      id="prizes" 
+                      placeholder="1st Place: ₹50,000&#10;2nd Place: ₹30,000&#10;3rd Place: ₹20,000&#10;Best Innovation: ₹10,000" 
+                      className="min-h-[100px]"
+                    />
                   </div>
                   <div className="space-y-2">
-                    <Label>End Date</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant={"outline"}
-                          className={cn(
-                            "w-full justify-start text-left font-normal",
-                            !date && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {date ? format(date, "PPP") : <span>Pick a date</span>}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={date}
-                          onSelect={setDate}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
+                    <Label htmlFor="eligibility">Eligibility Criteria</Label>
+                    <Textarea 
+                      id="eligibility" 
+                      placeholder="Open to all students. Teams must have 2-5 members. At least one member should be from technical background..." 
+                      className="min-h-[80px]"
+                    />
+                  </div>
+                </div>
+
+                {/* Additional Information */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Additional Information</h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="resources">Resources Provided</Label>
+                    <Textarea 
+                      id="resources" 
+                      placeholder="Mentorship, API access, cloud credits, development tools..." 
+                      className="min-h-[80px]"
+                    />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="location">Location</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select location type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="virtual">Virtual</SelectItem>
-                        <SelectItem value="on-campus">On-Campus</SelectItem>
-                        <SelectItem value="hybrid">Hybrid</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="contact">Contact Information</Label>
+                    <Input id="contact" placeholder="Email or phone for queries" />
                   </div>
                 </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="prizes">Proposed Prizes</Label>
-                  <Textarea 
-                    id="prizes" 
-                    placeholder="List the prizes for winners (e.g., 1st Place: $1000, etc.)" 
-                    className="min-h-[80px]"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="eligibility">Eligibility Criteria</Label>
-                  <Textarea 
-                    id="eligibility" 
-                    placeholder="Specify who can participate (students, faculty, external participants, etc.)" 
-                    className="min-h-[80px]"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="resources">Required Resources</Label>
-                  <Textarea 
-                    id="resources" 
-                    placeholder="List any resources needed (venue, equipment, funding, etc.)" 
-                    className="min-h-[80px]"
-                  />
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <Switch id="volunteer" />
-                  <Label htmlFor="volunteer">I am willing to volunteer as an organizer</Label>
+
+                <div className="flex justify-end space-x-4 pt-4">
+                  <Button variant="outline">Save as Draft</Button>
+                  <Button>Publish Hackathon</Button>
                 </div>
               </CardContent>
-              <CardFooter className="flex justify-between border-t pt-4">
-                <Button variant="outline">Save as Draft</Button>
-                <Button>Submit Proposal</Button>
-              </CardFooter>
             </Card>
           </TabsContent>
           

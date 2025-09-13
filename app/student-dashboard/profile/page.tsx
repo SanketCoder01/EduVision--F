@@ -11,7 +11,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { toast } from "@/hooks/use-toast"
-import { updateUserPassword } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
 
 export default function StudentProfilePage() {
   const [isEditing, setIsEditing] = useState(false)
@@ -46,17 +46,33 @@ export default function StudentProfilePage() {
     if (studentSession) {
       try {
         const user = JSON.parse(studentSession)
-        setProfile({
-          id: user.id || "",
-          name: user.name || "",
-          email: user.email || "",
-          prn: user.prn || "",
-          department: user.department || "",
-          year: user.year || "",
-          phone: user.phone || "",
-          address: user.address || "",
-          photoUrl: user.photoUrl || null,
-        })
+        // Check if profile data exists from complete-profile flow
+        if (user.profile) {
+          setProfile({
+            id: user.id || "",
+            name: user.profile.name || user.auth_user?.user_metadata?.full_name || "",
+            email: user.email || "",
+            prn: user.profile.prn || "",
+            department: user.profile.department || "",
+            year: user.profile.year || "",
+            phone: user.profile.phone || "",
+            address: user.profile.address || "",
+            photoUrl: user.profile.face_image || null,
+          })
+        } else {
+          // Fallback to basic auth data
+          setProfile({
+            id: user.id || "",
+            name: user.auth_user?.user_metadata?.full_name || "",
+            email: user.email || "",
+            prn: "",
+            department: "",
+            year: "",
+            phone: "",
+            address: "",
+            photoUrl: null,
+          })
+        }
       } catch (error) {
         console.error("Failed to parse user data from localStorage", error)
         toast({
@@ -88,13 +104,50 @@ export default function StudentProfilePage() {
     setIsUpdatingProfile(true)
 
     try {
-      // Update localStorage with new data
       const studentSession = localStorage.getItem("studentSession")
-      if (studentSession) {
-        const user = JSON.parse(studentSession)
-        const updatedUser = { ...user, ...profile }
-        localStorage.setItem("studentSession", JSON.stringify(updatedUser))
+      if (!studentSession) return
+
+      const user = JSON.parse(studentSession)
+      
+      // Update profile in Supabase
+      const response = await fetch('/api/profile/update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: user.id,
+          name: profile.name,
+          phone: profile.phone,
+          address: profile.address,
+          department: profile.department,
+          year: profile.year,
+          prn: profile.prn
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to update profile')
       }
+
+      // Update localStorage with new data
+      const updatedUser = { 
+        ...user, 
+        name: profile.name,
+        full_name: profile.name,
+        department: profile.department,
+        year: profile.year,
+        prn: profile.prn,
+        phone: profile.phone,
+        address: profile.address,
+        profile: {
+          ...user.profile,
+          ...profile
+        }
+      }
+      localStorage.setItem("studentSession", JSON.stringify(updatedUser))
 
       setIsEditing(false)
       toast({
@@ -149,9 +202,14 @@ export default function StudentProfilePage() {
       if (studentSession) {
         const user = JSON.parse(studentSession)
 
-        // In a real implementation, you would verify the current password with the backend
-        // For now, we'll update the password in Supabase
-        await updateUserPassword(profile.id, passwordData.newPassword, "student")
+        // Update password using Supabase Auth
+        const { error: passwordError } = await supabase.auth.updateUser({
+          password: passwordData.newPassword
+        })
+
+        if (passwordError) {
+          throw passwordError
+        }
 
         // Update the session with new password (in real app, this would be handled by backend)
         const updatedUser = { ...user, password: passwordData.newPassword }
@@ -209,7 +267,8 @@ export default function StudentProfilePage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="w-full min-h-screen bg-gray-50">
+      <div className="container mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center">
           <Button variant="ghost" size="icon" className="mr-2" onClick={() => window.history.back()}>
@@ -285,86 +344,82 @@ export default function StudentProfilePage() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="flex-1 space-y-6"
+              className="flex-1"
             >
-              <div>
-                <h3 className="text-lg font-semibold mb-4">Personal Information</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="name">Full Name</Label>
-                    <Input
-                      id="name"
-                      name="name"
-                      value={profile.name}
-                      onChange={handleInputChange}
-                      disabled={!isEditing}
-                      className={!isEditing ? "bg-gray-50" : ""}
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="email">Email Address</Label>
-                    <Input
-                      id="email"
-                      name="email"
-                      type="email"
-                      value={profile.email}
-                      onChange={handleInputChange}
-                      disabled={!isEditing}
-                      className={!isEditing ? "bg-gray-50" : ""}
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="phone">Phone Number</Label>
-                    <Input
-                      id="phone"
-                      name="phone"
-                      value={profile.phone}
-                      onChange={handleInputChange}
-                      disabled={!isEditing}
-                      className={!isEditing ? "bg-gray-50" : ""}
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="prn">PRN</Label>
-                    <Input id="prn" name="prn" value={profile.prn} disabled={true} className="bg-gray-50" />
-                  </div>
-                </div>
-
-                <div className="grid gap-2 mt-4">
-                  <Label htmlFor="address">Address</Label>
-                  <Input
-                    id="address"
-                    name="address"
-                    value={profile.address}
-                    onChange={handleInputChange}
-                    disabled={!isEditing}
-                    className={!isEditing ? "bg-gray-50" : ""}
-                  />
-                </div>
-              </div>
-
-              <Separator />
-
-              <div>
-                <h3 className="text-lg font-semibold mb-4">Academic Information</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="department">Department</Label>
-                    <Input
-                      id="department"
-                      value={getDepartmentName(profile.department)}
-                      disabled={true}
-                      className="bg-gray-50"
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="year">Academic Year</Label>
-                    <Input id="year" value={getYearName(profile.year)} disabled={true} className="bg-gray-50" />
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Personal Information</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <Label htmlFor="name">Full Name</Label>
+                      <Input
+                        id="name"
+                        name="name"
+                        value={profile.name || ''}
+                        onChange={handleInputChange}
+                        disabled={!isEditing}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="email">Email</Label>
+                      <Input
+                        id="email"
+                        name="email"
+                        value={profile.email || ''}
+                        onChange={handleInputChange}
+                        disabled={!isEditing}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="prn">PRN (Permanent Registration Number)</Label>
+                      <Input
+                        id="prn"
+                        name="prn"
+                        value={profile.prn || ''}
+                        onChange={handleInputChange}
+                        disabled={!isEditing}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="department">Department</Label>
+                      <Input
+                        id="department"
+                        name="department"
+                        value={profile.department || ''}
+                        onChange={handleInputChange}
+                        disabled={!isEditing}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="year">Academic Year</Label>
+                      <Input
+                        id="year"
+                        name="year"
+                        value={profile.year || ''}
+                        onChange={handleInputChange}
+                        disabled={!isEditing}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="phone">Phone</Label>
+                      <Input
+                        id="phone"
+                        name="phone"
+                        value={profile.phone || ''}
+                        onChange={handleInputChange}
+                        disabled={!isEditing}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <Label htmlFor="address">Address</Label>
+                      <Input
+                        id="address"
+                        name="address"
+                        value={profile.address || ''}
+                        onChange={handleInputChange}
+                        disabled={!isEditing}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -481,6 +536,7 @@ export default function StudentProfilePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   )
 }

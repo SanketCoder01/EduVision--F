@@ -26,18 +26,23 @@ interface Assignment {
   id: string
   title: string
   description: string
-  subject: string
   department: string
   year: string
+  subject: string
+  total_marks: number
   due_date: string
+  status: "draft" | "published" | "closed"
+  instructions: string
+  resources: any[]
   created_at: string
-  status: "draft" | "published"
-  difficulty: "beginner" | "intermediate" | "advanced"
+  updated_at?: string
+  submissions?: Submission[]
+  grade?: string
+  feedback?: string
+  graded_at?: string
+  difficulty?: string
   isAIGenerated?: boolean
   isFileGenerated?: boolean
-  total_marks: number
-  instructions?: string
-  resources?: string[]
 }
 
 interface Student {
@@ -70,28 +75,28 @@ export default function AssignmentDetailsPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchAssignment = () => {
+    const fetchAssignment = async () => {
       try {
-        const storedAssignments = localStorage.getItem("assignments")
-        if (storedAssignments) {
-          const assignments: Assignment[] = JSON.parse(storedAssignments)
-          const foundAssignment = assignments.find((a) => a.id.toString() === params.id)
-          
-          if (foundAssignment) {
-            setAssignment({
-              ...foundAssignment,
-              total_marks: foundAssignment.total_marks || 100,
-              instructions: foundAssignment.instructions || "Complete all questions within the given time frame.",
-              resources: foundAssignment.resources || []
-            })
-          } else {
-            toast({
-              title: "Assignment not found",
-              description: "The assignment you're looking for doesn't exist.",
-              variant: "destructive",
-            })
-            router.push("/dashboard/assignments")
-          }
+        console.log('Fetching assignment with ID:', params.id)
+        const { SupabaseAssignmentService } = await import("@/lib/supabase-assignments")
+        const assignment = await SupabaseAssignmentService.getAssignmentById(params.id as string)
+        
+        if (assignment) {
+          setAssignment({
+            ...assignment,
+            subject: assignment.department,
+            year: assignment.target_years?.[0] || 'all',
+            total_marks: assignment.max_marks,
+            instructions: assignment.description,
+            resources: []
+          })
+        } else {
+          toast({
+            title: "Assignment not found",
+            description: "The assignment you're looking for doesn't exist.",
+            variant: "destructive",
+          })
+          router.push("/dashboard/assignments")
         }
       } catch (error) {
         console.error("Error loading assignment:", error)
@@ -213,9 +218,9 @@ export default function AssignmentDetailsPage() {
                 <Badge className={getStatusColor(assignment.status)}>
                   {assignment.status.charAt(0).toUpperCase() + assignment.status.slice(1)}
                 </Badge>
-                <Badge className={getDifficultyColor(assignment.difficulty)}>
+                <Badge className={getDifficultyColor(assignment.difficulty || '')}>
                   <Star className="mr-1 h-3 w-3" />
-                  {assignment.difficulty.charAt(0).toUpperCase() + assignment.difficulty.slice(1)}
+                  {assignment.difficulty ? assignment.difficulty.charAt(0).toUpperCase() + assignment.difficulty.slice(1) : 'Not Set'}
                 </Badge>
               </div>
             </div>
@@ -232,10 +237,14 @@ export default function AssignmentDetailsPage() {
                   AI Generated
                 </Badge>
               )}
-              {assignment.isFileGenerated && (
-                <Badge variant="secondary">
-                  <FileUp className="mr-1 h-3 w-3" />
-                  File Based
+              
+              {assignment.difficulty && (
+                <Badge 
+                  variant={assignment.difficulty === "Easy" ? "default" : 
+                          assignment.difficulty === "Medium" ? "secondary" : "destructive"}
+                  className="text-xs"
+                >
+                  {assignment.difficulty}
                 </Badge>
               )}
             </div>

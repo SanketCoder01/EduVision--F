@@ -23,6 +23,7 @@ import {
   MoreHorizontal,
   FileText,
   Bot,
+  ClipboardCheck,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -35,9 +36,11 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "@/hooks/use-toast"
+import ChatbotWidget from "@/components/ai/ChatbotWidget"
 
 const sidebarItems = [
   { icon: Home, label: "Dashboard", href: "/student-dashboard", color: "text-blue-600" },
+  { icon: ClipboardCheck, label: "Attendance", href: "/student-dashboard/attendance", color: "text-emerald-600" },
   { icon: BookOpen, label: "Assignments", href: "/student-dashboard/assignments", color: "text-green-600" },
   { icon: Code, label: "Compiler", href: "/student-dashboard/compiler", color: "text-teal-600" },
   { icon: Users, label: "Study Groups", href: "/student-dashboard/study-groups", color: "text-blue-600" },
@@ -183,13 +186,13 @@ export default function StudentDashboardLayout({ children }: { children: React.R
           <div className="mt-auto">
             <div className="flex items-center gap-x-4 px-3 py-3 text-sm font-semibold leading-6 text-gray-900 bg-gradient-to-r from-gray-50 to-emerald-50 rounded-xl border border-gray-200/50">
               <Avatar className="h-10 w-10 ring-2 ring-emerald-200">
-                <AvatarImage src="/placeholder.svg?height=40&width=40" alt="User" />
+                <AvatarImage src={user?.face_url || user?.photo || user?.avatar || "/placeholder.svg?height=40&width=40"} alt="User" />
                 <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-teal-500 text-white">
-                  {user?.name?.charAt(0) || "S"}
+                  {(user?.name || user?.full_name)?.charAt(0) || "S"}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{user?.name || "Student"}</p>
+                <p className="text-sm font-medium text-gray-900 truncate">{user?.name || user?.full_name || "Student"}</p>
                 <p className="text-xs text-gray-500 truncate">{user?.email}</p>
                 {user?.prn && <p className="text-xs text-emerald-600 truncate">PRN: {user.prn}</p>}
               </div>
@@ -235,9 +238,9 @@ export default function StudentDashboardLayout({ children }: { children: React.R
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-8 w-8 rounded-full">
               <Avatar className="h-8 w-8">
-                <AvatarImage src="/placeholder.svg?height=32&width=32" alt="User" />
+                <AvatarImage src={user?.face_url || user?.photo || user?.avatar || "/placeholder.svg?height=32&width=32"} alt="User" />
                 <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-teal-500 text-white text-xs">
-                  {user?.name?.charAt(0) || "S"}
+                  {(user?.name || user?.full_name)?.charAt(0) || "S"}
                 </AvatarFallback>
               </Avatar>
               {notifications > 0 && (
@@ -250,7 +253,7 @@ export default function StudentDashboardLayout({ children }: { children: React.R
           <DropdownMenuContent align="end" className="w-56">
             <div className="flex items-center justify-start gap-2 p-2">
               <div className="flex flex-col space-y-1 leading-none">
-                <p className="font-medium">{user?.name || "Student"}</p>
+                <p className="font-medium">{user?.name || user?.full_name || "Student"}</p>
                 <p className="w-[200px] truncate text-sm text-muted-foreground">{user?.email}</p>
                 {user?.prn && <p className="text-xs text-emerald-600">PRN: {user.prn}</p>}
               </div>
@@ -366,6 +369,9 @@ export default function StudentDashboardLayout({ children }: { children: React.R
           </div>
         </main>
       </div>
+
+      {/* AI Tutor Chatbot Widget */}
+      <ChatbotWidget />
     </div>
   )
 }

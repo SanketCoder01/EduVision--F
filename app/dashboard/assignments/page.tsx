@@ -23,6 +23,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { toast } from "@/hooks/use-toast"
+import { SupabaseAssignmentService } from "@/lib/supabase-assignments"
+import { supabase } from "@/lib/supabase"
 
 interface Assignment {
   id: string
@@ -51,48 +54,95 @@ export default function AssignmentsPage() {
   const [currentUser, setCurrentUser] = useState<any>(null)
 
   useEffect(() => {
-    // Get current user
-    const facultySession = localStorage.getItem("facultySession")
-    if (facultySession) {
-      try {
-        const user = JSON.parse(facultySession)
-        setCurrentUser(user)
-        loadAssignments(user)
-      } catch (error) {
-        console.error("Error parsing faculty session:", error)
+    // Get current user from Supabase session or localStorage
+    const getUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        // Get faculty profile from database using email
+        const { data: faculty } = await supabase
+          .from('faculty')
+          .select('*')
+          .eq('email', session.user.email)
+          .single()
+        
+        if (faculty) {
+          setCurrentUser(faculty)
+          loadAssignments(faculty)
+        } else {
+          console.error('Faculty not found for email:', session.user.email)
+          toast({
+            title: "Faculty Profile Not Found",
+            description: "Please contact admin to set up your faculty profile.",
+            variant: "destructive"
+          })
+        }
+      } else {
+        // Fallback to localStorage for demo
+        const facultySession = localStorage.getItem("facultySession")
+        if (facultySession) {
+          try {
+            const user = JSON.parse(facultySession)
+            setCurrentUser(user)
+            loadAssignments(user)
+          } catch (error) {
+            console.error("Error parsing faculty session:", error)
+          }
+        }
       }
+      setIsLoading(false)
     }
-    setIsLoading(false)
+    getUser()
   }, [])
 
-  const loadAssignments = (user: any) => {
+  const loadAssignments = async (user: any) => {
     try {
-      // Load assignments from the new storage key used in create page
-      const savedAssignments = JSON.parse(localStorage.getItem("assignments") || "[]")
-      // Filter assignments by faculty ID
-      const userAssignments = savedAssignments.filter(
-        (assignment: any) => assignment.faculty_id === user.id
-      ).map((assignment: any) => ({
-        id: assignment.id.toString(),
+      setIsLoading(true)
+      
+      // Load assignments from Supabase
+      const supabaseAssignments = await SupabaseAssignmentService.getFacultyAssignments(user.id)
+      
+      // Transform to match interface
+      const transformedAssignments = supabaseAssignments.map((assignment: any) => ({
+        id: assignment.id,
         title: assignment.title,
-        description: assignment.description.substring(0, 150) + '...',
+        description: assignment.description.length > 150 ? assignment.description.substring(0, 150) + '...' : assignment.description,
         department: assignment.department,
         subject: assignment.assignment_type || 'General',
         dueDate: assignment.due_date,
         status: assignment.status,
-        submissions: 0,
-        totalStudents: 25, // Mock data
-        fileType: assignment.allowed_file_types?.[0] || 'pdf',
-        createdAt: new Date().toISOString(),
+        submissions: 0, // Will be updated with real data
+        totalStudents: 25, // Mock data for now
+        fileType: 'pdf',
+        createdAt: assignment.created_at,
         facultyId: assignment.faculty_id,
-        year: assignment.year,
+        year: assignment.target_years?.[0] || '1',
         difficulty: assignment.difficulty,
-        ai_generated: assignment.ai_generated,
-        file_based: assignment.file_based
+        ai_generated: assignment.assignment_type === 'ai',
+        file_based: assignment.assignment_type === 'file_upload'
       }))
-      setAssignments(userAssignments)
+      
+      setAssignments(transformedAssignments)
+
+      // Set up real-time subscription for assignment updates
+      const subscription = SupabaseAssignmentService.subscribeToAssignments((payload) => {
+        console.log('Real-time assignment update:', payload)
+        // Reload assignments when there are changes
+        loadAssignments(user)
+      })
+
+      // Cleanup subscription on component unmount
+      return () => {
+        subscription.unsubscribe()
+      }
     } catch (error) {
       console.error("Error loading assignments:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load assignments. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -131,14 +181,24 @@ export default function AssignmentsPage() {
     }
   }
 
-  const handleDeleteAssignment = (id: string) => {
-    const updatedAssignments = assignments.filter((a) => a.id !== id)
-    setAssignments(updatedAssignments)
-
-    // Update localStorage
-    const allAssignments = JSON.parse(localStorage.getItem("assignments") || "[]")
-    const filteredAll = allAssignments.filter((a: any) => a.id.toString() !== id)
-    localStorage.setItem("assignments", JSON.stringify(filteredAll))
+  const handleDeleteAssignment = async (id: string) => {
+    try {
+      await SupabaseAssignmentService.deleteAssignment(id)
+      const updatedAssignments = assignments.filter((a) => a.id !== id)
+      setAssignments(updatedAssignments)
+      
+      toast({
+        title: "Assignment Deleted",
+        description: "Assignment has been successfully deleted.",
+      })
+    } catch (error) {
+      console.error("Error deleting assignment:", error)
+      toast({
+        title: "Error",
+        description: "Failed to delete assignment. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
   const stats = [

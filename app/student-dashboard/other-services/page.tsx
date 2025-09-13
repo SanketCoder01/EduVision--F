@@ -44,10 +44,12 @@ const services = [
   },
   {
     id: 2,
-    title: "Leave Request",
-    description: "Apply for leave with supporting documents and track approval",
+    title: "Student Leave Application",
+    description: "Submit leave applications through ERP with advance notice requirement",
     icon: ClipboardCheck,
     color: "bg-green-100 text-green-700",
+    badge: "ERP Only",
+    badgeColor: "bg-green-100 text-green-700",
     href: "/student-dashboard/other-services/leave"
   },
   {
@@ -109,28 +111,12 @@ const services = [
     href: "/student-dashboard/other-services/document-reissue"
   },
   {
-    id: 10,
-    title: "Background Verification",
-    description: "Submit verification requests for alumni records",
-    icon: UserCheck,
-    color: "bg-orange-100 text-orange-700",
-    href: "/student-dashboard/other-services/background-verification"
-  },
-  {
     id: 11,
     title: "Recommendation Letters",
     description: "Request letters of recommendation from faculty members",
     icon: Award,
     color: "bg-pink-100 text-pink-700",
     href: "/student-dashboard/other-services/recommendation"
-  },
-  {
-    id: 12,
-    title: "Health Services",
-    description: "Book appointments with campus health center and view resources",
-    icon: FileQuestion,
-    color: "bg-gray-100 text-gray-700",
-    href: "/student-dashboard/other-services/health"
   },
   {
     id: 13,
@@ -143,30 +129,12 @@ const services = [
     href: "/student-dashboard/other-services/hackathon"
   },
   {
-    id: 14,
-    title: "Resume Building",
-    description: "Create and update your professional resume with templates",
-    icon: FileEdit,
-    color: "bg-emerald-100 text-emerald-700",
-    href: "/student-dashboard/other-services/resume-building"
-  },
-  {
     id: 15,
     title: "Nearby Cafeteria",
     description: "View menus, timings and locations of campus cafeterias",
     icon: Coffee,
     color: "bg-amber-100 text-amber-700",
     href: "/student-dashboard/other-services/cafeteria"
-  },
-  {
-    id: 16,
-    title: "Library Room Booking",
-    description: "Reserve study rooms and spaces across campus libraries",
-    icon: Library,
-    color: "bg-blue-100 text-blue-700",
-    badge: "New",
-    badgeColor: "bg-blue-100 text-blue-700",
-    href: "/student-dashboard/other-services/library-booking"
   },
 ]
 
@@ -214,7 +182,7 @@ export default function OtherServicesPage() {
   )
 }
 
-function ServiceCard({ service }) {
+function ServiceCard({ service }: { service: any }) {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}

@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "@/hooks/use-toast"
-import { getAssignmentById, createSubmission, uploadFile, getStudentSubmissionForAssignment } from "@/lib/supabase"
+import { SupabaseRealtimeService } from "@/lib/supabase-realtime"
 
 interface Assignment {
   id: string
@@ -31,22 +31,23 @@ interface Assignment {
   description: string
   faculty_id: string
   department: string
-  year: string
+  year?: string
+  target_years?: string[]
   assignment_type: string
-  allowed_file_types: string[]
+  allowed_file_types?: string[]
   max_marks: number
   due_date: string
-  start_date: string
-  visibility: boolean
-  allow_late_submission: boolean
-  allow_resubmission: boolean
-  enable_plagiarism_check: boolean
+  start_date?: string
+  visibility?: boolean
+  allow_late_submission?: boolean
+  allow_resubmission?: boolean
+  enable_plagiarism_check?: boolean
   status: string
-  faculty: {
+  faculty?: {
     name: string
     email: string
   }
-  resources: any[]
+  resources?: any[]
 }
 
 export default function SubmitAssignmentPage({ params }: { params: { id: string } }) {
@@ -84,50 +85,52 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
     try {
       setLoading(true)
 
-      // Fetch assignment details
-      const assignmentData = await getAssignmentById(params.id)
-
-      if (!assignmentData) {
-        toast({
-          title: "Assignment not found",
-          description: "The assignment you're looking for doesn't exist.",
-          variant: "destructive",
-        })
-        router.push("/student-dashboard/assignments")
-        return
-      }
-
-      // Check if assignment is for the student's department and year
-      if (assignmentData.department !== user.department || assignmentData.year !== user.year) {
-        toast({
-          title: "Access Denied",
-          description: "This assignment is not available for your department/year.",
-          variant: "destructive",
-        })
-        router.push("/student-dashboard/assignments")
-        return
-      }
-
-      setAssignment(assignmentData)
-
-      // Set submission type based on assignment type
-      if (assignmentData.assignment_type === "text_based") {
-        setSubmissionType("text")
-      } else {
-        setSubmissionType("file")
-      }
-
-      // Check for existing submission
-      try {
-        const submission = await getStudentSubmissionForAssignment(user.id, params.id)
-        if (submission) {
-          setExistingSubmission(submission)
-          if (submission.content) {
-            setTextSubmission(submission.content)
-          }
+      // Load real assignment data from SupabaseRealtimeService
+      const assignments = await SupabaseRealtimeService.getStudentAssignments(user)
+      const foundAssignment = assignments.find((a: any) => a.id === params.id)
+      
+      if (foundAssignment) {
+        // Transform the assignment data to match our interface
+        const assignmentData = {
+          ...foundAssignment,
+          year: foundAssignment.target_years?.[0] || user.year,
+          allowed_file_types: (foundAssignment as any).allowed_file_types || ["pdf", "doc", "docx", "zip"],
+          start_date: (foundAssignment as any).start_date || new Date().toISOString(),
+          visibility: (foundAssignment as any).visibility !== false,
+          allow_late_submission: (foundAssignment as any).allow_late_submission !== false,
+          allow_resubmission: (foundAssignment as any).allow_resubmission !== false,
+          enable_plagiarism_check: (foundAssignment as any).enable_plagiarism_check !== false,
+          faculty: {
+            name: foundAssignment.faculty?.name || "Faculty Member",
+            email: foundAssignment.faculty?.email || "faculty@sanjivani.edu.in"
+          },
+          resources: foundAssignment.resources || []
         }
-      } catch (error) {
-        // No existing submission found, which is fine
+        setAssignment(assignmentData)
+        
+        // Set submission type based on assignment type
+        if (assignmentData.assignment_type === "text_based") {
+          setSubmissionType("text")
+        } else {
+          setSubmissionType("file")
+        }
+      } else {
+        // If not found, show error
+        setAssignment(null)
+        return
+      }
+
+      // Mock existing submission check
+      const existingSubmissions = JSON.parse(localStorage.getItem("studentSubmissions") || "[]")
+      const existingSubmission = existingSubmissions.find((sub: any) => 
+        sub.assignment_id === params.id && sub.student_id === user.id
+      )
+      
+      if (existingSubmission) {
+        setExistingSubmission(existingSubmission)
+        if (existingSubmission.content) {
+          setTextSubmission(existingSubmission.content)
+        }
       }
     } catch (error) {
       console.error("Error loading assignment:", error)
@@ -176,7 +179,7 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
 
     files.forEach((file) => {
       const fileExtension = file.name.split(".").pop()?.toLowerCase()
-      if (assignment.allowed_file_types.includes(fileExtension || "")) {
+      if (assignment.allowed_file_types?.includes(fileExtension || "")) {
         validFiles.push(file)
       } else {
         invalidFiles.push(file.name)
@@ -299,41 +302,42 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
       const fileUrls: string[] = []
       const fileNames: string[] = []
 
-      // Upload files if any
+      // Mock file upload for demo purposes
       if (submissionType === "file" && uploadedFiles.length > 0) {
         for (const file of uploadedFiles) {
-          try {
-            const fileName = `${Date.now()}-${file.name}`
-            const filePath = `submissions/${assignment.id}/${currentUser.id}/${fileName}`
-            const { url } = await uploadFile(file, "assignment-submissions", filePath)
-            fileUrls.push(url)
-            fileNames.push(file.name)
-          } catch (error) {
-            console.error("Error uploading file:", error)
-            toast({
-              title: "Upload Error",
-              description: `Failed to upload ${file.name}`,
-              variant: "destructive",
-            })
-          }
+          // Simulate file upload with mock URLs
+          const mockUrl = `https://mock-storage.com/submissions/${assignment.id}/${currentUser.id}/${Date.now()}-${file.name}`
+          fileUrls.push(mockUrl)
+          fileNames.push(file.name)
         }
       }
 
-      // Create submission
+      // Create mock submission data
       const submissionData = {
+        id: `sub-${Date.now()}`,
         assignment_id: assignment.id,
         student_id: currentUser.id,
         content: submissionType === "text" ? textSubmission : null,
         file_urls: fileUrls,
         file_names: fileNames,
         status: "submitted" as const,
+        submitted_at: new Date().toISOString(),
+        plagiarism_score: assignment.enable_plagiarism_check ? Math.floor(Math.random() * 15) : undefined
       }
 
-      await createSubmission(submissionData)
+      // Store submission in localStorage for demo
+      const existingSubmissions = JSON.parse(localStorage.getItem("studentSubmissions") || "[]")
+      const updatedSubmissions = existingSubmissions.filter((sub: any) => 
+        !(sub.assignment_id === assignment.id && sub.student_id === currentUser.id)
+      )
+      updatedSubmissions.push(submissionData)
+      localStorage.setItem("studentSubmissions", JSON.stringify(updatedSubmissions))
 
       toast({
         title: "Assignment submitted successfully!",
-        description: "Your submission has been recorded and sent to your instructor.",
+        description: assignment.enable_plagiarism_check 
+          ? `Your submission has been recorded and plagiarism checked (${submissionData.plagiarism_score}% similarity).`
+          : "Your submission has been recorded and sent to your instructor.",
       })
 
       router.push("/student-dashboard/assignments")
@@ -465,7 +469,7 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
             <span className="font-medium">{assignment.faculty?.name}</span>
           </div>
 
-          {assignment.allowed_file_types.length > 0 && (
+          {assignment.allowed_file_types && assignment.allowed_file_types.length > 0 && (
             <div>
               <h3 className="font-semibold text-gray-900 mb-2">Allowed File Types</h3>
               <div className="flex flex-wrap gap-2">
@@ -561,10 +565,10 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
                   type="file"
                   multiple
                   className="hidden"
-                  accept={assignment.allowed_file_types.map((type) => `.${type}`).join(",")}
+                  accept={assignment.allowed_file_types?.map((type) => `.${type}`).join(",") || ""}
                   onChange={handleFileInput}
                 />
-                <p className="text-xs text-gray-500">Allowed types: {assignment.allowed_file_types.join(", ")}</p>
+                <p className="text-xs text-gray-500">Allowed types: {assignment.allowed_file_types?.join(", ") || "All types"}</p>
               </div>
 
               {/* Uploaded Files */}

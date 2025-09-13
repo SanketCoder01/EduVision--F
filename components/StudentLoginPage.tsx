@@ -4,21 +4,21 @@ import type React from "react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import { Eye, EyeOff, User, Lock, GraduationCap, ArrowLeft, BookOpen, Code, Users, Lightbulb } from "lucide-react"
+import { Eye, EyeOff, Mail, Lock, GraduationCap, ArrowLeft, BookOpen, Code, Users, Lightbulb } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "@/hooks/use-toast"
-import { authenticateStudent } from "@/lib/supabase"
+import { authenticateStudent, supabase } from "@/lib/supabase"
 
 interface StudentLoginPageProps {
   onBack: () => void
 }
 
 export default function StudentLoginPage({ onBack }: StudentLoginPageProps) {
-  const [prn, setPrn] = useState("")
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -30,29 +30,61 @@ export default function StudentLoginPage({ onBack }: StudentLoginPageProps) {
     setIsLoading(true)
     setError("")
 
+    // Validate email domain
+    if (!email.endsWith('@sanjivani.edu.in')) {
+      setError('Please use your Sanjivani University email address (@sanjivani.edu.in)')
+      setIsLoading(false)
+      return
+    }
+
     try {
-      const student = await authenticateStudent(prn, password)
+      const authResult = await authenticateStudent(email, password)
 
-      // Store student data in localStorage
-      localStorage.setItem("student_session", JSON.stringify({
-        ...student,
-        loginTime: new Date().toISOString(),
-      }))
-      localStorage.setItem("studentSession", JSON.stringify({
-        ...student,
-        loginTime: new Date().toISOString(),
-      }))
-      localStorage.setItem("currentUser", JSON.stringify({
-        ...student,
-        loginTime: new Date().toISOString(),
-      }))
+      // Check if this is first login - redirect to personal info collection
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('user_id', authResult.id)
+        .single()
 
-      toast({
-        title: "Login Successful",
-        description: `Welcome back, ${student.name}!`,
-      })
-
-      router.push("/student-dashboard")
+      if (!profile) {
+        // First time login - store basic auth data and redirect to profile completion
+        localStorage.setItem("studentSession", JSON.stringify(authResult))
+        localStorage.setItem("userType", "student")
+        
+        toast({
+          title: "Welcome to EduVision!",
+          description: "Please complete your profile to get started.",
+        })
+        router.push("/complete-profile?type=student")
+      } else {
+        // Existing user - merge profile data with auth data
+        const completeUserData = {
+          ...authResult,
+          profile: profile,
+          name: profile.name,
+          full_name: profile.name,
+          department: profile.department,
+          year: profile.year,
+          prn: profile.prn,
+          phone: profile.phone,
+          address: profile.address,
+          face_url: profile.face_image,
+          photo: profile.face_image,
+          avatar: profile.face_image,
+          profile_completed: profile.profile_completed
+        }
+        
+        // Store complete user data including profile
+        localStorage.setItem("studentSession", JSON.stringify(completeUserData))
+        localStorage.setItem("userType", "student")
+        
+        toast({
+          title: `Welcome back, ${profile.name || authResult.email?.split('@')[0]}!`,
+          description: "You have successfully logged in to your student dashboard.",
+        })
+        router.push("/student-dashboard")
+      }
     } catch (error: any) {
       setError(error.message || "Login failed. Please try again.")
       toast({
@@ -199,26 +231,20 @@ export default function StudentLoginPage({ onBack }: StudentLoginPageProps) {
                 </Alert>
               )}
 
-              {/* Demo Credentials */}
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <h4 className="font-medium text-green-900 mb-2">Demo Credentials:</h4>
-                <p className="text-sm text-green-700">PRN: 2024CSE0001</p>
-                <p className="text-sm text-green-700">Password: student123</p>
-              </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="prn" className="text-sm font-medium text-gray-700">
-                    Student PRN
+                  <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+                    Email Address
                   </Label>
                   <div className="relative">
-                    <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                     <Input
-                      id="prn"
-                      type="text"
-                      placeholder="Enter your PRN"
-                      value={prn}
-                      onChange={(e) => setPrn(e.target.value)}
+                      id="email"
+                      type="email"
+                      placeholder="Enter Your Mail"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
                       className="pl-10 h-12 border-gray-200 focus:border-green-500 focus:ring-green-500"
                       required
                     />

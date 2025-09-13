@@ -10,8 +10,10 @@ import {
   TrendingUp,
   Bell,
   MessageSquare,
+  MessageCircle,
   FileText,
   AlertTriangle,
+  AlertCircle,
   Search,
   Plus,
   Settings,
@@ -19,32 +21,43 @@ import {
   Clock,
   CheckCircle,
   XCircle,
+  Sparkles,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { SupabaseRealtimeService } from "@/lib/supabase-realtime"
 
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [notifications, setNotifications] = useState<any[]>([])
   const [publishedAssignments, setPublishedAssignments] = useState<any[]>([])
+  const [todaysHubItems, setTodaysHubItems] = useState<any[]>([])
   const [stats, setStats] = useState({
     totalStudents: 0,
     activeAssignments: 0,
     pendingReviews: 0,
     completionRate: 0,
   })
-
   useEffect(() => {
-    const loadUserData = () => {
+    const loadUserData = async () => {
       try {
         const facultyData = localStorage.getItem("facultySession")
+        const currentUserData = localStorage.getItem("currentUser")
+        
+        let user = null
         if (facultyData) {
-          const user = JSON.parse(facultyData)
+          user = JSON.parse(facultyData)
+        } else if (currentUserData) {
+          const userData = JSON.parse(currentUserData)
+          if (userData.userType === "faculty") {
+            user = userData
+          }
+        }
+        
+        if (user) {
           setCurrentUser(user)
-          loadStats(user)
-          loadPublishedAssignments(user)
-          loadNotifications()
+          await loadRealTimeData(user)
         }
       } catch (error) {
         console.error("Error loading user data:", error)
@@ -56,120 +69,108 @@ export default function DashboardPage() {
     loadUserData()
   }, [])
 
-  const loadStats = async (user: any) => {
+  const loadRealTimeData = async (user: any) => {
     try {
-      const mockStats = {
-        totalStudents: 45,
-        activeAssignments: 8,
-        pendingReviews: 12,
-        completionRate: 78,
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-      setStats(mockStats)
+      // Load real-time assignments
+      const assignments = await SupabaseRealtimeService.getFacultyAssignments(user.id)
+      setPublishedAssignments(assignments)
+      
+      // Load real-time Today's Hub data
+      const hubData = await SupabaseRealtimeService.getFacultyTodaysHubData(user.id)
+      
+      // Transform hub data into Today's Hub items format
+      const hubItems = [
+        ...hubData.assignments.map((assignment: any) => ({
+          id: `assignment-${assignment.id}`,
+          type: 'assignment',
+          title: assignment.title,
+          description: `Assignment for ${assignment.department} - Year ${assignment.target_years.join(', ')}`,
+          author: `You (${assignment.department})`,
+          time: new Date(assignment.created_at).toLocaleString(),
+          urgent: assignment.status === 'published' && new Date(assignment.due_date) < new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          department: assignment.department,
+          status: assignment.status
+        })),
+        ...hubData.announcements.map((announcement: any) => ({
+          id: `announcement-${announcement.id}`,
+          type: 'announcement',
+          title: announcement.title,
+          description: announcement.content.substring(0, 100) + '...',
+          author: `You (${announcement.department || 'All Departments'})`,
+          time: new Date(announcement.created_at).toLocaleString(),
+          urgent: announcement.priority === 'urgent' || announcement.priority === 'high',
+          department: announcement.department || 'All Departments',
+          priority: announcement.priority
+        })),
+        ...hubData.queries.map((query: any) => ({
+          id: `query-${query.id}`,
+          type: 'student_query',
+          title: `New Query: ${query.subject}`,
+          description: query.question.substring(0, 100) + '...',
+          author: `${query.student?.full_name || query.student?.name} (${query.student?.department})`,
+          time: new Date(query.created_at).toLocaleString(),
+          urgent: query.priority === 'high' || query.status === 'open',
+          department: query.student?.department,
+          priority: query.priority,
+          status: query.status
+        })),
+        ...hubData.grievances.filter((grievance: any) => 
+          grievance.department === user.department || !grievance.department
+        ).map((grievance: any) => ({
+          id: `grievance-${grievance.id}`,
+          type: 'grievance',
+          title: `Grievance: ${grievance.title}`,
+          description: grievance.description.substring(0, 100) + '...',
+          author: `${grievance.student?.full_name || grievance.student?.name} (${grievance.student?.department})`,
+          time: new Date(grievance.created_at).toLocaleString(),
+          urgent: grievance.priority === 'urgent' || grievance.priority === 'high',
+          department: grievance.department || 'General',
+          priority: grievance.priority,
+          status: grievance.status
+        }))
+      ]
+      
+      setTodaysHubItems(hubItems)
+      
+      // Calculate real stats from data
+      const activeAssignments = assignments.filter((a: any) => a.status === 'published').length
+      const totalSubmissions = assignments.reduce((sum: number, a: any) => sum + (a.submissions?.length || 0), 0)
+      const completedSubmissions = assignments.reduce((sum: number, a: any) => 
+        sum + (a.submissions?.filter((s: any) => s.status === 'submitted').length || 0), 0
+      )
+      
+      setStats({
+        totalStudents: 45, // This would come from department enrollment
+        activeAssignments,
+        pendingReviews: totalSubmissions - completedSubmissions,
+        completionRate: totalSubmissions > 0 ? Math.round((completedSubmissions / totalSubmissions) * 100) : 0,
+      })
+      
+      // Set up real-time subscriptions
+      const unsubscribe = SupabaseRealtimeService.subscribeToTable('assignments', () => {
+        loadRealTimeData(user)
+      })
+      
+      return unsubscribe
     } catch (error) {
-      console.error("Error loading stats:", error)
+      console.error("Error loading real-time data:", error)
     }
   }
 
-  const loadPublishedAssignments = (user: any) => {
-    const savedAssignments = JSON.parse(localStorage.getItem("assignments") || "[]")
-    const published = savedAssignments.filter((assignment: any) => 
-      assignment.status === "published" && assignment.faculty_id === user.id
-    )
-    setPublishedAssignments(published)
-  }
 
-  const loadNotifications = () => {
-    const mockNotifications = [
-      {
-        id: 1,
-        type: "query",
-        title: "Student Query",
-        message: "New question from John Doe about Data Structures assignment",
-        time: "2 hours ago",
-        unread: true,
-      },
-      {
-        id: 2,
-        type: "submission",
-        title: "Assignment Submission",
-        message: "5 new submissions for Machine Learning project",
-        time: "4 hours ago",
-        unread: true,
-      },
-      {
-        id: 3,
-        type: "grievance",
-        title: "Grievance Report",
-        message: "New grievance submitted by student",
-        time: "1 day ago",
-        unread: false,
-      },
-    ]
-    setNotifications(mockNotifications)
-  }
 
-  const todaysHubItems = [
-    {
-      id: 1,
-      type: "student_query",
-      title: "New Query from Rahul Sharma",
-      description: "Question about Data Structures assignment - Binary Trees implementation",
-      author: "Rahul Sharma (2024CSE0045)",
-      time: "5 minutes ago",
-      urgent: true,
-      department: currentUser?.department || "CSE"
-    },
-    {
-      id: 2,
-      type: "assignment_submission",
-      title: "Assignment Submission",
-      description: "3 new submissions for 'Database Management Systems' assignment",
-      author: "Multiple Students",
-      time: "15 minutes ago",
-      urgent: false,
-      department: currentUser?.department || "CSE"
-    },
-    {
-      id: 3,
-      type: "lecture_reminder",
-      title: "Upcoming Lecture",
-      description: "Data Structures lecture in Room 301 at 2:00 PM",
-      author: "Timetable System",
-      time: "30 minutes ago",
-      urgent: true,
-      department: currentUser?.department || "CSE"
-    },
-    {
-      id: 4,
-      type: "grievance",
-      title: "New Grievance Submitted",
-      description: "Student complaint about laboratory equipment",
-      author: "Anonymous Student",
-      time: "1 hour ago",
-      urgent: false,
-      department: currentUser?.department || "CSE"
-    },
-    {
-      id: 5,
-      type: "lost_found",
-      title: "Lost Item Report",
-      description: "Student lost calculator in Computer Lab",
-      author: "Priya Patel (2024CSE0023)",
-      time: "2 hours ago",
-      urgent: false,
-      department: currentUser?.department || "CSE"
-    }
-  ]
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
+      case 'assignment': return <BookOpen className="h-4 w-4" />
+      case 'announcement': return <Bell className="h-4 w-4" />
+      case 'event': return <Calendar className="h-4 w-4" />
+      case 'study_group': return <Users className="h-4 w-4" />
+      case 'attendance': return <Clock className="h-4 w-4" />
       case 'student_query': return <MessageCircle className="h-4 w-4" />
-      case 'assignment_submission': return <BookOpen className="h-4 w-4" />
-      case 'lecture_reminder': return <Clock className="h-4 w-4" />
       case 'grievance': return <AlertCircle className="h-4 w-4" />
-      case 'lost_found': return <Bell className="h-4 w-4" />
+      case 'lost_found': return <Search className="h-4 w-4" />
+      case 'hackathon': return <Sparkles className="h-4 w-4" />
       default: return <Bell className="h-4 w-4" />
     }
   }
@@ -177,11 +178,15 @@ export default function DashboardPage() {
   const getNotificationColor = (type: string, urgent: boolean) => {
     if (urgent) return 'text-red-600 bg-red-50 border-red-200'
     switch (type) {
-      case 'student_query': return 'text-blue-600 bg-blue-50 border-blue-200'
-      case 'assignment_submission': return 'text-green-600 bg-green-50 border-green-200'
-      case 'lecture_reminder': return 'text-orange-600 bg-orange-50 border-orange-200'
-      case 'grievance': return 'text-purple-600 bg-purple-50 border-purple-200'
+      case 'assignment': return 'text-green-600 bg-green-50 border-green-200'
+      case 'announcement': return 'text-blue-600 bg-blue-50 border-blue-200'
+      case 'event': return 'text-orange-600 bg-orange-50 border-orange-200'
+      case 'study_group': return 'text-purple-600 bg-purple-50 border-purple-200'
+      case 'attendance': return 'text-cyan-600 bg-cyan-50 border-cyan-200'
+      case 'student_query': return 'text-indigo-600 bg-indigo-50 border-indigo-200'
+      case 'grievance': return 'text-red-600 bg-red-50 border-red-200'
       case 'lost_found': return 'text-yellow-600 bg-yellow-50 border-yellow-200'
+      case 'hackathon': return 'text-pink-600 bg-pink-50 border-pink-200'
       default: return 'text-gray-600 bg-gray-50 border-gray-200'
     }
   }
@@ -267,7 +272,7 @@ export default function DashboardPage() {
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 text-white rounded-2xl p-8 relative overflow-hidden"
+        className="bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white rounded-2xl p-4 sm:p-6 md:p-8 relative overflow-hidden"
       >
         <div className="absolute inset-0 bg-black/10"></div>
         <div className="absolute top-4 right-4">
@@ -279,8 +284,8 @@ export default function DashboardPage() {
           </motion.div>
         </div>
         <div className="relative z-10">
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">Welcome back, {currentUser?.name || "Faculty Member"}</h1>
-          <p className="text-white/90 text-lg">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2">Welcome back, {currentUser?.full_name || currentUser?.name || "Faculty Member"}</h1>
+          <p className="text-white/90 text-base sm:text-lg">
             {currentUser?.designation || "Professor"} • {currentUser?.department || "Department"}
           </p>
           <div className="mt-4 flex items-center gap-2 text-white/80">
@@ -295,7 +300,7 @@ export default function DashboardPage() {
         variants={container}
         initial="hidden"
         animate="show"
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6"
       >
         {statsCards.map((stat, index) => (
           <motion.div key={index} variants={item}>
@@ -418,7 +423,7 @@ export default function DashboardPage() {
                   <span className="font-medium text-green-900">Post Announcement</span>
                 </div>
               </Link>
-              <Link href="/dashboard/study-material" className="block p-3 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors">
+              <Link href="/dashboard/study-materials" className="block p-3 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors">
                 <div className="flex items-center gap-3">
                   <FileText className="h-5 w-5 text-purple-600" />
                   <span className="font-medium text-purple-900">Upload Materials</span>

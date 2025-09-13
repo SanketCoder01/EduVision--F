@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { 
   AlertCircle,
+  ArrowLeft,
   Calendar, 
   Check,
   Clock, 
@@ -24,6 +25,7 @@ import {
   Upload,
   User
 } from "lucide-react"
+import Link from "next/link"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -166,9 +168,9 @@ export default function LeaveRequestPage() {
       setUploadedFile(null)
       
       // Show success message
-      alert("Leave request submitted successfully!")
+      alert("Leave application submitted to ERP successfully! Your Class Teacher will review and approve.")
     } catch (error) {
-      alert("There was an error submitting your leave request. Please try again.")
+      alert("There was an error submitting your leave application to ERP. Please try again.")
     } finally {
       setSubmitting(false)
     }
@@ -181,15 +183,34 @@ export default function LeaveRequestPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
+        <div className="flex items-center gap-4 mb-6">
+          <Link href="/student-dashboard/other-services">
+            <Button variant="outline" size="sm">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Services
+            </Button>
+          </Link>
           <div>
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-purple-100 text-purple-700">
+              <div className="p-2 rounded-lg bg-green-100 text-green-700">
                 <Calendar className="h-6 w-6" />
               </div>
-              <h1 className="text-3xl font-bold text-gray-900">Leave Requests</h1>
+              <h1 className="text-3xl font-bold text-gray-900">Student Leave Application</h1>
             </div>
-            <p className="text-gray-500 mt-1 ml-11">Request and track leave applications</p>
+            <p className="text-gray-500 mt-1 ml-11">Submit leave applications through ERP - Class Teacher approval required</p>
+          </div>
+        </div>
+
+        {/* ERP Notice */}
+        <div className="mb-6 p-4 border border-blue-200 rounded-lg bg-blue-50">
+          <div className="flex items-start">
+            <AlertCircle className="h-5 w-5 text-blue-700 mr-3 mt-0.5" />
+            <div>
+              <h3 className="font-semibold text-blue-900 mb-2">📋 Important Notice - ERP Only Submissions</h3>
+              <p className="text-sm text-blue-800">
+                All leave applications must be submitted through ERP only. Leaves will be reviewed & approved by your Class Teacher on ERP. Please apply in advance - uninformed absenteeism will not be considered.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -313,11 +334,41 @@ export default function LeaveRequestPage() {
           <TabsContent value="new" className="mt-6">
             <Card>
               <CardHeader>
-                <CardTitle>Submit a New Leave Request</CardTitle>
-                <CardDescription>Fill out the form below to apply for leave</CardDescription>
+                <CardTitle>Submit New Leave Application</CardTitle>
+                <CardDescription>Complete student details and leave information for Class Teacher approval</CardDescription>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  {/* Student Information Section */}
+                  <div className="p-4 border border-gray-200 rounded-lg bg-gray-50">
+                    <h4 className="font-semibold text-gray-900 mb-3">Student Information</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">Student Name</label>
+                        <Input value="Rahul Sharma" disabled className="bg-white" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">Roll Number</label>
+                        <Input value="CS21B1001" disabled className="bg-white" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">Class</label>
+                        <Input value="TE Computer Science - A" disabled className="bg-white" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">Class Teacher</label>
+                        <Input value="Prof. Dr. Anjali Mehta" disabled className="bg-white" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">Department</label>
+                        <Input value="Computer Science Engineering" disabled className="bg-white" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">Contact Number</label>
+                        <Input value="+91 9876543210" disabled className="bg-white" />
+                      </div>
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-700">Leave Type</label>
                     <Select value={selectedLeaveType} onValueChange={setSelectedLeaveType}>
@@ -472,19 +523,29 @@ export default function LeaveRequestPage() {
                     <p className="text-sm text-red-500 mt-1">{formErrors.file}</p>
                   )}
                   
+                  {/* Advance Notice Warning */}
+                  <div className="p-3 border border-amber-200 rounded-lg bg-amber-50">
+                    <div className="flex items-start">
+                      <AlertCircle className="h-4 w-4 text-amber-700 mr-2 mt-0.5" />
+                      <div className="text-sm text-amber-800">
+                        <span className="font-medium">Advance Notice Required:</span> Submit applications at least 2 days before leave start date (except medical emergencies)
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="pt-4">
                     <Button 
                       type="submit" 
-                      className="w-full bg-purple-600 hover:bg-purple-700" 
+                      className="w-full bg-green-600 hover:bg-green-700" 
                       disabled={submitting}
                     >
                       {submitting ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Submitting...
+                          Submitting to ERP...
                         </>
                       ) : (
-                        "Submit Leave Request"
+                        "Submit to ERP for Class Teacher Approval"
                       )}
                     </Button>
                   </div>

@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { motion } from "framer-motion"
+import { useRouter } from "next/navigation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -13,9 +14,11 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useToast } from "@/hooks/use-toast"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
-import { CalendarIcon, Search, Filter, MapPin, Calendar as CalendarIcon2, Clock, User, Phone, Mail, Info, ThumbsUp, Eye, AlertTriangle } from "lucide-react"
+import { CalendarIcon, Search, Filter, MapPin, Calendar as CalendarIcon2, Clock, User, Phone, Mail, Info, ThumbsUp, Eye, AlertTriangle, ArrowLeft, Upload, Camera, Plus } from "lucide-react"
 
 // Mock data for lost and found items
 const mockItems = [
@@ -160,12 +163,17 @@ const locations = [
 ]
 
 export default function LostFoundPage() {
+  const router = useRouter()
+  const { toast } = useToast()
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("All Categories")
   const [selectedLocation, setSelectedLocation] = useState("All Locations")
   const [selectedStatus, setSelectedStatus] = useState("All")
   const [date, setDate] = useState<Date | undefined>(undefined)
   const [activeTab, setActiveTab] = useState("browse")
+  const [selectedItem, setSelectedItem] = useState<any>(null)
+  const [showClaimDialog, setShowClaimDialog] = useState(false)
+  const [claimingItem, setClaimingItem] = useState<any>(null)
 
   // Form states for reporting lost/found items
   const [itemTitle, setItemTitle] = useState("")
@@ -178,6 +186,17 @@ export default function LostFoundPage() {
   const [contactEmail, setContactEmail] = useState("")
   const [contactPhone, setContactPhone] = useState("")
   const [itemStatus, setItemStatus] = useState("Found")
+  const [reporterName, setReporterName] = useState("")
+  const [reporterDepartment, setReporterDepartment] = useState("")
+  const [reporterPhone, setReporterPhone] = useState("")
+  const [reporterEmail, setReporterEmail] = useState("")
+
+  // Claim form states
+  const [claimerName, setClaimerName] = useState("")
+  const [claimerEmail, setClaimerEmail] = useState("")
+  const [claimerPhone, setClaimerPhone] = useState("")
+  const [claimerDepartment, setClaimerDepartment] = useState("")
+  const [claimDescription, setClaimDescription] = useState("")
 
   // Filter items based on search query, category, location, and status
   const filteredItems = mockItems.filter((item) => {
@@ -207,8 +226,23 @@ export default function LostFoundPage() {
   // Handle form submission
   const handleSubmit = (e: React.FormEvent, formType: string) => {
     e.preventDefault()
+    
+    // Validate required fields
+    if (!itemTitle || !itemCategory || !itemLocation || !itemDescription || !reporterName || !reporterDepartment || !reporterPhone) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields including reporter contact details.",
+        variant: "destructive"
+      })
+      return
+    }
+
     // In a real application, this would send data to a backend
-    alert(`${formType} report submitted successfully!`)
+    toast({
+      title: "Success",
+      description: `${formType} report submitted successfully! You will be contacted if there's a match.`,
+    })
+    
     // Reset form
     setItemTitle("")
     setItemCategory("")
@@ -219,8 +253,46 @@ export default function LostFoundPage() {
     setContactName("")
     setContactEmail("")
     setContactPhone("")
+    setReporterName("")
+    setReporterDepartment("")
+    setReporterPhone("")
+    setReporterEmail("")
     setDate(undefined)
     setActiveTab("browse")
+  }
+
+  // Handle claim submission
+  const handleClaimSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!claimerName || !claimerEmail || !claimerPhone || !claimerDepartment || !claimDescription) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields to claim this item.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    toast({
+      title: "Claim Submitted",
+      description: "Your claim has been submitted. The reporter will be contacted to verify and arrange pickup.",
+    })
+    
+    // Reset claim form
+    setClaimerName("")
+    setClaimerEmail("")
+    setClaimerPhone("")
+    setClaimerDepartment("")
+    setClaimDescription("")
+    setShowClaimDialog(false)
+    setClaimingItem(null)
+  }
+
+  // Handle item claim
+  const handleClaimItem = (item: any) => {
+    setClaimingItem(item)
+    setShowClaimDialog(true)
   }
 
   return (
@@ -231,6 +303,16 @@ export default function LostFoundPage() {
         transition={{ duration: 0.5 }}
       >
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="ghost"
+              onClick={() => router.push('/dashboard/other-services')}
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Other Services
+            </Button>
+          </div>
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Lost & Found Portal</h1>
             <p className="text-gray-500 mt-1">Report lost items or submit found items for matching</p>
@@ -355,7 +437,12 @@ export default function LostFoundPage() {
                     </CardContent>
                     <CardFooter className="flex justify-between pt-2">
                       {item.status === "Found" ? (
-                        <Button variant="outline" size="sm" className="text-xs">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="text-xs"
+                          onClick={() => handleClaimItem(item)}
+                        >
                           <ThumbsUp className="h-3 w-3 mr-1" /> This is Mine
                         </Button>
                       ) : (
@@ -363,7 +450,12 @@ export default function LostFoundPage() {
                           <ThumbsUp className="h-3 w-3 mr-1" /> I Found This
                         </Button>
                       )}
-                      <Button variant="secondary" size="sm" className="text-xs">
+                      <Button 
+                        variant="secondary" 
+                        size="sm" 
+                        className="text-xs"
+                        onClick={() => setSelectedItem(item)}
+                      >
                         <Eye className="h-3 w-3 mr-1" /> View Details
                       </Button>
                     </CardFooter>
@@ -520,14 +612,14 @@ export default function LostFoundPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label>Contact Information *</Label>
+                        <Label>Reporter Contact Information *</Label>
                         <div className="grid grid-cols-1 gap-4">
                           <div className="flex items-center space-x-2">
                             <User size={16} className="text-gray-400" />
                             <Input
-                              placeholder="Your Name"
-                              value={contactName}
-                              onChange={(e) => setContactName(e.target.value)}
+                              placeholder="Your Full Name"
+                              value={reporterName}
+                              onChange={(e) => setReporterName(e.target.value)}
                               required
                             />
                           </div>
@@ -536,8 +628,8 @@ export default function LostFoundPage() {
                             <Input
                               type="email"
                               placeholder="Email Address"
-                              value={contactEmail}
-                              onChange={(e) => setContactEmail(e.target.value)}
+                              value={reporterEmail}
+                              onChange={(e) => setReporterEmail(e.target.value)}
                               required
                             />
                           </div>
@@ -546,10 +638,25 @@ export default function LostFoundPage() {
                             <Input
                               type="tel"
                               placeholder="Phone Number"
-                              value={contactPhone}
-                              onChange={(e) => setContactPhone(e.target.value)}
+                              value={reporterPhone}
+                              onChange={(e) => setReporterPhone(e.target.value)}
                               required
                             />
+                          </div>
+                          <div className="space-y-2">
+                            <Select value={reporterDepartment} onValueChange={setReporterDepartment} required>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select Your Department" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Computer Science Engineering">Computer Science Engineering</SelectItem>
+                                <SelectItem value="Artificial Intelligence & Data Science">Artificial Intelligence & Data Science</SelectItem>
+                                <SelectItem value="Artificial Intelligence & Machine Learning">Artificial Intelligence & Machine Learning</SelectItem>
+                                <SelectItem value="Cyber Security">Cyber Security</SelectItem>
+                                <SelectItem value="Faculty">Faculty</SelectItem>
+                                <SelectItem value="Staff">Staff</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                       </div>
@@ -717,14 +824,14 @@ export default function LostFoundPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label>Contact Information *</Label>
+                        <Label>Reporter Contact Information *</Label>
                         <div className="grid grid-cols-1 gap-4">
                           <div className="flex items-center space-x-2">
                             <User size={16} className="text-gray-400" />
                             <Input
-                              placeholder="Your Name"
-                              value={contactName}
-                              onChange={(e) => setContactName(e.target.value)}
+                              placeholder="Your Full Name"
+                              value={reporterName}
+                              onChange={(e) => setReporterName(e.target.value)}
                               required
                             />
                           </div>
@@ -733,8 +840,8 @@ export default function LostFoundPage() {
                             <Input
                               type="email"
                               placeholder="Email Address"
-                              value={contactEmail}
-                              onChange={(e) => setContactEmail(e.target.value)}
+                              value={reporterEmail}
+                              onChange={(e) => setReporterEmail(e.target.value)}
                               required
                             />
                           </div>
@@ -743,10 +850,25 @@ export default function LostFoundPage() {
                             <Input
                               type="tel"
                               placeholder="Phone Number"
-                              value={contactPhone}
-                              onChange={(e) => setContactPhone(e.target.value)}
+                              value={reporterPhone}
+                              onChange={(e) => setReporterPhone(e.target.value)}
                               required
                             />
+                          </div>
+                          <div className="space-y-2">
+                            <Select value={reporterDepartment} onValueChange={setReporterDepartment} required>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select Your Department" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Computer Science Engineering">Computer Science Engineering</SelectItem>
+                                <SelectItem value="Artificial Intelligence & Data Science">Artificial Intelligence & Data Science</SelectItem>
+                                <SelectItem value="Artificial Intelligence & Machine Learning">Artificial Intelligence & Machine Learning</SelectItem>
+                                <SelectItem value="Cyber Security">Cyber Security</SelectItem>
+                                <SelectItem value="Faculty">Faculty</SelectItem>
+                                <SelectItem value="Staff">Staff</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                       </div>
@@ -811,6 +933,201 @@ export default function LostFoundPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Claim Item Dialog */}
+        <Dialog open={showClaimDialog} onOpenChange={setShowClaimDialog}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Claim Item: {claimingItem?.title}</DialogTitle>
+              <DialogDescription>
+                Please provide your details to claim this item. The reporter will be contacted to verify and arrange pickup.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <form onSubmit={handleClaimSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="claimer-name">Full Name *</Label>
+                  <Input
+                    id="claimer-name"
+                    placeholder="Your full name"
+                    value={claimerName}
+                    onChange={(e) => setClaimerName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="claimer-email">Email Address *</Label>
+                  <Input
+                    id="claimer-email"
+                    type="email"
+                    placeholder="your.email@sanjivani.edu.in"
+                    value={claimerEmail}
+                    onChange={(e) => setClaimerEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="claimer-phone">Phone Number *</Label>
+                  <Input
+                    id="claimer-phone"
+                    type="tel"
+                    placeholder="Your phone number"
+                    value={claimerPhone}
+                    onChange={(e) => setClaimerPhone(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="claimer-department">Department *</Label>
+                  <Select value={claimerDepartment} onValueChange={setClaimerDepartment} required>
+                    <SelectTrigger id="claimer-department">
+                      <SelectValue placeholder="Select your department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Computer Science Engineering">Computer Science Engineering</SelectItem>
+                      <SelectItem value="Artificial Intelligence & Data Science">Artificial Intelligence & Data Science</SelectItem>
+                      <SelectItem value="Artificial Intelligence & Machine Learning">Artificial Intelligence & Machine Learning</SelectItem>
+                      <SelectItem value="Cyber Security">Cyber Security</SelectItem>
+                      <SelectItem value="Faculty">Faculty</SelectItem>
+                      <SelectItem value="Staff">Staff</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="claim-description">Why do you believe this item is yours? *</Label>
+                <Textarea
+                  id="claim-description"
+                  placeholder="Provide specific details about the item that prove it belongs to you (e.g., unique features, contents, purchase details, etc.)"
+                  value={claimDescription}
+                  onChange={(e) => setClaimDescription(e.target.value)}
+                  className="min-h-[100px]"
+                  required
+                />
+              </div>
+
+              <div className="bg-yellow-50 p-4 rounded-lg">
+                <div className="flex items-start">
+                  <AlertTriangle className="text-yellow-600 mr-3 mt-0.5" size={16} />
+                  <div>
+                    <h4 className="font-semibold text-yellow-800">Important Notice</h4>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      Your claim will be sent to the person who found this item. They will contact you directly to verify ownership and arrange pickup. 
+                      Please ensure all information is accurate and be prepared to provide additional proof of ownership if requested.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2">
+                <Button type="button" variant="outline" onClick={() => setShowClaimDialog(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit">
+                  Submit Claim
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Item Details Dialog */}
+        <Dialog open={!!selectedItem} onOpenChange={() => setSelectedItem(null)}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-xl">{selectedItem?.title}</DialogTitle>
+              <DialogDescription>
+                {selectedItem?.category} • {selectedItem?.location} • {selectedItem && new Date(selectedItem.date).toLocaleDateString()}
+              </DialogDescription>
+            </DialogHeader>
+            
+            {selectedItem && (
+              <div className="space-y-6">
+                {/* Item Image */}
+                {selectedItem.image && (
+                  <div className="flex justify-center">
+                    <img
+                      src={selectedItem.image}
+                      alt={selectedItem.title}
+                      className="max-w-full max-h-64 object-contain rounded-lg"
+                    />
+                  </div>
+                )}
+
+                {/* Status Badge */}
+                <div className="flex items-center gap-4">
+                  <Badge className={`${
+                    selectedItem.status === "Found" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
+                  }`}>
+                    {selectedItem.status}
+                  </Badge>
+                  <span className="text-sm text-gray-500">
+                    Reported on {new Date(selectedItem.date).toLocaleDateString()}
+                  </span>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <h3 className="font-semibold mb-2">Description</h3>
+                  <p className="text-gray-700 bg-gray-50 p-4 rounded-lg">{selectedItem.description}</p>
+                </div>
+
+                {/* Location Details */}
+                <div>
+                  <h3 className="font-semibold mb-2">Location Details</h3>
+                  <div className="flex items-center text-gray-700">
+                    <MapPin size={16} className="mr-2" />
+                    {selectedItem.location}
+                  </div>
+                </div>
+
+                {/* Comments/Updates */}
+                {selectedItem.comments && selectedItem.comments.length > 0 && (
+                  <div>
+                    <h3 className="font-semibold mb-2">Updates & Comments</h3>
+                    <div className="space-y-3">
+                      {selectedItem.comments.map((comment: any, index: number) => (
+                        <div key={index} className="p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-sm font-medium">{comment.user}</span>
+                            <span className="text-xs text-gray-500">{comment.time}</span>
+                          </div>
+                          <p className="text-sm text-gray-700">{comment.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex justify-between pt-4 border-t">
+                  {selectedItem.status === "Found" ? (
+                    <Button 
+                      onClick={() => {
+                        setSelectedItem(null)
+                        handleClaimItem(selectedItem)
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <ThumbsUp className="w-4 h-4" />
+                      Claim This Item
+                    </Button>
+                  ) : (
+                    <Button variant="outline" className="flex items-center gap-2">
+                      <Plus className="w-4 h-4" />
+                      I Found This Item
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={() => setSelectedItem(null)}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </motion.div>
     </div>
   )

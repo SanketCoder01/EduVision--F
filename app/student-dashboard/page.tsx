@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import {
   BookOpen,
@@ -20,116 +21,164 @@ import {
   Bot,
   GraduationCap,
 } from "lucide-react"
+import { SupabaseRealtimeService, Student } from "@/lib/supabase-realtime"
 
 export default function StudentDashboardPage() {
+  const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
-  const [currentUser, setCurrentUser] = useState<any>(null)
-
-  // Static stats to prevent infinite loops
-  const stats = {
-    totalAssignments: 5,
-    completedAssignments: 3,
-    pendingTasks: 2,
-    studyHours: 24,
-  }
+  const [currentUser, setCurrentUser] = useState<Student | null>(null)
+  const [assignments, setAssignments] = useState<any[]>([])
+  const [announcements, setAnnouncements] = useState<any[]>([])
+  const [events, setEvents] = useState<any[]>([])
+  const [studyGroups, setStudyGroups] = useState<any[]>([])
+  const [attendance, setAttendance] = useState<any[]>([])
+  const [stats, setStats] = useState({
+    totalAssignments: 0,
+    completedAssignments: 0,
+    pendingTasks: 0,
+    studyHours: 0,
+  })
 
   useEffect(() => {
-    // Get user data from localStorage
-    const studentSession = localStorage.getItem("studentSession")
-    const currentUserData = localStorage.getItem("currentUser")
-
-    if (studentSession) {
+    const loadUserData = async () => {
       try {
-        const user = JSON.parse(studentSession)
-        setCurrentUser(user)
+        const studentSession = localStorage.getItem("studentSession")
+        const currentUserData = localStorage.getItem("currentUser")
+        
+        let user = null
+        if (studentSession) {
+          user = JSON.parse(studentSession)
+        } else if (currentUserData) {
+          user = JSON.parse(currentUserData)
+        }
+        
+        if (user) {
+          setCurrentUser(user)
+          await loadDashboardData(user)
+        }
       } catch (error) {
-        console.error("Error parsing student session:", error)
-      }
-    } else if (currentUserData) {
-      try {
-        const user = JSON.parse(currentUserData)
-        setCurrentUser(user)
-      } catch (error) {
-        console.error("Error parsing current user data:", error)
+        console.error("Error loading user data:", error)
+      } finally {
+        setIsLoading(false)
       }
     }
 
-    // Simulate loading
-    const timer = setTimeout(() => {
-      setIsLoading(false)
-    }, 1000)
-
-    return () => clearTimeout(timer)
+    loadUserData()
   }, [])
 
-  const [assignments, setAssignments] = useState<any[]>([])
-
-  useEffect(() => {
-    if (currentUser) {
-      // Load published assignments for this student
-      const savedAssignments = JSON.parse(localStorage.getItem("assignments") || "[]")
-      const studentAssignments = savedAssignments.filter((assignment: any) => 
-        assignment.status === "published" && 
-        assignment.department === currentUser.department && 
-        assignment.year === currentUser.year
-      )
-      setAssignments(studentAssignments)
+  const loadDashboardData = async (user: Student) => {
+    try {
+      const data = await SupabaseRealtimeService.getTodaysHubData(user)
+      
+      setAssignments(data.assignments)
+      setAnnouncements(data.announcements)
+      setEvents(data.events)
+      setStudyGroups(data.studyGroups)
+      setAttendance(data.attendance)
+      
+      // Calculate stats from real data
+      const totalAssignments = data.assignments.length
+      const completedAssignments = 0 // This would come from submission data
+      const pendingTasks = data.assignments.filter(a => new Date(a.due_date) > new Date()).length
+      
+      setStats({
+        totalAssignments,
+        completedAssignments,
+        pendingTasks,
+        studyHours: 0 // This would come from study tracking
+      })
+      
+      // Set up real-time subscriptions
+      setupRealtimeSubscriptions(user)
+    } catch (error) {
+      console.error("Error loading dashboard data:", error)
     }
-  }, [currentUser])
+  }
+  
+  const setupRealtimeSubscriptions = (user: Student) => {
+    // Subscribe to real-time changes for assignments
+    SupabaseRealtimeService.subscribeToTable('assignments', () => {
+      loadDashboardData(user)
+    })
+    
+    // Subscribe to announcements
+    SupabaseRealtimeService.subscribeToTable('announcements', () => {
+      loadDashboardData(user)
+    })
+    
+    // Subscribe to events
+    SupabaseRealtimeService.subscribeToTable('events', () => {
+      loadDashboardData(user)
+    })
+    
+    SupabaseRealtimeService.subscribeToTable('announcements', () => {
+      loadDashboardData(user)
+    })
+    
+    SupabaseRealtimeService.subscribeToTable('events', () => {
+      loadDashboardData(user)
+    })
+  }
 
-  // Today's Hub data - faculty posts and notifications with real assignment data
-  const todaysHubItems = [
-    ...assignments.slice(0, 2).map((assignment, index) => ({
+  const getRelativeTime = (dateString: string) => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+
+    if (diffInSeconds < 60) return `${diffInSeconds} seconds ago`
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`
+    return `${Math.floor(diffInSeconds / 86400)} days ago`
+  }
+
+  interface TodaysHubItem {
+    id: string
+    type: string
+    title: string
+    description: string
+    author: string
+    time: string
+    urgent: boolean
+    department: string
+    assignment_id?: string
+  }
+
+  // Today's Hub data from real Supabase data
+  const todaysHubItems: TodaysHubItem[] = [
+    // Real assignments
+    ...assignments.slice(0, 3).map((assignment): TodaysHubItem => ({
       id: `assignment_${assignment.id}`,
       type: "assignment",
       title: assignment.title,
-      description: `Due: ${new Date(assignment.due_date).toLocaleDateString()} - ${assignment.ai_generated ? '🤖 AI Generated' : ''} ${assignment.difficulty ? `(${assignment.difficulty})` : ''}`,
-      author: "Faculty",
-      time: "Recently published",
-      urgent: new Date(assignment.due_date).getTime() - new Date().getTime() < 3 * 24 * 60 * 60 * 1000, // Due within 3 days
+      description: `Due: ${new Date(assignment.due_date).toLocaleDateString()} - ${assignment.assignment_type}`,
+      author: assignment.faculty?.name || "Faculty",
+      time: getRelativeTime(assignment.created_at),
+      urgent: new Date(assignment.due_date).getTime() - new Date().getTime() < 3 * 24 * 60 * 60 * 1000,
       department: assignment.department,
       assignment_id: assignment.id
     })),
-    {
-      id: 1,
-      type: "assignment",
-      title: "Data Structures Assignment 3",
-      description: "Complete the binary tree implementation by Friday",
-      author: "Dr. Smith",
-      time: "2 hours ago",
-      urgent: true,
-      department: currentUser?.department || "CSE"
-    },
-    {
-      id: 2,
+    // Real announcements
+    ...announcements.slice(0, 2).map((announcement): TodaysHubItem => ({
+      id: `announcement_${announcement.id}`,
       type: "announcement",
-      title: "Mid-term Exam Schedule Released",
-      description: "Check your exam timetable on the portal",
-      author: "Academic Office",
-      time: "4 hours ago",
-      urgent: false,
-      department: "All"
-    },
-    {
-      id: 3,
+      title: announcement.title,
+      description: announcement.content.substring(0, 100) + '...',
+      author: announcement.faculty?.name || "Faculty",
+      time: getRelativeTime(announcement.created_at),
+      urgent: announcement.priority === 'urgent' || announcement.priority === 'high',
+      department: announcement.department || "All"
+    })),
+    // Real events
+    ...events.slice(0, 2).map((event): TodaysHubItem => ({
+      id: `event_${event.id}`,
       type: "event",
-      title: "Tech Fest 2024 Registration Open",
-      description: "Register for coding competitions and workshops",
-      author: "Student Council",
-      time: "6 hours ago",
-      urgent: false,
-      department: "All"
-    },
-    {
-      id: 4,
-      type: "lost_found",
-      title: "Lost: Black Laptop Bag",
-      description: "Found near library, contact if yours",
-      author: "Security Desk",
-      time: "1 day ago",
-      urgent: false,
-      department: "All"
-    }
+      title: event.title,
+      description: `${event.description.substring(0, 80)}... - ${new Date(event.event_date).toLocaleDateString()}`,
+      author: event.faculty?.name || "Event Organizer",
+      time: getRelativeTime(event.created_at),
+      urgent: new Date(event.event_date).getTime() - new Date().getTime() < 24 * 60 * 60 * 1000,
+      department: event.department || "All"
+    }))
   ]
 
   const statsCards = [
@@ -169,9 +218,18 @@ export default function StudentDashboardPage() {
     },
   ]
 
-  const upcomingDeadlines: any[] = [
-    // This will be populated with real assignment deadlines
-  ]
+  // Real upcoming deadlines from assignments
+  const upcomingDeadlines = assignments
+    .filter(assignment => new Date(assignment.due_date) > new Date())
+    .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+    .slice(0, 5)
+    .map(assignment => ({
+      id: assignment.id,
+      title: assignment.title,
+      subject: assignment.assignment_type,
+      dueDate: new Date(assignment.due_date).toLocaleDateString(),
+      urgent: new Date(assignment.due_date).getTime() - new Date().getTime() < 3 * 24 * 60 * 60 * 1000
+    }))
 
   const container = {
     hidden: { opacity: 0 },
@@ -190,9 +248,8 @@ export default function StudentDashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        {/* Loading skeleton */}
-        <div className="animate-pulse">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 p-2 sm:p-4 md:p-6 lg:p-8">
+        <div className="w-full max-w-none mx-auto space-y-4 md:space-y-6 lg:space-y-8">
           <div className="h-32 bg-gray-200 rounded-xl mb-6"></div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             {[...Array(4)].map((_, i) => (
@@ -227,7 +284,7 @@ export default function StudentDashboardPage() {
           </motion.div>
         </div>
         <div className="relative z-10">
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">Welcome back, {currentUser?.name || "Student"}</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2">Welcome back, {currentUser?.name || currentUser?.full_name || "Student"}</h1>
           <p className="text-white/90 text-lg">
             PRN: {currentUser?.prn || "N/A"} • {currentUser?.year || "Year"}
           </p>
@@ -244,7 +301,7 @@ export default function StudentDashboardPage() {
         variants={container}
         initial="hidden"
         animate="show"
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6"
       >
         {statsCards.map((stat, index) => (
           <motion.div key={index} variants={item}>
@@ -277,7 +334,7 @@ export default function StudentDashboardPage() {
         ))}
       </motion.div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6 lg:gap-8">
         {/* Today's Hub */}
         <div className="xl:col-span-2">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Today's Hub</h2>
@@ -287,62 +344,69 @@ export default function StudentDashboardPage() {
             animate="show"
             className="space-y-4"
           >
-            {todaysHubItems.map((item, index) => (
-              <motion.div key={item.id} variants={item}>
-                <div className={`p-4 rounded-lg border-l-4 ${
-                  item.urgent ? 'border-red-500 bg-red-50' :
-                  item.type === 'assignment' ? 'border-green-500 bg-green-50' :
-                  item.type === 'announcement' ? 'border-blue-500 bg-blue-50' :
-                  item.type === 'event' ? 'border-purple-500 bg-purple-50' :
-                  'border-gray-500 bg-gray-50'
-                } hover:shadow-md transition-shadow`}>
+            {todaysHubItems.map((hubItem, index) => (
+              <motion.div key={hubItem.id} variants={item}>
+                <div 
+                  className={`p-4 rounded-lg border-l-4 cursor-pointer ${
+                    hubItem.urgent ? 'border-red-500 bg-red-50' :
+                    hubItem.type === 'assignment' ? 'border-green-500 bg-green-50' :
+                    hubItem.type === 'announcement' ? 'border-blue-500 bg-blue-50' :
+                    hubItem.type === 'event' ? 'border-purple-500 bg-purple-50' :
+                    'border-gray-500 bg-gray-50'
+                  } hover:shadow-md transition-shadow`}
+                  onClick={() => {
+                    if (hubItem.type === 'assignment') {
+                      router.push(`/student-dashboard/assignments/${hubItem.id}`)
+                    } else if (hubItem.type === 'announcement') {
+                      router.push(`/student-dashboard/announcements/${hubItem.id}`)
+                    } else if (hubItem.type === 'event') {
+                      router.push(`/student-dashboard/events/${hubItem.id}`)
+                    } else {
+                      router.push('/student-dashboard/todays-hub')
+                    }
+                  }}
+                >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          item.type === 'assignment' ? 'bg-green-100 text-green-700' :
-                          item.type === 'announcement' ? 'bg-blue-100 text-blue-700' :
-                          item.type === 'event' ? 'bg-purple-100 text-purple-700' :
+                          hubItem.type === 'assignment' ? 'bg-green-100 text-green-700' :
+                          hubItem.type === 'announcement' ? 'bg-blue-100 text-blue-700' :
+                          hubItem.type === 'event' ? 'bg-purple-100 text-purple-700' :
                           'bg-gray-100 text-gray-700'
                         }`}>
-                          {item.type.charAt(0).toUpperCase() + item.type.slice(1).replace('_', ' ')}
+                          {hubItem.type.charAt(0).toUpperCase() + hubItem.type.slice(1).replace('_', ' ')}
                         </span>
-                        {item.urgent && (
+                        {hubItem.urgent && (
                           <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium">
                             Urgent
                           </span>
                         )}
                       </div>
-                      <h4 className="font-semibold text-gray-900 mb-1">{item.title}</h4>
-                      <p className="text-sm text-gray-600 mb-2">{item.description}</p>
+                      <h4 className="font-semibold text-gray-900 mb-1">{hubItem.title}</h4>
+                      <p className="text-sm text-gray-600 mb-2">{hubItem.description}</p>
                       <div className="flex items-center gap-4 text-xs text-gray-500">
                         <span className="flex items-center gap-1">
                           <Users className="h-3 w-3" />
-                          {item.author}
+                          {hubItem.author}
                         </span>
                         <span className="flex items-center gap-1">
                           <Clock className="h-3 w-3" />
-                          {item.time}
+                          {hubItem.time}
                         </span>
                       </div>
                     </div>
                     <div className="ml-4">
-                      {item.type === 'assignment' && <BookOpen className="h-5 w-5 text-green-600" />}
-                      {item.type === 'announcement' && <Bell className="h-5 w-5 text-blue-600" />}
-                      {item.type === 'event' && <Calendar className="h-5 w-5 text-purple-600" />}
-                      {item.type === 'lost_found' && <AlertCircle className="h-5 w-5 text-gray-600" />}
+                      {hubItem.type === 'assignment' && <BookOpen className="h-5 w-5 text-green-600" />}
+                      {hubItem.type === 'announcement' && <Bell className="h-5 w-5 text-blue-600" />}
+                      {hubItem.type === 'event' && <Calendar className="h-5 w-5 text-purple-600" />}
+                      {hubItem.type === 'lost_found' && <AlertCircle className="h-5 w-5 text-gray-600" />}
                     </div>
                   </div>
                 </div>
               </motion.div>
             ))}
             
-            {/* View All Button */}
-            <motion.div variants={item} className="text-center pt-4">
-              <button className="px-6 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 transition-colors">
-                View All Notifications
-              </button>
-            </motion.div>
           </motion.div>
         </div>
 
@@ -363,19 +427,27 @@ export default function StudentDashboardPage() {
               ) : (
                 upcomingDeadlines.map((deadline, index) => (
                   <motion.div
-                    key={index}
+                    key={deadline.id}
                     initial={{ opacity: 0, x: 20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: index * 0.1 }}
-                    className={`p-4 rounded-lg border-l-4 border-green-500 bg-green-50`}
+                    className={`p-4 rounded-lg border-l-4 cursor-pointer hover:shadow-md transition-shadow ${
+                      deadline.urgent ? 'border-red-500 bg-red-50' : 'border-green-500 bg-green-50'
+                    }`}
+                    onClick={() => router.push(`/student-dashboard/assignments/${deadline.id}`)}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <h4 className="font-medium">{deadline.title}</h4>
                         <p className="text-sm text-gray-600">{deadline.subject}</p>
-                        <p className="text-xs text-gray-500 mt-1">Due in {deadline.dueDate}</p>
+                        <p className="text-xs text-gray-500 mt-1">Due: {deadline.dueDate}</p>
+                        {deadline.urgent && (
+                          <span className="inline-block mt-1 px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium">
+                            Due Soon!
+                          </span>
+                        )}
                       </div>
-                      <CheckCircle className="h-5 w-5 text-green-600" />
+                      <ChevronRight className="h-5 w-5 text-gray-400" />
                     </div>
                   </motion.div>
                 ))

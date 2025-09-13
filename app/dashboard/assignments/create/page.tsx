@@ -5,33 +5,31 @@ import type React from "react"
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import { ArrowLeft, Save, Send, FileText, Sparkles, BookOpen, Settings } from "lucide-react"
+import { ArrowLeft, BookOpen, Calendar, Clock, FileText, Users, Settings, Upload, Sparkles, Plus, Trash2, Save, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "@/hooks/use-toast"
+import { SupabaseAssignmentService } from "@/lib/supabase-assignments"
+import { supabase } from "@/lib/supabase"
 // import { createAssignment, addAssignmentResources, uploadFile } from "@/lib/supabase"
 
 const departments = [
-  { id: "cse", name: "Computer Science & Engineering", code: "CSE" },
-  { id: "cy", name: "Cyber Security", code: "CY" },
-  { id: "aids", name: "Artificial Intelligence & Data Science", code: "AIDS" },
-  { id: "aiml", name: "Artificial Intelligence & Machine Learning", code: "AIML" },
+  "CSE",
+  "CY", 
+  "AIDS",
+  "AIML"
 ]
 
-const years = [
-  { id: "first", name: "First Year" },
-  { id: "second", name: "Second Year" },
-  { id: "third", name: "Third Year" },
-  { id: "fourth", name: "Fourth Year" },
-]
+const years = ["1", "2", "3", "4"]
 
 export default function CreateAssignmentPage() {
   const router = useRouter()
@@ -60,29 +58,144 @@ export default function CreateAssignmentPage() {
     aiPrompt: "",
     difficulty: "intermediate",
     estimatedTime: 60,
+    questions: "",
+    submissionGuidelines: "",
+    rubric: [],
+    autoGradingEnabled: false,
+    passingMarks: 40,
+    timeLimit: 0,
   })
   
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [fileContent, setFileContent] = useState<string>("")
+  const [questions, setQuestions] = useState<any[]>([])
+  const [currentQuestion, setCurrentQuestion] = useState({
+    type: "multiple_choice",
+    question: "",
+    options: ["", "", "", ""],
+    correctAnswer: 0,
+    marks: 1,
+    explanation: ""
+  })
 
   useEffect(() => {
-    // Get current user from localStorage or session
-    const facultySession = localStorage.getItem("facultySession")
-    if (facultySession) {
-      try {
-        const user = JSON.parse(facultySession)
-        setCurrentUser(user)
-        setFormData((prev) => ({
-          ...prev,
-          department: user.department || "",
-        }))
-      } catch (error) {
-        console.error("Error parsing faculty session:", error)
-        router.push("/login?type=faculty")
+    // Get current user from Supabase
+    const getUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        // Check if user has sanjivani.edu.in email
+        const email = session.user.email
+        if (!email?.endsWith('@sanjivani.edu.in')) {
+          toast({
+            title: "Access Denied",
+            description: "Only Sanjivani faculty members can access this system.",
+            variant: "destructive"
+          })
+          router.push("/login")
+          return
+        }
+
+        // Try to fetch existing faculty record
+        let { data: facultyData, error } = await supabase
+          .from('faculty')
+          .select('*')
+          .eq('email', email)
+          .single()
+        
+        // If faculty record doesn't exist, create one automatically
+        if (error && error.code === 'PGRST116') {
+          const name = session.user.user_metadata?.name || email.split('@')[0].replace(/[._]/g, ' ')
+          const department = 'CSE' // Default department, can be updated later
+          
+          const { data: newFacultyData, error: insertError } = await supabase
+            .from('faculty')
+            .insert([{
+              name: name,
+              full_name: name,
+              email: email,
+              department: department,
+              designation: 'Faculty',
+              employee_id: `FAC_${Date.now()}`
+            }])
+            .select()
+            .single()
+          
+          if (newFacultyData && !insertError) {
+            facultyData = newFacultyData
+            toast({
+              title: "Welcome!",
+              description: "Faculty profile created successfully. You can update your details in profile settings.",
+              variant: "default"
+            })
+          } else {
+            console.error("Error creating faculty record:", insertError)
+            toast({
+              title: "Error",
+              description: "Failed to create faculty profile. Please contact admin.",
+              variant: "destructive"
+            })
+            return
+          }
+        } else if (error) {
+          console.error("Error fetching faculty record:", error)
+          toast({
+            title: "Error",
+            description: "Failed to fetch faculty profile. Please try again.",
+            variant: "destructive"
+          })
+          return
+        }
+        
+        if (facultyData) {
+          setCurrentUser({
+            id: facultyData.id,
+            email: facultyData.email,
+            name: facultyData.name,
+            department: facultyData.department,
+            designation: facultyData.designation
+          })
+        }
+      } else {
+        // Check localStorage for session
+        const localSession = localStorage.getItem('user_session')
+        if (localSession) {
+          try {
+            const user = JSON.parse(localSession)
+            // Verify this is a faculty record by checking if it has department
+            if (user.department) {
+              setCurrentUser(user)
+            } else {
+              // Fetch faculty record if localStorage doesn't have complete data
+              const { data: facultyData, error } = await supabase
+                .from('faculty')
+                .select('*')
+                .eq('email', user.email)
+                .single()
+              
+              if (facultyData && !error) {
+                const facultyUser = {
+                  id: facultyData.id,
+                  email: facultyData.email,
+                  name: facultyData.name,
+                  department: facultyData.department,
+                  designation: facultyData.designation
+                }
+                setCurrentUser(facultyUser)
+                localStorage.setItem('user_session', JSON.stringify(facultyUser))
+              } else {
+                router.push("/login")
+              }
+            }
+          } catch (error) {
+            console.error("Error parsing session:", error)
+            router.push("/login")
+          }
+        } else {
+          router.push("/login")
+        }
       }
-    } else {
-      router.push("/login?type=faculty")
     }
+    getUser()
   }, [router])
 
   const handleSubmit = async (status: "draft" | "published") => {
@@ -95,47 +208,81 @@ export default function CreateAssignmentPage() {
       return
     }
 
+    if (!currentUser?.id) {
+      toast({
+        title: "Authentication Error",
+        description: "Please log in again.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsLoading(true)
 
     try {
-      // Mock assignment creation for now
+      // Create assignment using Supabase
+      // Convert year number to year name for target_years
+      const yearMapping: { [key: string]: string } = {
+        '1': 'first',
+        '2': 'second', 
+        '3': 'third',
+        '4': 'fourth'
+      }
+      const targetYear = yearMapping[formData.year] || formData.year
+      
       const assignmentData = {
-        id: Date.now(),
         title: formData.title,
         description: formData.description,
+        questions: formData.questions,
+        submission_guidelines: formData.submissionGuidelines,
         faculty_id: currentUser.id,
         department: formData.department,
-        year: formData.year,
-        assignment_type: formData.assignmentType,
-        allowed_file_types: formData.allowedFileTypes,
+        target_years: [targetYear],
+        assignment_type: formData.assignmentType as 'normal' | 'ai' | 'file_upload' | 'text_based' | 'quiz' | 'coding',
         max_marks: formData.maxMarks,
-        due_date: new Date(`${formData.dueDate}T${formData.dueTime}`).toISOString(),
-        start_date: formData.startDate
-          ? new Date(`${formData.startDate}T${formData.startTime}`).toISOString()
-          : new Date().toISOString(),
-        visibility: status === "published" ? formData.visibility : false,
+        due_date: `${formData.dueDate}T${formData.dueTime}:00`,
         allow_late_submission: formData.allowLateSubmission,
         allow_resubmission: formData.allowResubmission,
         enable_plagiarism_check: formData.enablePlagiarismCheck,
         allow_group_submission: formData.allowGroupSubmission,
-        status: status,
+        visibility: formData.visibility,
         difficulty: formData.difficulty,
         estimated_time: formData.estimatedTime,
-        ai_generated: assignmentType === "ai",
-        file_based: !!uploadedFile
+        ai_prompt: formData.aiPrompt,
+        status
       }
 
-      // Store in localStorage for demo purposes
-      const existingAssignments = JSON.parse(localStorage.getItem('assignments') || '[]')
-      existingAssignments.push(assignmentData)
-      localStorage.setItem('assignments', JSON.stringify(existingAssignments))
+      const createdAssignment = await SupabaseAssignmentService.createAssignment(assignmentData)
+
+      // Upload resources if any
+      if (resources.length > 0) {
+        for (const file of resources) {
+          try {
+            const fileUrl = await SupabaseAssignmentService.uploadAssignmentResource(createdAssignment.id, file)
+            await SupabaseAssignmentService.createAssignmentResource({
+              assignment_id: createdAssignment.id,
+              name: file.name,
+              file_type: file.type,
+              file_url: fileUrl,
+              file_size: file.size
+            })
+          } catch (error) {
+            console.error(`Error uploading resource ${file.name}:`, error)
+          }
+        }
+      }
+
+      // Create notifications for students when assignment is published
+      if (status === "published") {
+        createStudentNotifications(createdAssignment)
+      }
 
       toast({
         title: status === "published" ? "Assignment Published" : "Assignment Saved",
         description:
           status === "published"
-            ? "Your AI-powered assignment has been published and is now visible to students."
-            : "Your AI-powered assignment has been saved as a draft.",
+            ? "Assignment has been published and students can now view it."
+            : "Assignment has been saved as a draft.",
       })
 
       router.push("/dashboard/assignments")
@@ -143,12 +290,96 @@ export default function CreateAssignmentPage() {
       console.error("Error creating assignment:", error)
       toast({
         title: "Error",
-        description: "Failed to create assignment. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to create assignment. Please try again.",
         variant: "destructive",
       })
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const createStudentNotifications = async (assignment: any) => {
+    try {
+      // Create real-time notification in Supabase for all students in target department/years
+      for (const targetYear of assignment.target_years) {
+        const notificationData = {
+          type: "assignment",
+          title: "New Assignment Available",
+          message: `${assignment.title} has been assigned to ${assignment.department} ${targetYear} year students`,
+          assignment_id: assignment.id,
+          department: assignment.department,
+          target_year: targetYear,
+          faculty_id: assignment.faculty_id,
+          created_at: new Date().toISOString(),
+          read: false
+        }
+
+        // Insert notification into Supabase
+        const { error: notificationError } = await supabase
+          .from('notifications')
+          .insert([notificationData])
+
+        if (notificationError) {
+          console.error('Error creating notification:', notificationError)
+        } else {
+          console.log(`✅ Notification created for ${assignment.department} ${targetYear} year students`)
+        }
+      }
+    } catch (error) {
+      console.error('Error creating student notifications:', error)
+    }
+  }
+
+  const addQuestion = () => {
+    if (!currentQuestion.question.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a question.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const newQuestion = {
+      ...currentQuestion,
+      id: `question_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    }
+
+    setQuestions([...questions, newQuestion])
+    setCurrentQuestion({
+      type: "multiple_choice",
+      question: "",
+      options: ["", "", "", ""],
+      correctAnswer: 0,
+      marks: 1,
+      explanation: ""
+    })
+
+    toast({
+      title: "Question Added",
+      description: "Question has been added to the assignment.",
+    })
+  }
+
+  const removeQuestion = (index: number) => {
+    const updatedQuestions = questions.filter((_, i) => i !== index)
+    setQuestions(updatedQuestions)
+  }
+
+  const updateCurrentQuestion = (field: string, value: any) => {
+    setCurrentQuestion(prev => ({
+      ...prev,
+      [field]: value
+    }))
+  }
+
+  const updateQuestionOption = (index: number, value: string) => {
+    const updatedOptions = [...currentQuestion.options]
+    updatedOptions[index] = value
+    setCurrentQuestion(prev => ({
+      ...prev,
+      options: updatedOptions
+    }))
   }
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -412,8 +643,8 @@ export default function CreateAssignmentPage() {
                     </SelectTrigger>
                     <SelectContent>
                       {departments.map((dept) => (
-                        <SelectItem key={dept.id} value={dept.id}>
-                          {dept.name}
+                        <SelectItem key={dept} value={dept}>
+                          {dept}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -431,8 +662,8 @@ export default function CreateAssignmentPage() {
                     </SelectTrigger>
                     <SelectContent>
                       {years.map((year) => (
-                        <SelectItem key={year.id} value={year.id}>
-                          {year.name}
+                        <SelectItem key={year} value={year}>
+                          Year {year}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -464,7 +695,7 @@ export default function CreateAssignmentPage() {
                     type="number"
                     min="1"
                     value={formData.maxMarks}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, maxMarks: Number.parseInt(e.target.value) }))}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, maxMarks: parseInt(e.target.value) || 1 }))}
                   />
                 </div>
 
@@ -497,7 +728,7 @@ export default function CreateAssignmentPage() {
                         <Checkbox
                           id={`filetype-${type}`}
                           checked={formData.allowedFileTypes.includes(type)}
-                          onCheckedChange={(checked) => handleFileTypeChange(type, checked as boolean)}
+                          onCheckedChange={(checked: boolean) => handleFileTypeChange(type, checked)}
                         />
                         <Label htmlFor={`filetype-${type}`} className="text-sm">
                           .{type}
@@ -505,11 +736,61 @@ export default function CreateAssignmentPage() {
                       </div>
                     ))}
                   </div>
+
+
                 </div>
               )}
+
+              <div className="space-y-2">
+                <Label htmlFor="description">Assignment Description *</Label>
+                <Textarea
+                  id="description"
+                  placeholder="Provide detailed instructions for the assignment"
+                  value={formData.description}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+                  rows={8}
+                />
+              </div>
             </TabsContent>
 
             <TabsContent value="content" className="space-y-6">
+              {assignmentType === "normal" && (
+                <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="h-5 w-5 text-blue-600" />
+                    <h3 className="font-semibold text-blue-900">Manual Assignment Questions</h3>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="assignmentQuestions">Assignment Questions *</Label>
+                      <Textarea
+                        id="assignmentQuestions"
+                        placeholder="Enter your assignment questions here. You can add multiple questions, instructions, and requirements for students."
+                        value={formData.questions || ''}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, questions: e.target.value }))}
+                        rows={8}
+                        className="min-h-[200px]"
+                      />
+                      <p className="text-sm text-gray-600">
+                        Add detailed questions, instructions, and requirements for your assignment. Students will see this when they view the assignment details.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="submissionGuidelines">Submission Guidelines</Label>
+                      <Textarea
+                        id="submissionGuidelines"
+                        placeholder="Enter submission guidelines, format requirements, and any special instructions..."
+                        value={formData.submissionGuidelines || ''}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, submissionGuidelines: e.target.value }))}
+                        rows={4}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {assignmentType === "ai" && (
                 <div className="space-y-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
                   <div className="flex items-center gap-2">
@@ -577,71 +858,60 @@ export default function CreateAssignmentPage() {
                         )}
                       </div>
                     </div>
-                  </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="difficulty">Difficulty Level</Label>
-                      <Select
-                        value={formData.difficulty}
-                        onValueChange={(value) => setFormData((prev) => ({ ...prev, difficulty: value }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="normal">Normal</SelectItem>
-                          <SelectItem value="intermediate">Intermediate</SelectItem>
-                          <SelectItem value="hard">Hard</SelectItem>
-                        </SelectContent>
-                      </Select>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="difficulty">Difficulty Level</Label>
+                        <Select
+                          value={formData.difficulty}
+                          onValueChange={(value) => setFormData((prev) => ({ ...prev, difficulty: value }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="normal">Normal</SelectItem>
+                            <SelectItem value="intermediate">Intermediate</SelectItem>
+                            <SelectItem value="hard">Hard</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="estimatedTime">Estimated Time (minutes)</Label>
+                        <Input
+                          id="estimatedTime"
+                          type="number"
+                          min="15"
+                          step="15"
+                          value={formData.estimatedTime}
+                          onChange={(e) =>
+                            setFormData((prev) => ({ ...prev, estimatedTime: Number.parseInt(e.target.value) }))
+                          }
+                        />
+                      </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="estimatedTime">Estimated Time (minutes)</Label>
-                      <Input
-                        id="estimatedTime"
-                        type="number"
-                        min="15"
-                        step="15"
-                        value={formData.estimatedTime}
-                        onChange={(e) =>
-                          setFormData((prev) => ({ ...prev, estimatedTime: Number.parseInt(e.target.value) }))
-                        }
-                      />
-                    </div>
+                    <Button
+                      onClick={generateAIAssignment}
+                      disabled={isLoading || (!formData.aiPrompt && !fileContent) || !formData.difficulty}
+                      className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+                    >
+                      {isLoading ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-4 w-4 mr-2" />
+                          Generate Assignment
+                        </>
+                      )}
+                    </Button>
                   </div>
-
-                  <Button
-                    onClick={generateAIAssignment}
-                    disabled={isLoading || (!formData.aiPrompt && !fileContent) || !formData.difficulty}
-                    className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
-                  >
-                    {isLoading ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="h-4 w-4 mr-2" />
-                        Generate Assignment
-                      </>
-                    )}
-                  </Button>
                 </div>
               )}
-
-              <div className="space-y-2">
-                <Label htmlFor="description">Assignment Description *</Label>
-                <Textarea
-                  id="description"
-                  placeholder="Provide detailed instructions for the assignment"
-                  value={formData.description}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                  rows={8}
-                />
-              </div>
             </TabsContent>
 
             <TabsContent value="resources" className="space-y-6">

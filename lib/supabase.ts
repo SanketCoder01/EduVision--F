@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://your-supabase-url.supabase.co"
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "your-supabase-key"
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jtguryzyprgqraimyimt.supabase.co"
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0Z3VyeXp5cHJncXJhaW15aW10Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY5ODIxNTMsImV4cCI6MjA2MjU1ODE1M30.798s8F7LDFsit82qTGZ7X97ww9SAQvmawIDpNgANeYE"
 
 export const supabase = createClient(supabaseUrl, supabaseKey)
 
@@ -79,132 +79,82 @@ export async function authenticateUniversityAdmin(email: string, password: strin
   }
 }
 
-// Faculty Authentication
+// Faculty Authentication using Supabase Auth
 export async function authenticateFaculty(email: string, password: string) {
   try {
-    // Demo faculty credentials check first
-    if (email === 'faculty@sanjivani.edu.in' && password === 'EduVision2024@Faculty!') {
-      return {
-        id: 'demo-faculty-1',
-        employee_id: 'EMP001',
-        name: 'Dr. Faculty Member',
-        email: email,
-        department: 'Computer Science Engineering',
-        designation: 'Professor',
-        qualification: 'Ph.D.',
-        experience_years: 10,
-        status: 'active' as const,
-        created_at: new Date().toISOString()
-      }
+    console.log("Authenticating faculty with email:", email)
+    
+    // Validate email domain
+    if (!email.endsWith('@sanjivani.edu.in')) {
+      throw new Error('Please use your Sanjivani University email address (@sanjivani.edu.in)')
     }
 
-    // Additional demo faculty accounts
-    if (email === 'dr.smith@sanjivani.edu.in' && password === 'DrSmith2024!') {
-      return {
-        id: 'demo-faculty-2',
-        employee_id: 'EMP002',
-        name: 'Dr. John Smith',
-        email: email,
-        department: 'Computer Science Engineering',
-        designation: 'Associate Professor',
-        qualification: 'Ph.D.',
-        experience_years: 8,
-        status: 'active' as const,
-        created_at: new Date().toISOString()
-      }
-    }
+    // Use Supabase Auth for authentication
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
 
-    if (email === 'prof.jones@sanjivani.edu.in' && password === 'ProfJones2024!') {
-      return {
-        id: 'demo-faculty-3',
-        employee_id: 'EMP003',
-        name: 'Prof. Sarah Jones',
-        email: email,
-        department: 'Information Technology',
-        designation: 'Assistant Professor',
-        qualification: 'M.Tech',
-        experience_years: 5,
-        status: 'active' as const,
-        created_at: new Date().toISOString()
-      }
-    }
-
-    // Try database connection only if not demo credentials
-    const { data: faculty, error } = await supabase
-      .from("faculty")
-      .select("*")
-      .eq("email", email)
-      .eq("status", "active")
-      .single()
-
-    if (error || !faculty) {
+    if (authError) {
+      console.error("Supabase Auth error:", authError)
       throw new Error("Invalid email or password")
     }
 
-    if (faculty.password !== password) {
-      throw new Error("Invalid email or password")
+    if (!authData.user) {
+      throw new Error("Authentication failed")
     }
 
-    const { password: _, ...facultyData } = faculty
-    return facultyData
+    console.log("Authentication successful:", authData.user)
+    
+    // Return user data with additional info
+    return {
+      id: authData.user.id,
+      email: authData.user.email,
+      user_type: 'faculty',
+      auth_user: authData.user,
+      session: authData.session
+    }
   } catch (error) {
     console.error("Error authenticating faculty:", error)
     throw error
   }
 }
 
-// Student Authentication
-export async function authenticateStudent(prn: string, password: string) {
+// Student Authentication using Supabase Auth
+export async function authenticateStudent(email: string, password: string) {
   try {
-    // Demo credentials check first
-    if (prn === '2024CSE0001' && password === 'student123') {
-      return {
-        id: 'demo-student-1',
-        prn: '2024CSE0001',
-        name: 'Demo Student',
-        email: '2024CSE0001@sanjivani.edu.in',
-        department: 'Computer Science Engineering',
-        year: 'first' as const,
-        status: 'active' as const,
-        created_at: new Date().toISOString()
-      }
+    console.log("Authenticating student with email:", email)
+    
+    // Validate email domain
+    if (!email.endsWith('@sanjivani.edu.in')) {
+      throw new Error('Please use your Sanjivani University email address (@sanjivani.edu.in)')
     }
 
-    // Check for other demo PRN patterns (any year CSE students with student123 password)
-    const prnPattern = /^(\d{4})(CSE)(\d{4})$/;
-    const match = prn.match(prnPattern);
-    if (match && password === 'student123') {
-      const [, year, dept, number] = match;
-      return {
-        id: `demo-student-${number}`,
-        prn: prn,
-        name: `Demo Student ${number}`,
-        email: `${prn}@sanjivani.edu.in`,
-        department: 'Computer Science Engineering',
-        year: 'first' as const,
-        status: 'active' as const,
-        created_at: new Date().toISOString()
-      }
+    // Use Supabase Auth for authentication
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+
+    if (authError) {
+      console.error("Supabase Auth error:", authError)
+      throw new Error("Invalid email or password")
     }
 
-    // Try database connection only if not demo credentials
-    const { data: student, error } = await supabase
-      .from("students")
-      .select("*")
-      .eq("prn", prn)
-      .eq("status", "active")
-      .single()
-
-    if (error || !student) {
-      throw new Error("Invalid PRN or password")
+    if (!authData.user) {
+      throw new Error("Authentication failed")
     }
 
-    if (student.password !== password) {
-      throw new Error("Invalid PRN or password")
+    console.log("Authentication successful:", authData.user)
+    
+    // Return user data with additional info
+    return {
+      id: authData.user.id,
+      email: authData.user.email,
+      user_type: 'student',
+      auth_user: authData.user,
+      session: authData.session
     }
-
-    const { password: _, ...studentData } = student
-    return studentData
   } catch (error) {
     console.error("Error authenticating student:", error)
     throw error

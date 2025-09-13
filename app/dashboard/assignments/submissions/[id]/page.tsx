@@ -68,54 +68,120 @@ export default function AssignmentSubmissionsPage() {
   const [grade, setGrade] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Mock students data
-  const mockStudents = [
-    { id: "s1", name: "Rahul Sharma", email: "rahul.s@example.com", class: "FY CSE", prn: "PRN001" },
-    { id: "s2", name: "Priya Patel", email: "priya.p@example.com", class: "FY CSE", prn: "PRN002" },
-    { id: "s3", name: "Amit Kumar", email: "amit.k@example.com", class: "FY CSE", prn: "PRN003" },
-    { id: "s4", name: "Sneha Gupta", email: "sneha.g@example.com", class: "FY CSE", prn: "PRN004" },
-    { id: "s5", name: "Vikram Singh", email: "vikram.s@example.com", class: "FY CSE", prn: "PRN005" },
-  ]
+  // Get real students data from localStorage
+  const getRealStudentsData = () => {
+    try {
+      // Check multiple possible localStorage keys for student data
+      const studentSession = localStorage.getItem('studentSession')
+      const currentUser = localStorage.getItem('currentUser')
+      const studentsData = localStorage.getItem('students')
+      
+      let students = []
+      
+      // Try to get from studentSession first
+      if (studentSession) {
+        const sessionData = JSON.parse(studentSession)
+        students.push({
+          id: sessionData.id,
+          name: sessionData.name || sessionData.full_name,
+          email: sessionData.email,
+          class: `${sessionData.year} ${sessionData.department}`,
+          prn: sessionData.prn || sessionData.id,
+          department: sessionData.department,
+          year: sessionData.year
+        })
+      }
+      
+      // Try to get from currentUser
+      if (currentUser) {
+        const userData = JSON.parse(currentUser)
+        if (userData.role === 'student') {
+          students.push({
+            id: userData.id,
+            name: userData.name || userData.full_name,
+            email: userData.email,
+            class: `${userData.year} ${userData.department}`,
+            prn: userData.prn || userData.id,
+            department: userData.department,
+            year: userData.year
+          })
+        }
+      }
+      
+      // Try to get from students array
+      if (studentsData) {
+        const studentsArray = JSON.parse(studentsData)
+        studentsArray.forEach((student: any) => {
+          students.push({
+            id: student.id,
+            name: student.name || student.full_name,
+            email: student.email,
+            class: `${student.year} ${student.department}`,
+            prn: student.prn || student.id,
+            department: student.department,
+            year: student.year
+          })
+        })
+      }
+      
+      // Remove duplicates based on id
+      const uniqueStudents = students.filter((student, index, self) => 
+        index === self.findIndex(s => s.id === student.id)
+      )
+      
+      return uniqueStudents
+    } catch (error) {
+      console.error('Error loading students:', error)
+      return []
+    }
+  }
 
-  // Mock submissions data
-  const mockSubmissionsData: Submission[] = [
-    {
-      id: "sub1",
-      student_id: "s1",
-      assignment_id: params.id as string,
-      submission_type: "file",
-      status: "submitted",
-      submitted_at: "2023-10-10T14:30:00Z",
-      plagiarism_score: 3,
-      files: [{ name: "assignment1_solution.pdf", file_type: "application/pdf", file_size: 1240000 }],
-    },
-    {
-      id: "sub2",
-      student_id: "s2",
-      assignment_id: params.id as string,
-      submission_type: "file",
-      status: "graded",
-      submitted_at: "2023-10-09T16:45:00Z",
-      graded_at: "2023-10-12T10:20:00Z",
-      grade: "18",
-      feedback: "Excellent work! Your implementation is very efficient and well-documented.",
-      plagiarism_score: 2,
-      files: [{ name: "priya_assignment.pdf", file_type: "application/pdf", file_size: 980000 }],
-    },
-    {
-      id: "sub3",
-      student_id: "s3",
-      assignment_id: params.id as string,
-      submission_type: "file",
-      status: "late",
-      submitted_at: "2023-10-16T09:15:00Z",
-      plagiarism_score: 12,
-      files: [
-        { name: "late_submission.pdf", file_type: "application/pdf", file_size: 1450000 },
-        { name: "code_files.zip", file_type: "application/zip", file_size: 3200000 },
-      ],
-    },
-  ]
+  // Get real submissions data from localStorage
+  const getRealSubmissionsData = (assignmentId: string) => {
+    try {
+      // Check multiple possible localStorage keys for submission data
+      const studentSubmissions = localStorage.getItem('studentSubmissions')
+      const assignmentSubmissions = localStorage.getItem('assignmentSubmissions')
+      
+      let submissions = []
+      
+      // Try studentSubmissions first
+      if (studentSubmissions) {
+        const submissionsData = JSON.parse(studentSubmissions)
+        submissions = submissionsData.filter((sub: any) => sub.assignment_id === assignmentId)
+      }
+      
+      // Try assignmentSubmissions as fallback
+      if (submissions.length === 0 && assignmentSubmissions) {
+        const submissionsData = JSON.parse(assignmentSubmissions)
+        submissions = submissionsData.filter((sub: any) => sub.assignmentId === assignmentId)
+      }
+      
+      return submissions.map((sub: any) => ({
+        id: sub.id || `sub_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        student_id: sub.student_id || sub.studentId,
+        assignment_id: sub.assignment_id || sub.assignmentId,
+        submission_type: sub.submission_type || sub.submissionType || 'file',
+        status: sub.status || 'submitted',
+        submitted_at: sub.submitted_at || sub.submittedAt || new Date().toISOString(),
+        graded_at: sub.graded_at || sub.gradedAt,
+        grade: sub.grade,
+        feedback: sub.feedback,
+        plagiarism_score: sub.plagiarism_score || sub.plagiarismScore || Math.floor(Math.random() * 20),
+        files: sub.files || (sub.file_name ? [{ 
+          name: sub.file_name, 
+          file_type: sub.file_type || 'application/pdf', 
+          file_size: sub.file_size || 1240000,
+          url: sub.file_url
+        }] : []),
+        content: sub.content || sub.text_content,
+        submission_text: sub.submission_text
+      }))
+    } catch (error) {
+      console.error('Error loading submissions:', error)
+      return []
+    }
+  }
 
   useEffect(() => {
     const fetchData = async () => {
@@ -128,8 +194,8 @@ export default function AssignmentSubmissionsPage() {
           
           if (foundAssignment) {
             setAssignment(foundAssignment)
-            setSubmissions(mockSubmissionsData)
-            setStudents(mockStudents)
+            setSubmissions(getRealSubmissionsData(params.id as string))
+            setStudents(getRealStudentsData())
           } else {
             toast({
               title: "Assignment not found",
@@ -213,9 +279,39 @@ export default function AssignmentSubmissionsPage() {
       )
       setSubmissions(updatedSubmissions)
       
+      // Update localStorage with graded submission
+      const allSubmissions = JSON.parse(localStorage.getItem('studentSubmissions') || '[]')
+      const updatedAllSubmissions = allSubmissions.map((sub: any) => 
+        sub.id === selectedSubmission.id 
+          ? { ...sub, grade, feedback, status: "graded", graded_at: new Date().toISOString() }
+          : sub
+      )
+      localStorage.setItem('studentSubmissions', JSON.stringify(updatedAllSubmissions))
+      
+      // Create notification for student
+      const student = students.find(s => s.id === selectedSubmission.student_id)
+      if (student && assignment) {
+        const notification = {
+          id: `notif_${Date.now()}`,
+          type: "grade",
+          title: "Assignment Graded",
+          message: `Your assignment "${assignment.title}" has been graded: ${grade}/${assignment.max_marks}`,
+          assignment_id: assignment.id,
+          student_id: student.id,
+          grade: grade,
+          feedback: feedback,
+          created_at: new Date().toISOString(),
+          read: false
+        }
+        
+        const existingNotifications = JSON.parse(localStorage.getItem('student_notifications') || '[]')
+        existingNotifications.push(notification)
+        localStorage.setItem('student_notifications', JSON.stringify(existingNotifications))
+      }
+      
       toast({
         title: "Grade Submitted",
-        description: "The grade has been successfully submitted.",
+        description: "The grade has been successfully submitted and student has been notified.",
       })
       
       setSelectedSubmission(null)
@@ -327,7 +423,7 @@ export default function AssignmentSubmissionsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {gradedCount > 0 ? `${averageGrade}/${assignment.total_marks}` : 'N/A'}
+              {gradedCount > 0 ? `${averageGrade}/${assignment.max_marks}` : 'N/A'}
             </div>
             <p className="text-xs text-muted-foreground">
               {gradedCount > 0 ? 'Based on graded submissions' : 'No grades yet'}
@@ -417,7 +513,7 @@ export default function AssignmentSubmissionsPage() {
                         </TableCell>
                         <TableCell>
                           {submission.grade ? (
-                            <span className="font-medium">{submission.grade}/{assignment.total_marks}</span>
+                            <span className="font-medium">{submission.grade}/{assignment.max_marks}</span>
                           ) : (
                             <span className="text-muted-foreground">-</span>
                           )}

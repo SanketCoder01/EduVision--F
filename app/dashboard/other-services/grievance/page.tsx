@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { motion } from "framer-motion"
+import { useRouter } from "next/navigation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -14,7 +15,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { AlertCircle, Search, Filter, Clock, Calendar, User, MessageSquare, FileText, AlertTriangle, CheckCircle, XCircle, Eye, Lock, LockOpen } from "lucide-react"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useToast } from "@/hooks/use-toast"
+import { AlertCircle, Search, Filter, Clock, Calendar, User, MessageSquare, FileText, AlertTriangle, CheckCircle, XCircle, Eye, Lock, LockOpen, ArrowLeft, Send, Edit, Trash2, Plus } from "lucide-react"
 
 // Mock data for existing grievances
 const mockGrievances = [
@@ -204,10 +207,16 @@ const categories = [
 ]
 
 export default function GrievancePage() {
+  const router = useRouter()
+  const { toast } = useToast()
+  
   // State for search and filters
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("All Categories")
   const [selectedStatus, setSelectedStatus] = useState("All")
+  const [selectedGrievance, setSelectedGrievance] = useState<any>(null)
+  const [newComment, setNewComment] = useState("")
+  const [grievances, setGrievances] = useState(mockGrievances)
   
   // State for form inputs
   const [title, setTitle] = useState("")
@@ -217,13 +226,59 @@ export default function GrievancePage() {
   const [files, setFiles] = useState<File[]>([])
   
   // Filter grievances based on search query, category, and status
-  const filteredGrievances = mockGrievances.filter((grievance) => {
+  const filteredGrievances = grievances.filter((grievance) => {
     const matchesSearch = grievance.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       grievance.description.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesCategory = selectedCategory === "All Categories" || grievance.category === selectedCategory
     const matchesStatus = selectedStatus === "All" || grievance.status === selectedStatus
     return matchesSearch && matchesCategory && matchesStatus
   })
+
+  const handleViewDetails = (grievance: any) => {
+    setSelectedGrievance(grievance)
+  }
+
+  const handleStatusUpdate = (grievanceId: string, newStatus: string) => {
+    setGrievances(prev => prev.map(g => 
+      g.id === grievanceId ? { 
+        ...g, 
+        status: newStatus,
+        timeline: [...g.timeline, {
+          date: new Date().toISOString().split('T')[0],
+          action: `Status updated to ${newStatus}`,
+          by: "Faculty"
+        }]
+      } : g
+    ))
+    toast({
+      title: "Status Updated",
+      description: `Grievance status updated to ${newStatus}`
+    })
+  }
+
+  const handleAddComment = (grievanceId: string) => {
+    if (!newComment.trim()) return
+    
+    const comment = {
+      user: "Dr. Sarah Johnson",
+      time: new Date().toLocaleString(),
+      text: newComment,
+      isPrivate: false
+    }
+    
+    setGrievances(prev => prev.map(g => 
+      g.id === grievanceId ? { 
+        ...g, 
+        comments: [...g.comments, comment]
+      } : g
+    ))
+    
+    setNewComment("")
+    toast({
+      title: "Comment Added",
+      description: "Your comment has been added to the grievance"
+    })
+  }
 
   // Handle file change
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -266,10 +321,11 @@ export default function GrievancePage() {
         </div>
 
         <Tabs defaultValue="my-grievances" className="mb-8">
-          <TabsList className="grid w-full md:w-[600px] grid-cols-3">
+          <TabsList className="grid w-full md:w-[800px] grid-cols-4">
             <TabsTrigger value="my-grievances">My Grievances</TabsTrigger>
-            <TabsTrigger value="submit-new">Submit a New Grievance</TabsTrigger>
-            <TabsTrigger value="policies">Grievance Policies</TabsTrigger>
+            <TabsTrigger value="review-student">Review Student Grievances</TabsTrigger>
+            <TabsTrigger value="submit-new">Submit New</TabsTrigger>
+            <TabsTrigger value="policies">Policies</TabsTrigger>
           </TabsList>
 
           {/* My Grievances Tab */}
@@ -446,6 +502,164 @@ export default function GrievancePage() {
             )}
           </TabsContent>
 
+          {/* Review Student Grievances Tab */}
+          <TabsContent value="review-student" className="mt-6">
+            <div className="flex flex-col md:flex-row gap-4 mb-6">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                <Input
+                  placeholder="Search student grievances..."
+                  className="pl-10"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col md:flex-row gap-4">
+                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                  <SelectTrigger className="w-full md:w-[200px]">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                  <SelectTrigger className="w-full md:w-[150px]">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All</SelectItem>
+                    <SelectItem value="Pending">Pending</SelectItem>
+                    <SelectItem value="Under Review">Under Review</SelectItem>
+                    <SelectItem value="In Progress">In Progress</SelectItem>
+                    <SelectItem value="Resolved">Resolved</SelectItem>
+                    <SelectItem value="Closed">Closed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              {mockGrievances.map((grievance) => (
+                <Card key={grievance.id} className="overflow-hidden hover:shadow-md transition-shadow duration-200">
+                  <CardHeader className="pb-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle className="flex items-center">
+                          {grievance.title}
+                          {grievance.isAnonymous && (
+                            <Badge variant="outline" className="ml-2 text-xs">
+                              <Lock className="h-3 w-3 mr-1" /> Anonymous Student
+                            </Badge>
+                          )}
+                        </CardTitle>
+                        <div className="flex items-center text-sm text-gray-500 mt-1 space-x-3">
+                          <Badge variant="outline">{grievance.category}</Badge>
+                          <Badge 
+                            className={`
+                              ${grievance.priority === "High" ? "bg-red-100 text-red-800" : ""}
+                              ${grievance.priority === "Medium" ? "bg-yellow-100 text-yellow-800" : ""}
+                              ${grievance.priority === "Low" ? "bg-green-100 text-green-800" : ""}
+                            `}
+                          >
+                            {grievance.priority} Priority
+                          </Badge>
+                          <span className="flex items-center">
+                            <Calendar size={14} className="mr-1" />
+                            Submitted: {new Date(grievance.dateSubmitted).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                      <Badge 
+                        className={`
+                          ${grievance.status === "Pending" ? "bg-gray-100 text-gray-800" : ""}
+                          ${grievance.status === "Under Review" ? "bg-blue-100 text-blue-800" : ""}
+                          ${grievance.status === "In Progress" ? "bg-yellow-100 text-yellow-800" : ""}
+                          ${grievance.status === "Resolved" ? "bg-green-100 text-green-800" : ""}
+                          ${grievance.status === "Closed" ? "bg-purple-100 text-purple-800" : ""}
+                        `}
+                      >
+                        {grievance.status}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pb-2">
+                    <p className="text-sm text-gray-700 mb-4">{grievance.description}</p>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-900 mb-2">Student Information:</h4>
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          {grievance.isAnonymous ? (
+                            <p className="text-sm text-gray-600">Anonymous Submission</p>
+                          ) : (
+                            <div>
+                              <p className="text-sm font-medium">Rahul Sharma</p>
+                              <p className="text-xs text-gray-500">PRN: 2023001 • CSE Department</p>
+                              <p className="text-xs text-gray-500">Year: 3rd Year</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-900 mb-2">Faculty Actions:</h4>
+                        <div className="space-y-2">
+                          <Button variant="outline" size="sm" className="w-full">
+                            <MessageSquare className="h-3 w-3 mr-1" /> Add Comment
+                          </Button>
+                          <Select>
+                            <SelectTrigger className="w-full h-8">
+                              <SelectValue placeholder="Update Status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="under-review">Under Review</SelectItem>
+                              <SelectItem value="in-progress">In Progress</SelectItem>
+                              <SelectItem value="resolved">Resolved</SelectItem>
+                              <SelectItem value="closed">Closed</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {grievance.timeline.length > 0 && (
+                      <div className="mt-4">
+                        <h4 className="text-sm font-medium text-gray-900 mb-2">Timeline:</h4>
+                        <div className="space-y-2 max-h-32 overflow-y-auto">
+                          {grievance.timeline.map((event, index) => (
+                            <div key={index} className="flex items-start">
+                              <div className="mr-2 mt-0.5">
+                                <div className="h-2 w-2 rounded-full bg-blue-500"></div>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-600">{event.action}</p>
+                                <p className="text-xs text-gray-400">{event.date} by {event.by}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                  <CardFooter className="pt-2 flex gap-2">
+                    <Button variant="outline" size="sm" className="text-xs flex-1">
+                      <Eye className="h-3 w-3 mr-1" /> View Full Details
+                    </Button>
+                    <Button size="sm" className="text-xs flex-1">
+                      Take Action
+                    </Button>
+                  </CardFooter>
+                </Card>
+              ))}
+            </div>
+          </TabsContent>
+
           {/* Submit a New Grievance Tab */}
           <TabsContent value="submit-new" className="mt-6">
             <Card>
@@ -537,19 +751,19 @@ export default function GrievancePage() {
                           <div className="mt-4 space-y-2">
                             {files.map((file, index) => (
                               <div key={index} className="flex items-center justify-between bg-gray-50 p-2 rounded">
-                                <div className="flex items-center">
+                                <div className="flex items-center justify-between">
                                   <FileText className="h-4 w-4 text-gray-400 mr-2" />
                                   <span className="text-sm truncate max-w-[200px]">{file.name}</span>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleRemoveFile(index)}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <XCircle className="h-4 w-4 text-gray-400" />
+                                  </Button>
                                 </div>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleRemoveFile(index)}
-                                  className="h-8 w-8 p-0"
-                                >
-                                  <XCircle className="h-4 w-4 text-gray-400" />
-                                </Button>
                               </div>
                             ))}
                           </div>
@@ -693,7 +907,7 @@ export default function GrievancePage() {
                       </div>
                     </div>
 
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
                       <div className="flex items-start">
                         <AlertCircle className="text-blue-500 mr-3 mt-0.5" />
                         <div>
@@ -713,6 +927,112 @@ export default function GrievancePage() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Grievance Details Dialog */}
+        <Dialog open={!!selectedGrievance} onOpenChange={() => setSelectedGrievance(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-xl">{selectedGrievance?.title}</DialogTitle>
+              <DialogDescription>
+                Grievance ID: {selectedGrievance?.id} | Category: {selectedGrievance?.category}
+              </DialogDescription>
+            </DialogHeader>
+            
+            {selectedGrievance && (
+              <div className="space-y-6">
+                {/* Status and Actions */}
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-4">
+                    <Badge className={`${
+                      selectedGrievance.status === "Resolved" ? "bg-green-100 text-green-800" :
+                      selectedGrievance.status === "In Progress" ? "bg-yellow-100 text-yellow-800" :
+                      "bg-gray-100 text-gray-800"
+                    }`}>
+                      {selectedGrievance.status}
+                    </Badge>
+                    <Badge variant="outline">{selectedGrievance.priority} Priority</Badge>
+                  </div>
+                  <div className="flex gap-2">
+                    <Select onValueChange={(value) => handleStatusUpdate(selectedGrievance.id, value)}>
+                      <SelectTrigger className="w-40">
+                        <SelectValue placeholder="Update Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Under Review">Under Review</SelectItem>
+                        <SelectItem value="In Progress">In Progress</SelectItem>
+                        <SelectItem value="Resolved">Resolved</SelectItem>
+                        <SelectItem value="Closed">Closed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <h3 className="font-semibold mb-2">Description</h3>
+                  <p className="text-gray-700 bg-gray-50 p-4 rounded-lg">{selectedGrievance.description}</p>
+                </div>
+
+                {/* Timeline */}
+                <div>
+                  <h3 className="font-semibold mb-2">Timeline</h3>
+                  <div className="space-y-3">
+                    {selectedGrievance.timeline?.map((event: any, index: number) => (
+                      <div key={index} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">{event.action}</p>
+                          <p className="text-xs text-gray-500">{event.date} by {event.by}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Comments */}
+                <div>
+                  <h3 className="font-semibold mb-2">Comments</h3>
+                  <div className="space-y-3 max-h-60 overflow-y-auto">
+                    {selectedGrievance.comments?.map((comment: any, index: number) => (
+                      <div key={index} className="p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium">{comment.user}</span>
+                          <span className="text-xs text-gray-500">{comment.time}</span>
+                        </div>
+                        <p className="text-sm text-gray-700">{comment.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {/* Add Comment */}
+                  <div className="mt-4 flex gap-2">
+                    <Textarea
+                      placeholder="Add a comment..."
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button onClick={() => handleAddComment(selectedGrievance.id)}>
+                      <Send className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Assigned To */}
+                {selectedGrievance.assignedTo && (
+                  <div>
+                    <h3 className="font-semibold mb-2">Assigned To</h3>
+                    <div className="p-3 bg-gray-50 rounded-lg">
+                      <p className="font-medium">{selectedGrievance.assignedTo.name}</p>
+                      <p className="text-sm text-gray-600">{selectedGrievance.assignedTo.department}</p>
+                      <p className="text-sm text-gray-600">{selectedGrievance.assignedTo.email}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </motion.div>
     </div>
   )

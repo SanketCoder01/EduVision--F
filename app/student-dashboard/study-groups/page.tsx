@@ -16,6 +16,7 @@ import {
   Send,
   Paperclip,
   Smile,
+  FileText,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -38,23 +39,27 @@ export default function StudyGroupsPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showJoinDialog, setShowJoinDialog] = useState(false)
   const [showChatDialog, setShowChatDialog] = useState(false)
-  const [selectedGroup, setSelectedGroup] = useState(null)
+  const [selectedGroup, setSelectedGroup] = useState<any>(null)
   const [activeTab, setActiveTab] = useState("my-groups")
-  const [classes, setClasses] = useState([])
-  const [selectedClass, setSelectedClass] = useState(null)
-  const [students, setStudents] = useState([])
-  const [selectedStudents, setSelectedStudents] = useState([])
+  const [classes, setClasses] = useState<any[]>([])
+  const [selectedClass, setSelectedClass] = useState<any>(null)
+  const [students, setStudents] = useState<any[]>([])
+  const [selectedStudents, setSelectedStudents] = useState<any[]>([])
   const [groupName, setGroupName] = useState("")
   const [maxGroupSize, setMaxGroupSize] = useState(5)
   const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
   const [isInitializing, setIsInitializing] = useState(false)
-  const [studyGroups, setStudyGroups] = useState([])
-  const [availableSettings, setAvailableSettings] = useState([])
-  const [selectedSetting, setSelectedSetting] = useState(null)
+  const [studyGroups, setStudyGroups] = useState<any[]>([])
+  const [availableSettings, setAvailableSettings] = useState<any[]>([])
+  const [selectedSetting, setSelectedSetting] = useState<any>(null)
+  const [groupRequests, setGroupRequests] = useState<any[]>([])
+  const [selectedRequest, setSelectedRequest] = useState<any>(null)
+  const [showRequestDialog, setShowRequestDialog] = useState(false)
+  const [showDetailsDialog, setShowDetailsDialog] = useState(false)
 
   // Chat state
-  const [messages, setMessages] = useState([])
+  const [messages, setMessages] = useState<any[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [isCallActive, setIsCallActive] = useState(false)
   const [callType, setCallType] = useState("") // "audio" or "video"
@@ -79,6 +84,11 @@ export default function StudyGroupsPage() {
         // Load available group settings
         const settings = JSON.parse(localStorage.getItem("studyGroupSettings") || "[]")
         setAvailableSettings(settings)
+
+        // Load group requests from faculty (where letStudentsDecide is true)
+        const classes = JSON.parse(localStorage.getItem("study_classes") || "[]")
+        const requests = classes.filter((cls: any) => cls.letStudentsDecide === true)
+        setGroupRequests(requests)
       } catch (error) {
         console.error("Error fetching classes:", error)
         setError("An unexpected error occurred. The database tables might not exist yet.")
@@ -141,8 +151,8 @@ export default function StudyGroupsPage() {
     }
   }
 
-  const handleSettingSelect = async (settingId) => {
-    const setting = availableSettings.find((s) => s.id === settingId)
+  const handleSettingSelect = async (settingId: string) => {
+    const setting = availableSettings.find((s: any) => s.id === settingId)
     setSelectedSetting(setting)
     setMaxGroupSize(setting.maxMembers)
 
@@ -152,10 +162,10 @@ export default function StudyGroupsPage() {
       if (result.success) {
         // Filter out students who are already in groups
         const existingGroupMembers = studyGroups
-          .filter((group) => group.classId === setting.classId)
-          .flatMap((group) => group.members.map((member) => member.id))
+          .filter((group: any) => group.classId === setting.classId)
+          .flatMap((group: any) => group.members.map((member: any) => member.id))
 
-        const availableStudents = result.data.filter((student) => !existingGroupMembers.includes(student.id))
+        const availableStudents = result.data.filter((student: any) => !existingGroupMembers.includes(student.id))
 
         setStudents(availableStudents)
       } else {
@@ -175,7 +185,42 @@ export default function StudyGroupsPage() {
     }
   }
 
-  const handleStudentSelect = (studentId) => {
+  const handleRequestSelect = async (requestId: string) => {
+    const request = groupRequests.find((r: any) => r.id === requestId)
+    setSelectedRequest(request)
+    setMaxGroupSize(request.maxMembers)
+
+    try {
+      // Mock students data for the request's department and year
+      const mockStudents = [
+        { id: "1", name: "Alice Johnson", prn: "2124UCEM2001", department: request.department, year: request.year },
+        { id: "2", name: "Bob Smith", prn: "2124UCEM2002", department: request.department, year: request.year },
+        { id: "3", name: "Charlie Brown", prn: "2124UCEM2003", department: request.department, year: request.year },
+        { id: "4", name: "Diana Prince", prn: "2124UCEM2004", department: request.department, year: request.year },
+        { id: "5", name: "Eve Wilson", prn: "2124UCEM2005", department: request.department, year: request.year },
+        { id: "6", name: "Frank Miller", prn: "2124UCEM2006", department: request.department, year: request.year },
+        { id: "7", name: "Grace Lee", prn: "2124UCEM2007", department: request.department, year: request.year },
+        { id: "8", name: "Henry Davis", prn: "2124UCEM2008", department: request.department, year: request.year },
+      ]
+
+      // Filter out students who are already in groups for this request
+      const existingGroupMembers = studyGroups
+        .filter((group: any) => group.requestId === requestId)
+        .flatMap((group: any) => group.members.map((member: any) => member.id))
+
+      const availableStudents = mockStudents.filter((student: any) => !existingGroupMembers.includes(student.id))
+      setStudents(availableStudents)
+    } catch (error) {
+      console.error("Error fetching students:", error)
+      toast({
+        title: "Error",
+        description: "Failed to fetch students for this request.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleStudentSelect = (studentId: string) => {
     if (selectedStudents.includes(studentId)) {
       setSelectedStudents(selectedStudents.filter((id) => id !== studentId))
     } else {
@@ -188,6 +233,82 @@ export default function StudyGroupsPage() {
           variant: "destructive",
         })
       }
+    }
+  }
+
+  const handleCreateGroupFromRequest = async () => {
+    if (!selectedRequest) {
+      toast({
+        title: "Error",
+        description: "Please select a request to create a group for.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (selectedStudents.length < 1) {
+      toast({
+        title: "Error",
+        description: "Please select at least 1 other student for the group.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!groupName.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a name for the study group.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const currentUserId = "current-user-id" // In real app, get from auth
+      const currentUser = { id: currentUserId, name: "Current Student", prn: "2124UCEM2059" }
+
+      const newGroup = {
+        id: Date.now().toString(),
+        name: groupName,
+        classId: selectedRequest.id,
+        subjectName: selectedRequest.subject,
+        facultyName: selectedRequest.faculty,
+        maxMembers: selectedRequest.maxMembers,
+        members: [currentUser, ...selectedStudents.map((id) => students.find((s) => s.id === id))],
+        creationType: "student-request",
+        createdBy: currentUserId,
+        createdAt: new Date().toISOString(),
+        messages: [],
+        requestId: selectedRequest.id,
+      }
+
+      const existingGroups = JSON.parse(localStorage.getItem("studyGroups") || "[]")
+      const updatedGroups = [...existingGroups, newGroup]
+      localStorage.setItem("studyGroups", JSON.stringify(updatedGroups))
+      setStudyGroups(updatedGroups)
+
+      // Remove the request from available requests since group is formed
+      const updatedRequests = groupRequests.filter(req => req.id !== selectedRequest.id)
+      setGroupRequests(updatedRequests)
+
+      toast({
+        title: "Group Created",
+        description: "Your study group has been created successfully and faculty has been notified.",
+      })
+
+      setShowRequestDialog(false)
+      setSelectedRequest(null)
+      setSelectedStudents([])
+      setGroupName("")
+      setActiveTab("my-groups")
+    } catch (error) {
+      console.error("Error creating study group:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred. Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -284,7 +405,7 @@ export default function StudyGroupsPage() {
     setMessages(updatedMessages)
 
     // Update group messages in localStorage
-    const updatedGroups = studyGroups.map((group) => {
+    const updatedGroups = studyGroups.map((group: any) => {
       if (group.id === selectedGroup.id) {
         return { ...group, messages: updatedMessages }
       }
@@ -293,10 +414,34 @@ export default function StudyGroupsPage() {
     localStorage.setItem("studyGroups", JSON.stringify(updatedGroups))
     setStudyGroups(updatedGroups)
 
+    // If this is a student-request group, also send to faculty queries
+    if (selectedGroup.creationType === "student-request") {
+      const facultyQuery = {
+        id: Date.now().toString() + "_query",
+        groupId: selectedGroup.id,
+        groupName: selectedGroup.name,
+        studentName: "Current Student",
+        facultyName: selectedGroup.facultyName,
+        message: newMessage,
+        timestamp: new Date().toISOString(),
+        status: "unread"
+      }
+
+      // Store in faculty queries
+      const existingQueries = JSON.parse(localStorage.getItem("facultyQueries") || "[]")
+      existingQueries.push(facultyQuery)
+      localStorage.setItem("facultyQueries", JSON.stringify(existingQueries))
+
+      toast({
+        title: "Message Sent",
+        description: "Your message has been sent to the faculty and group members.",
+      })
+    }
+
     setNewMessage("")
   }
 
-  const handleStartCall = (type) => {
+  const handleStartCall = (type: string) => {
     setCallType(type)
     setIsCallActive(true)
 
@@ -328,7 +473,7 @@ export default function StudyGroupsPage() {
     setMessages(updatedMessages)
   }
 
-  const openChat = (group) => {
+  const openChat = (group: any) => {
     setSelectedGroup(group)
     setMessages(group.messages || [])
     setShowChatDialog(true)
@@ -347,21 +492,21 @@ export default function StudyGroupsPage() {
   })
 
   // Get groups based on tab
-  const getGroupsByTab = (tab) => {
+  const getGroupsByTab = (tab: string) => {
     const currentUserId = "current-user-id"
 
     switch (tab) {
       case "my-groups":
-        return filteredGroups.filter((group) => group.members.some((member) => member.id === currentUserId))
+        return filteredGroups.filter((group) => group.members.some((member: { id: string }) => member.id === currentUserId))
       case "discover":
-        return filteredGroups.filter((group) => !group.members.some((member) => member.id === currentUserId))
+        return filteredGroups.filter((group) => !group.members.some((member: { id: string }) => member.id === currentUserId))
       default:
         return filteredGroups
     }
   }
 
   // Format date
-  const formatDate = (dateString) => {
+  const formatDate = (dateString: string) => {
     const date = new Date(dateString)
     return date.toLocaleDateString("en-US", {
       weekday: "long",
@@ -417,10 +562,16 @@ export default function StudyGroupsPage() {
           Study Groups
         </h1>
 
-        <Button onClick={() => setShowCreateDialog(true)} className="bg-blue-600 hover:bg-blue-700">
-          <Plus className="mr-2 h-4 w-4" />
-          Create Study Group
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => window.location.href = '/student-dashboard/study-groups/tasks'}
+            className="border-blue-600 text-blue-600 hover:bg-blue-50"
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            View Tasks
+          </Button>
+        </div>
       </motion.div>
 
       <div className="flex flex-col md:flex-row gap-4 mb-6">
@@ -446,8 +597,23 @@ export default function StudyGroupsPage() {
         </Select>
       </div>
 
-      <Tabs defaultValue="my-groups" value={activeTab} onValueChange={setActiveTab} className="mb-6">
-        <TabsList className="grid w-full grid-cols-2">
+      <Tabs defaultValue="requests" value={activeTab} onValueChange={setActiveTab} className="mb-6">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="requests" className="data-[state=active]:bg-blue-100 data-[state=active]:text-blue-700">
+            <motion.div
+              className="flex items-center"
+              whileHover={{ scale: 1.03 }}
+              transition={{ type: "spring", stiffness: 400, damping: 10 }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Group Requests
+              {groupRequests.length > 0 && (
+                <Badge variant="outline" className="ml-2 bg-orange-50 text-orange-700">
+                  {groupRequests.length}
+                </Badge>
+              )}
+            </motion.div>
+          </TabsTrigger>
           <TabsTrigger value="my-groups" className="data-[state=active]:bg-blue-100 data-[state=active]:text-blue-700">
             <motion.div
               className="flex items-center"
@@ -474,6 +640,89 @@ export default function StudyGroupsPage() {
             </motion.div>
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="requests">
+          <div className="space-y-4">
+            {groupRequests.length === 0 ? (
+              <div className="text-center py-12 bg-gray-50 rounded-lg">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Plus className="h-8 w-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  No group requests available
+                </h3>
+                <p className="text-gray-500 mb-4">
+                  Faculty haven't created any group formation requests yet.
+                </p>
+              </div>
+            ) : (
+              groupRequests.map((request) => (
+                <motion.div
+                  key={request.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <Card>
+                    <CardContent className="p-6">
+                      <div className="flex flex-col md:flex-row gap-6">
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-lg font-bold">{request.subject}</h3>
+                            <Badge variant="outline" className="bg-orange-50 text-orange-700">
+                              Group Request
+                            </Badge>
+                          </div>
+
+                          <p className="text-gray-700 mb-2">Faculty: {request.faculty}</p>
+                          <p className="text-gray-700 mb-4">Class: {request.name}</p>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                            <div className="flex items-start">
+                              <Users className="h-5 w-5 text-gray-500 mr-2 mt-0.5" />
+                              <div>
+                                <p className="font-medium text-sm">Max Members</p>
+                                <p className="text-sm text-gray-600">{request.maxMembers} students per group</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-start">
+                              <Calendar className="h-5 w-5 text-gray-500 mr-2 mt-0.5" />
+                              <div>
+                                <p className="font-medium text-sm">Created</p>
+                                <p className="text-sm text-gray-600">{formatDate(request.created_at)}</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {request.objectives && (
+                            <div className="mb-4">
+                              <p className="font-medium text-sm mb-1">Objectives:</p>
+                              <p className="text-sm text-gray-600">{request.objectives}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-row md:flex-col gap-2 justify-end">
+                          <Button
+                            className="bg-blue-600 hover:bg-blue-700"
+                            onClick={() => {
+                              handleRequestSelect(request.id)
+                              setShowRequestDialog(true)
+                            }}
+                          >
+                            <Plus className="mr-2 h-4 w-4" />
+                            Form Group
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))
+            )}
+          </div>
+        </TabsContent>
 
         {["my-groups", "discover"].map((tab) => (
           <TabsContent key={tab} value={tab}>
@@ -557,7 +806,10 @@ export default function StudyGroupsPage() {
                             <Button
                               variant="outline"
                               className="flex items-center bg-transparent"
-                              onClick={() => setSelectedGroup(group)}
+                              onClick={() => {
+                                setSelectedGroup(group)
+                                setShowDetailsDialog(true)
+                              }}
                             >
                               <Info className="mr-2 h-4 w-4" />
                               Details
@@ -901,8 +1153,13 @@ export default function StudyGroupsPage() {
 
       {/* Study Group Details Dialog */}
       <Dialog
-        open={selectedGroup !== null && !showChatDialog && !showJoinDialog}
-        onOpenChange={() => setSelectedGroup(null)}
+        open={showDetailsDialog}
+        onOpenChange={(open) => {
+          setShowDetailsDialog(open)
+          if (!open) {
+            setSelectedGroup(null)
+          }
+        }}
       >
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
@@ -955,8 +1212,137 @@ export default function StudyGroupsPage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSelectedGroup(null)}>
+            <Button variant="outline" onClick={() => {
+              setShowDetailsDialog(false)
+              setSelectedGroup(null)
+            }}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Group Formation Dialog for Faculty Requests */}
+      <Dialog open={showRequestDialog} onOpenChange={setShowRequestDialog}>
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Form Study Group</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {selectedRequest && (
+              <>
+                <div className="bg-blue-50 p-4 rounded-lg mb-4">
+                  <h3 className="font-semibold text-blue-900 mb-2">{selectedRequest.subject}</h3>
+                  <p className="text-blue-700 text-sm">Faculty: {selectedRequest.faculty}</p>
+                  <p className="text-blue-700 text-sm">Class: {selectedRequest.name}</p>
+                  <p className="text-blue-700 text-sm">Max Members: {selectedRequest.maxMembers} students per group</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="group-name-request">Group Name</Label>
+                  <Input
+                    id="group-name-request"
+                    placeholder="Enter group name"
+                    value={groupName}
+                    onChange={(e) => setGroupName(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Select Group Members</Label>
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                      {selectedStudents.length}/{maxGroupSize - 1} members (excluding you)
+                    </Badge>
+                  </div>
+
+                  <div className="border rounded-md p-4 max-h-[300px] overflow-y-auto">
+                    {students.length === 0 ? (
+                      <div className="text-center py-4 text-gray-500">
+                        No students available for this request or all students are already in groups
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {students.map((student) => {
+                          const isSelected = selectedStudents.includes(student.id)
+                          const isDisabled = selectedStudents.length >= maxGroupSize - 1 && !isSelected
+
+                          return (
+                            <div
+                              key={student.id}
+                              className={`flex items-center justify-between p-2 rounded-md ${
+                                isSelected ? "bg-blue-50" : isDisabled ? "opacity-50" : ""
+                              }`}
+                            >
+                              <div className="flex items-center">
+                                <Checkbox
+                                  id={`request-student-${student.id}`}
+                                  checked={isSelected}
+                                  onCheckedChange={() => handleStudentSelect(student.id)}
+                                  disabled={isDisabled}
+                                />
+                                <Label
+                                  htmlFor={`request-student-${student.id}`}
+                                  className="ml-2 flex items-center cursor-pointer"
+                                >
+                                  <Avatar className="h-6 w-6 mr-2">
+                                    <AvatarFallback>{student.name.charAt(0)}</AvatarFallback>
+                                  </Avatar>
+                                  {student.name}
+                                </Label>
+                              </div>
+                              <Badge variant="outline" className="text-xs">
+                                PRN: {student.prn}
+                              </Badge>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {selectedStudents.length > 0 && (
+                  <div className="space-y-2">
+                    <Label>Selected Members</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedStudents.map((studentId) => {
+                        const student = students.find((s) => s.id === studentId)
+                        if (!student) return null
+
+                        return (
+                          <Badge key={student.id} variant="secondary" className="flex items-center gap-1 py-1 px-2">
+                            {student.name}
+                            <button
+                              className="ml-1 text-gray-500 hover:text-gray-700"
+                              onClick={() => handleStudentSelect(student.id)}
+                            >
+                              ×
+                            </button>
+                          </Badge>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowRequestDialog(false)
+              setSelectedRequest(null)
+              setSelectedStudents([])
+              setGroupName("")
+            }}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={handleCreateGroupFromRequest}
+              disabled={!selectedRequest || selectedStudents.length < 1 || !groupName.trim()}
+            >
+              Create Group
             </Button>
           </DialogFooter>
         </DialogContent>

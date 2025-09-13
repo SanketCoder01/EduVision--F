@@ -1,30 +1,25 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useRouter, useParams } from "next/navigation"
+import { motion } from "framer-motion"
+import { ArrowLeft, Save, Calendar, Loader2, FileText, ExternalLink, Eye, Bot, FileUp, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
-import { 
-  ArrowLeft, 
-  Save, 
-  Eye, 
-  Calendar,
-  Star,
-  Bot,
-  FileUp,
-  Loader2
-} from "lucide-react"
+import { SupabaseAssignmentService } from "@/lib/supabase-assignments"
 
 interface Assignment {
   id: string
   title: string
   description: string
+  questions?: string
   subject: string
   department: string
   year: string
@@ -35,7 +30,14 @@ interface Assignment {
   isAIGenerated?: boolean
   isFileGenerated?: boolean
   total_marks: number
-  instructions?: string
+  instructions: string
+  plagiarism_check_enabled: boolean
+  allow_late_submission: boolean
+  allow_resubmission: boolean
+  resources?: Array<{
+    name: string
+    url: string
+  }>
 }
 
 export default function AssignmentEditPage() {
@@ -43,36 +45,31 @@ export default function AssignmentEditPage() {
   const router = useRouter()
   const { toast } = useToast()
   const [assignment, setAssignment] = useState<Assignment | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
     title: "",
     description: "",
-    subject: "",
+    questions: "",
     department: "",
     year: "",
     due_date: "",
-    difficulty: "intermediate" as "beginner" | "intermediate" | "advanced",
     total_marks: 100,
     instructions: "",
-    status: "draft" as "draft" | "published"
+    status: "draft" as "draft" | "published",
+    plagiarism_check_enabled: false,
+    allow_late_submission: false,
+    allow_resubmission: false
   })
 
   const departments = [
-    "Computer Science",
-    "Information Technology", 
-    "Electronics",
-    "Mechanical",
-    "Civil",
-    "Electrical"
+    "CSE",
+    "CY", 
+    "AIDS",
+    "AIML"
   ]
 
-  const years = [
-    "First Year",
-    "Second Year", 
-    "Third Year",
-    "Fourth Year"
-  ]
+  const years = ["1", "2", "3", "4"]
 
   const subjects = [
     "Data Structures",
@@ -86,41 +83,42 @@ export default function AssignmentEditPage() {
   ]
 
   useEffect(() => {
-    const fetchAssignment = () => {
+    const loadAssignment = async () => {
       try {
-        const storedAssignments = localStorage.getItem("assignments")
-        if (storedAssignments) {
-          const assignments = JSON.parse(storedAssignments)
-          const foundAssignment = assignments.find((a: any) => a.id.toString() === params.id)
-          
-          if (foundAssignment) {
-            setAssignment(foundAssignment)
-            setFormData({
-              title: foundAssignment.title || "",
-              description: foundAssignment.description || "",
-              subject: foundAssignment.subject || "",
-              department: foundAssignment.department || "",
-              year: foundAssignment.year || "",
-              due_date: foundAssignment.due_date ? foundAssignment.due_date.split('T')[0] : "",
-              difficulty: foundAssignment.difficulty || "intermediate",
-              total_marks: foundAssignment.total_marks || 100,
-              instructions: foundAssignment.instructions || "",
-              status: foundAssignment.status || "draft"
-            })
-          } else {
-            toast({
-              title: "Assignment not found",
-              description: "The assignment you're looking for doesn't exist.",
-              variant: "destructive",
-            })
-            router.push("/dashboard/assignments")
-          }
+        setLoading(true)
+        
+        // Get assignment from Supabase
+        const assignment = await SupabaseAssignmentService.getAssignmentById(params.id as string)
+        
+        if (assignment) {
+          setAssignment(assignment as any)
+          setFormData({
+            title: assignment.title || "",
+            description: assignment.description || "",
+            questions: assignment.questions || "",
+            department: assignment.department || "",
+            year: assignment.target_years?.[0] || "",
+            due_date: assignment.due_date || "",
+            total_marks: assignment.max_marks || 100,
+            instructions: assignment.submission_guidelines || "",
+            status: assignment.status as "draft" | "published", 
+            plagiarism_check_enabled: assignment.enable_plagiarism_check === true,
+            allow_late_submission: assignment.allow_late_submission === true,
+            allow_resubmission: assignment.allow_resubmission === true
+          })
+        } else {
+          toast({
+            title: "Assignment not found",
+            description: "The assignment you're looking for doesn't exist.",
+            variant: "destructive",
+          })
+          router.push("/dashboard/assignments")
         }
       } catch (error) {
         console.error("Error loading assignment:", error)
         toast({
           title: "Error",
-          description: "Failed to load assignment data",
+          description: "Failed to load assignment. Please try again.",
           variant: "destructive",
         })
       } finally {
@@ -128,63 +126,150 @@ export default function AssignmentEditPage() {
       }
     }
 
-    fetchAssignment()
+
+    loadAssignment()
   }, [params.id, toast, router])
 
-  const handleInputChange = (field: string, value: string | number) => {
+  const handleInputChange = (field: string, value: string | number | boolean) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
     }))
   }
 
-  const handleSave = async (newStatus?: "draft" | "published") => {
-    if (!formData.title.trim() || !formData.description.trim()) {
+  const handleSaveAssignment = async (newStatus?: "draft" | "published") => {
+    // Validation for required fields
+    if (!formData.title.trim()) {
       toast({
-        title: "Missing Information",
-        description: "Please fill in all required fields",
+        title: "Missing Title",
+        description: "Please enter an assignment title",
         variant: "destructive",
       })
       return
     }
 
+    if (!formData.description.trim()) {
+      toast({
+        title: "Missing Description", 
+        description: "Please enter an assignment description",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!formData.department) {
+      toast({
+        title: "Missing Department",
+        description: "Please select a department",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!formData.year) {
+      toast({
+        title: "Missing Year",
+        description: "Please select a target year",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!formData.due_date) {
+      toast({
+        title: "Missing Due Date",
+        description: "Please set a due date",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Additional validation for publishing
+    if (newStatus === "published") {
+      if (!formData.questions?.trim()) {
+        toast({
+          title: "Missing Questions",
+          description: "Please add assignment questions before publishing",
+          variant: "destructive",
+        })
+        return
+      }
+
+      if (formData.total_marks <= 0) {
+        toast({
+          title: "Invalid Marks",
+          description: "Please set valid total marks (greater than 0)",
+          variant: "destructive",
+        })
+        return
+      }
+    }
+
     setSaving(true)
 
     try {
-      const storedAssignments = localStorage.getItem("assignments")
-      const assignments = storedAssignments ? JSON.parse(storedAssignments) : []
+      const statusToUse = newStatus || formData.status
       
-      const updatedAssignment = {
-        ...assignment,
-        ...formData,
-        id: assignment?.id || (Array.isArray(params.id) ? params.id[0] : params.id),
-        created_at: assignment?.created_at || new Date().toISOString(),
-        status: newStatus || formData.status,
-        due_date: new Date(formData.due_date).toISOString(),
+      console.log('DEBUG: Saving assignment with data:', {
+        status: statusToUse,
+        plagiarism_check: formData.plagiarism_check_enabled,
+        late_submission: formData.allow_late_submission,
+        resubmission: formData.allow_resubmission
+      })
+      
+      // Convert year format for database
+      const yearMapping: { [key: string]: string } = {
+        '1': 'first',
+        '2': 'second', 
+        '3': 'third',
+        '4': 'fourth',
+        'first': 'first',
+        'second': 'second',
+        'third': 'third',
+        'fourth': 'fourth'
+      }
+      
+      const normalizedYear = yearMapping[formData.year] || formData.year
+      
+      // Update assignment in Supabase with all settings
+      const updateData = {
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        questions: formData.questions?.trim() || '',
+        submission_guidelines: formData.instructions?.trim() || '',
+        department: formData.department,
+        target_years: [normalizedYear],
+        due_date: formData.due_date + "T23:59:59",
+        max_marks: formData.total_marks,
+        status: statusToUse,
+        enable_plagiarism_check: Boolean(formData.plagiarism_check_enabled),
+        allow_late_submission: Boolean(formData.allow_late_submission),
+        allow_resubmission: Boolean(formData.allow_resubmission),
         updated_at: new Date().toISOString()
       }
-
-      const assignmentIndex = assignments.findIndex((a: any) => a.id.toString() === params.id)
-      if (assignmentIndex !== -1) {
-        assignments[assignmentIndex] = updatedAssignment
-        localStorage.setItem("assignments", JSON.stringify(assignments))
-        
-        setAssignment(updatedAssignment)
-        
-        toast({
-          title: "Success",
-          description: `Assignment ${newStatus === "published" ? "published" : "saved"} successfully`,
-        })
-
-        if (newStatus === "published") {
-          router.push("/dashboard/assignments")
-        }
-      }
-    } catch (error) {
-      console.error("Error saving assignment:", error)
+      
+      console.log('DEBUG: Update data being sent:', updateData)
+      
+      const result = await SupabaseAssignmentService.updateAssignment(params.id as string, updateData)
+      console.log('DEBUG: Update result:', result)
+      
       toast({
-        title: "Error",
-        description: "Failed to save assignment",
+        title: statusToUse === "published" ? "Assignment Published!" : "Assignment Saved",
+        description: statusToUse === "published" 
+          ? `Assignment "${formData.title}" has been published successfully. Students can now see it.`
+          : `Assignment "${formData.title}" has been saved as draft.`,
+      })
+      
+      // Small delay to show the success message
+      setTimeout(() => {
+        router.push("/dashboard/assignments")
+      }, 1500)
+      
+    } catch (error: any) {
+      console.error("Error updating assignment:", error)
+      toast({
+        title: "Update Failed",
+        description: error.message || "Failed to update assignment. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -192,14 +277,6 @@ export default function AssignmentEditPage() {
     }
   }
 
-  const getDifficultyColor = (difficulty: string) => {
-    switch (difficulty) {
-      case "beginner": return "bg-green-100 text-green-800"
-      case "intermediate": return "bg-yellow-100 text-yellow-800"
-      case "advanced": return "bg-red-100 text-red-800"
-      default: return "bg-gray-100 text-gray-800"
-    }
-  }
 
   if (loading) {
     return (
@@ -293,50 +370,52 @@ export default function AssignmentEditPage() {
                 />
               </div>
 
+              <div>
+                <Label htmlFor="description">Description *</Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => handleInputChange("description", e.target.value)}
+                  placeholder="Enter assignment description"
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="questions">Assignment Questions</Label>
+                <Textarea
+                  id="questions"
+                  value={formData.questions}
+                  onChange={(e) => handleInputChange("questions", e.target.value)}
+                  placeholder="Enter assignment questions (one per line or formatted as needed)"
+                  rows={6}
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Add the specific questions or tasks for this assignment
+                </p>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="subject">Subject *</Label>
-                  <Select value={formData.subject} onValueChange={(value) => handleInputChange("subject", value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select subject" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {subjects.map((subject) => (
-                        <SelectItem key={subject} value={subject}>
-                          {subject}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="maxMarks">Maximum Marks *</Label>
+                  <Input
+                    id="maxMarks"
+                    type="number"
+                    value={formData.total_marks}
+                    onChange={(e) => handleInputChange("total_marks", parseInt(e.target.value) || 0)}
+                    placeholder="Enter maximum marks"
+                  />
                 </div>
 
                 <div>
-                  <Label htmlFor="difficulty">Difficulty Level *</Label>
-                  <Select value={formData.difficulty} onValueChange={(value: "beginner" | "intermediate" | "advanced") => handleInputChange("difficulty", value)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="beginner">
-                        <div className="flex items-center gap-2">
-                          <Star className="h-3 w-3 text-green-600" />
-                          Beginner
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="intermediate">
-                        <div className="flex items-center gap-2">
-                          <Star className="h-3 w-3 text-yellow-600" />
-                          Intermediate
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="advanced">
-                        <div className="flex items-center gap-2">
-                          <Star className="h-3 w-3 text-red-600" />
-                          Advanced
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="due_date">Due Date *</Label>
+                  <Input
+                    id="due_date"
+                    type="datetime-local"
+                    value={formData.due_date}
+                    onChange={(e) => handleInputChange("due_date", e.target.value)}
+                  />
                 </div>
               </div>
 
@@ -366,7 +445,7 @@ export default function AssignmentEditPage() {
                     <SelectContent>
                       {years.map((year) => (
                         <SelectItem key={year} value={year}>
-                          {year}
+                          Year {year}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -431,6 +510,56 @@ export default function AssignmentEditPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Assignment Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                Assignment Settings
+              </CardTitle>
+              <CardDescription>
+                Configure submission rules and plagiarism checking
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Plagiarism Check */}
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <Shield className="h-5 w-5 text-blue-600" />
+                  <div>
+                    <Label className="text-base font-medium">Plagiarism Check</Label>
+                    <p className="text-sm text-gray-600">Enable automatic plagiarism detection for submissions</p>
+                  </div>
+                </div>
+                <Switch
+                  id="plagiarism_check_enabled"
+                  checked={formData.plagiarism_check_enabled}
+                  onCheckedChange={(checked) => handleInputChange("plagiarism_check_enabled", checked)}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label htmlFor="allow_late_submission">Allow Late Submission</Label>
+                <Switch
+                  id="allow_late_submission"
+                  checked={formData.allow_late_submission}
+                  onCheckedChange={(checked) => handleInputChange("allow_late_submission", checked)}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label htmlFor="allow_resubmission">Allow Resubmission</Label>
+                <Switch
+                  id="allow_resubmission"
+                  checked={formData.allow_resubmission}
+                  onCheckedChange={(checked) => handleInputChange("allow_resubmission", checked)}
+                />
+              </div>
+
+              {/* Word Limit */}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Sidebar */}
@@ -448,13 +577,6 @@ export default function AssignmentEditPage() {
                 </Badge>
               </div>
               
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Difficulty:</span>
-                <Badge className={getDifficultyColor(formData.difficulty)}>
-                  <Star className="mr-1 h-3 w-3" />
-                  {formData.difficulty.charAt(0).toUpperCase() + formData.difficulty.slice(1)}
-                </Badge>
-              </div>
 
               {formData.due_date && (
                 <div className="flex items-center gap-2">
@@ -474,6 +596,74 @@ export default function AssignmentEditPage() {
             </CardContent>
           </Card>
 
+          {/* Uploaded Resources */}
+          {assignment.resources && assignment.resources.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Uploaded Resources</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {assignment.resources.map((resource: any, index: number) => (
+                  <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm font-medium truncate">{resource.name || `Resource ${index + 1}`}</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.open(resource.url, '_blank')}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Assignment Settings Status */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Assignment Settings</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Total Marks:</span>
+                <Badge variant="secondary">{formData.total_marks}</Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Department:</span>
+                <Badge variant="outline">{formData.department}</Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Year:</span>
+                <Badge variant="outline">{formData.year}</Badge>
+              </div>
+              
+              <div className="border-t pt-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Plagiarism Check:</span>
+                  <Badge variant={formData.plagiarism_check_enabled ? "default" : "secondary"}>
+                    {formData.plagiarism_check_enabled ? "Enabled" : "Disabled"}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Late Submission:</span>
+                  <Badge variant={formData.allow_late_submission ? "default" : "secondary"}>
+                    {formData.allow_late_submission ? "Allowed" : "Not Allowed"}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Resubmission:</span>
+                  <Badge variant={formData.allow_resubmission ? "default" : "secondary"}>
+                    {formData.allow_resubmission ? "Allowed" : "Not Allowed"}
+                  </Badge>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Actions */}
           <Card>
             <CardHeader>
@@ -481,7 +671,7 @@ export default function AssignmentEditPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <Button
-                onClick={() => handleSave()}
+                onClick={() => handleSaveAssignment()}
                 disabled={saving}
                 className="w-full"
                 variant="outline"
@@ -495,16 +685,16 @@ export default function AssignmentEditPage() {
               </Button>
               
               <Button
-                onClick={() => handleSave("published")}
+                onClick={() => handleSaveAssignment("published")}
                 disabled={saving}
-                className="w-full"
+                className="w-full bg-green-600 hover:bg-green-700 text-white"
               >
                 {saving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
-                  <Save className="mr-2 h-4 w-4" />
+                  <Eye className="mr-2 h-4 w-4" />
                 )}
-                Save & Publish
+                {saving ? "Publishing..." : "Publish Assignment"}
               </Button>
             </CardContent>
           </Card>

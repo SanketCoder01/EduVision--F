@@ -33,6 +33,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { motion } from "framer-motion"
+import AutoGradingSystem from "@/components/auto-grading/AutoGradingSystem"
 
 export default function SubmissionsPage() {
   const { toast } = useToast()
@@ -47,6 +48,8 @@ export default function SubmissionsPage() {
   const [showReport, setShowReport] = useState(false)
   const [feedback, setFeedback] = useState("")
   const [grade, setGrade] = useState("")
+  const [showAutoGrading, setShowAutoGrading] = useState(false)
+  const [sampleDataLoaded, setSampleDataLoaded] = useState(false)
 
   // Mock classes data
   const classes = [
@@ -58,12 +61,113 @@ export default function SubmissionsPage() {
     { id: "6", name: "DSY EE" },
   ]
 
-  // Load submissions from localStorage
+  // Load submissions from localStorage with sample data
   useEffect(() => {
     const loadSubmissions = () => {
       try {
         setLoading(true)
-        const storedSubmissions = JSON.parse(localStorage.getItem("facultySubmissions") || "[]")
+        let storedSubmissions = JSON.parse(localStorage.getItem("facultySubmissions") || "[]")
+        
+        // Add sample submissions if none exist
+        if (storedSubmissions.length === 0) {
+          const sampleSubmissions = [
+            {
+              id: "sub_001",
+              studentId: "student_001",
+              studentName: "Alice Johnson",
+              studentPRN: "CSE2021001",
+              assignmentTitle: "Data Structures Implementation",
+              className: "1",
+              submissionType: "file",
+              content: "This assignment demonstrates the implementation of various data structures including linked lists, stacks, queues, and binary trees. The code is well-documented and follows best practices for memory management and algorithmic efficiency. Each data structure includes comprehensive test cases and performance analysis.",
+              files: [
+                { name: "LinkedList.cpp", size: "2.5 MB" },
+                { name: "Stack.h", size: "1.2 MB" },
+                { name: "TestCases.txt", size: "0.8 MB" }
+              ],
+              submittedAt: new Date(Date.now() - 86400000).toISOString(),
+              status: "submitted",
+              plagiarismScore: 5
+            },
+            {
+              id: "sub_002",
+              studentId: "student_002",
+              studentName: "Bob Smith",
+              studentPRN: "CSE2021002",
+              assignmentTitle: "Database Design Project",
+              className: "1",
+              submissionType: "file",
+              content: "Complete database design for an e-commerce platform including entity-relationship diagrams, normalization analysis, and SQL implementation. The project covers all aspects of database design from conceptual modeling to physical implementation with proper indexing strategies.",
+              files: [
+                { name: "ERDiagram.pdf", size: "3.1 MB" },
+                { name: "DatabaseSchema.sql", size: "1.8 MB" },
+                { name: "Documentation.docx", size: "2.2 MB" }
+              ],
+              submittedAt: new Date(Date.now() - 172800000).toISOString(),
+              status: "submitted",
+              plagiarismScore: 12
+            },
+            {
+              id: "sub_003",
+              studentId: "student_003",
+              studentName: "Carol Davis",
+              studentPRN: "CSE2021003",
+              assignmentTitle: "Machine Learning Algorithm Analysis",
+              className: "2",
+              submissionType: "file",
+              content: "Comprehensive analysis of supervised learning algorithms including decision trees, random forests, and neural networks. Implementation includes performance comparison, hyperparameter tuning, and cross-validation techniques with real-world datasets.",
+              files: [
+                { name: "MLAnalysis.py", size: "4.2 MB" },
+                { name: "Results.xlsx", size: "1.5 MB" },
+                { name: "Report.pdf", size: "3.8 MB" }
+              ],
+              submittedAt: new Date(Date.now() - 259200000).toISOString(),
+              status: "submitted",
+              plagiarismScore: 18
+            },
+            {
+              id: "sub_004",
+              studentId: "student_004",
+              studentName: "David Wilson",
+              studentPRN: "CSE2021004",
+              assignmentTitle: "Web Development Portfolio",
+              className: "2",
+              submissionType: "file",
+              content: "Full-stack web application built with React, Node.js, and MongoDB. Features include user authentication, real-time messaging, responsive design, and RESTful API implementation. The project demonstrates modern web development practices and deployment strategies.",
+              files: [
+                { name: "frontend.zip", size: "15.2 MB" },
+                { name: "backend.zip", size: "8.7 MB" },
+                { name: "deployment-guide.md", size: "0.5 MB" }
+              ],
+              submittedAt: new Date(Date.now() - 345600000).toISOString(),
+              status: "submitted",
+              plagiarismScore: 7
+            },
+            {
+              id: "sub_005",
+              studentId: "student_005",
+              studentName: "Eva Brown",
+              studentPRN: "CSE2021005",
+              assignmentTitle: "Cybersecurity Risk Assessment",
+              className: "3",
+              submissionType: "file",
+              content: "Detailed cybersecurity risk assessment for a fictional organization including threat modeling, vulnerability analysis, and mitigation strategies. The report covers network security, application security, and compliance requirements with industry standards.",
+              files: [
+                { name: "RiskAssessment.pdf", size: "5.1 MB" },
+                { name: "ThreatModel.xlsx", size: "2.3 MB" },
+                { name: "Recommendations.docx", size: "1.9 MB" }
+              ],
+              submittedAt: new Date(Date.now() - 432000000).toISOString(),
+              status: "submitted",
+              plagiarismScore: 22
+            }
+          ]
+          
+          localStorage.setItem("facultySubmissions", JSON.stringify(sampleSubmissions))
+          storedSubmissions = sampleSubmissions
+          setSampleDataLoaded(true)
+        }
+        
         setSubmissions(storedSubmissions)
       } catch (error) {
         console.error("Error loading submissions:", error)
@@ -301,6 +405,26 @@ export default function SubmissionsPage() {
     })
   }
 
+  // Handle auto-grading completion
+  const handleAutoGradingComplete = (gradedSubmissions) => {
+    setSubmissions(gradedSubmissions)
+    localStorage.setItem("facultySubmissions", JSON.stringify(gradedSubmissions))
+    
+    // Also update student submissions
+    const studentSubmissions = JSON.parse(localStorage.getItem("studentSubmissions") || "[]")
+    const updatedStudentSubmissions = studentSubmissions.map((studentSub) => {
+      const graded = gradedSubmissions.find(g => g.id === studentSub.id)
+      return graded ? { ...studentSub, ...graded } : studentSub
+    })
+    localStorage.setItem("studentSubmissions", JSON.stringify(updatedStudentSubmissions))
+    
+    setShowAutoGrading(false)
+    toast({
+      title: "Auto-Grading Complete",
+      description: `Successfully processed ${gradedSubmissions.length} submissions with AI-powered grading and plagiarism detection.`,
+    })
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -311,11 +435,23 @@ export default function SubmissionsPage() {
 
   return (
     <div className="max-w-7xl mx-auto">
-      <div className="flex items-center mb-6">
-        <Button variant="ghost" size="icon" className="mr-2" onClick={() => router.push("/dashboard/assignments")}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <h1 className="text-2xl font-bold">Assignment Submissions</h1>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center">
+          <Button variant="ghost" size="icon" className="mr-2" onClick={() => router.push("/dashboard/assignments")}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <h1 className="text-2xl font-bold">Assignment Submissions</h1>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => setShowAutoGrading(true)}
+            className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+            disabled={submissions.length === 0}
+          >
+            <Brain className="mr-2 h-4 w-4" />
+            AI Auto-Grade ({submissions.filter(s => s.status === 'submitted').length})
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -857,6 +993,29 @@ export default function SubmissionsPage() {
             <Button onClick={handleGradeSubmission} className="bg-purple-600 hover:bg-purple-700">
               <CheckCircle className="mr-2 h-4 w-4" />
               Save Grade
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Auto-Grading System Dialog */}
+      <Dialog open={showAutoGrading} onOpenChange={setShowAutoGrading}>
+        <DialogContent className="max-w-7xl max-h-[95vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center">
+              <Brain className="mr-2 h-5 w-5" />
+              AI-Powered Auto-Grading System
+            </DialogTitle>
+          </DialogHeader>
+          
+          <AutoGradingSystem 
+            submissions={submissions.filter(s => s.status === 'submitted')}
+            onGradingComplete={handleAutoGradingComplete}
+          />
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAutoGrading(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

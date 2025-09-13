@@ -18,7 +18,6 @@ import {
   Award,
   FileQuestion,
   Code,
-  FileEdit,
   Coffee,
   Library,
 } from "lucide-react"
@@ -95,11 +94,13 @@ const services: Service[] = [
   },
   {
     id: 4,
-    title: "Resume Building",
-    description: "Create and update your professional resume with templates",
-    icon: FileEdit,
-    color: "bg-emerald-500",
-    href: "/dashboard/other-services/resume-building",
+    title: "Student Leave Applications",
+    description: "Review and approve student leave requests submitted through ERP",
+    icon: UserCheck,
+    color: "bg-green-500",
+    href: "/dashboard/other-services/student-leave",
+    badge: "ERP",
+    badgeColor: "bg-green-100 text-green-700",
   },
   {
     id: 5,

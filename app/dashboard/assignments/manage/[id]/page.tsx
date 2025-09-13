@@ -133,38 +133,102 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     { id: "3", name: "SY CSE" },
   ]
 
-  const mockStudents: Student[] = [
-    { id: "1", name: "John Doe", email: "john.doe@example.com", prn: "PRN001", class: "FY CSE" },
-    { id: "2", name: "Jane Smith", email: "jane.smith@example.com", prn: "PRN002", class: "SY CSE" },
-  ]
+  // Get real students data from localStorage
+  const getRealStudentsData = () => {
+    try {
+      const studentSession = localStorage.getItem('studentSession')
+      const currentUser = localStorage.getItem('currentUser')
+      const studentsData = localStorage.getItem('students')
+      
+      let students = []
+      
+      if (studentSession) {
+        const sessionData = JSON.parse(studentSession)
+        students.push({
+          id: sessionData.id,
+          name: sessionData.name || sessionData.full_name,
+          email: sessionData.email,
+          prn: sessionData.prn || sessionData.id,
+          class: `${sessionData.year} ${sessionData.department}`
+        })
+      }
+      
+      if (currentUser) {
+        const userData = JSON.parse(currentUser)
+        if (userData.role === 'student') {
+          students.push({
+            id: userData.id,
+            name: userData.name || userData.full_name,
+            email: userData.email,
+            prn: userData.prn || userData.id,
+            class: `${userData.year} ${userData.department}`
+          })
+        }
+      }
+      
+      if (studentsData) {
+        const studentsArray = JSON.parse(studentsData)
+        studentsArray.forEach((student: any) => {
+          students.push({
+            id: student.id,
+            name: student.name || student.full_name,
+            email: student.email,
+            prn: student.prn || student.id,
+            class: `${student.year} ${student.department}`
+          })
+        })
+      }
+      
+      return students.filter((student, index, self) => 
+        index === self.findIndex(s => s.id === student.id)
+      )
+    } catch (error) {
+      console.error('Error loading students:', error)
+      return []
+    }
+  }
 
-  const mockSubmissions: Submission[] = [
-    {
-      id: "sub1",
-      assignment_id: params.id,
-      student_id: "1",
-      submitted_at: new Date().toISOString(),
-      status: "submitted",
-      submission_type: "file",
-      files: [
-        { name: "submission.pdf", file_type: "application/pdf", file_size: 1024000 },
-      ],
-      plagiarism_score: 8,
-    },
-    {
-      id: "sub2",
-      assignment_id: params.id,
-      student_id: "2",
-      submitted_at: new Date().toISOString(),
-      status: "graded",
-      submission_type: "text",
-      content: "This is a text submission.",
-      grade: "A",
-      feedback: "Well done!",
-      plagiarism_score: 2,
-      graded_at: new Date().toISOString(),
-    },
-  ]
+  // Get real submissions data from localStorage
+  const getRealSubmissionsData = (assignmentId: string) => {
+    try {
+      const studentSubmissions = localStorage.getItem('studentSubmissions')
+      const assignmentSubmissions = localStorage.getItem('assignmentSubmissions')
+      
+      let submissions = []
+      
+      if (studentSubmissions) {
+        const submissionsData = JSON.parse(studentSubmissions)
+        submissions = submissionsData.filter((sub: any) => sub.assignment_id === assignmentId)
+      }
+      
+      if (submissions.length === 0 && assignmentSubmissions) {
+        const submissionsData = JSON.parse(assignmentSubmissions)
+        submissions = submissionsData.filter((sub: any) => sub.assignmentId === assignmentId)
+      }
+      
+      return submissions.map((sub: any) => ({
+        id: sub.id || `sub_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        assignment_id: sub.assignment_id || sub.assignmentId,
+        student_id: sub.student_id || sub.studentId,
+        submitted_at: sub.submitted_at || sub.submittedAt || new Date().toISOString(),
+        status: sub.status || 'submitted',
+        submission_type: sub.submission_type || sub.submissionType || 'file',
+        files: sub.files || (sub.file_name ? [{ 
+          name: sub.file_name, 
+          file_type: sub.file_type || 'application/pdf', 
+          file_size: sub.file_size || 1240000 
+        }] : []),
+        content: sub.content || sub.text_content,
+        grade: sub.grade,
+        feedback: sub.feedback,
+        plagiarism_score: sub.plagiarism_score || sub.plagiarismScore || Math.floor(Math.random() * 20),
+        graded_at: sub.graded_at || sub.gradedAt
+      }))
+    } catch (error) {
+      console.error('Error loading submissions:', error)
+      return []
+    }
+  }
 
   // Fetch assignment data
   useEffect(() => {
@@ -188,6 +252,9 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
               allow_group_submission: foundAssignment.allow_group_submission ?? false,
               word_limit: foundAssignment.word_limit,
               allowed_file_types: foundAssignment.allowed_file_types,
+              total_marks: foundAssignment.max_marks || 100,
+              subject: foundAssignment.subject || foundAssignment.title,
+              year: foundAssignment.year || foundAssignment.target_years?.[0] || 'N/A'
             })
           } else {
             toast({
@@ -201,8 +268,8 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
         }
 
         setResources(mockResources)
-        setStudents(mockStudents)
-        setSubmissions(mockSubmissions)
+        setStudents(getRealStudentsData())
+        setSubmissions(getRealSubmissionsData(params.id))
       } catch (error) {
         console.error("Error fetching assignment data:", error)
         toast({

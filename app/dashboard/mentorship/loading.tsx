@@ -68,8 +68,6 @@ export default function MentorshipDashboardLoading() {
                     <div key={i} className="flex items-start gap-4 p-3 rounded-lg bg-gray-50">
                       <Skeleton className="h-5 w-5" />
                       <div className="w-full">
-                        <Skeleton className="h-5 w-  />
-                      <div className=\"w-full">
                         <Skeleton className="h-5 w-32 mb-2" />
                         <Skeleton className="h-4 w-full mb-2" />
                         <Skeleton className="h-3 w-24" />

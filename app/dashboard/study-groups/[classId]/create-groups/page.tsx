@@ -173,20 +173,25 @@ export default function CreateGroupsPage({ params }) {
     // Simulate API call
     await new Promise((resolve) => setTimeout(resolve, 1000))
 
-    // Save groups to localStorage or database
-    const groupsData = {
-      classId,
-      groups,
-      createdAt: new Date().toISOString(),
-      method: groupingMethod,
-    }
+    // Transform groups to match expected format
+    const formattedGroups = groups.map(group => ({
+      id: `group_${Date.now()}_${group.id}`,
+      name: group.name,
+      members: group.members,
+      leader: group.leader,
+      classId: classId,
+      created_at: new Date().toISOString(),
+      creation_type: "faculty",
+      method: groupingMethod
+    }))
 
-    localStorage.setItem(`study-groups-${classId}`, JSON.stringify(groupsData))
+    // Save groups to localStorage with correct key format
+    localStorage.setItem(`study_groups_${classId}`, JSON.stringify(formattedGroups))
 
     setIsCreating(false)
     toast({
       title: "Groups Created Successfully",
-      description: `${groups.length} study groups have been created for ${classId}`,
+      description: `${groups.length} study groups have been created and saved successfully!`,
     })
 
     router.push(`/dashboard/study-groups/${classId}`)

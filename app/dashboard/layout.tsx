@@ -22,6 +22,9 @@ import {
   Settings,
   ChevronRight,
   GraduationCap,
+  ClipboardCheck,
+  Clock,
+  FileText,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -37,14 +40,16 @@ import { toast } from "@/hooks/use-toast"
 
 const sidebarItems = [
   { icon: Home, label: "Dashboard", href: "/dashboard", color: "text-blue-600" },
+  { icon: ClipboardCheck, label: "Attendance", href: "/dashboard/attendance", color: "text-emerald-600" },
   { icon: BookOpen, label: "Assignments", href: "/dashboard/assignments", color: "text-green-600" },
   { icon: Users, label: "Study Groups", href: "/dashboard/study-groups", color: "text-blue-600" },
   { icon: Calendar, label: "Events", href: "/dashboard/events", color: "text-orange-600" },
-  { icon: Video, label: "Virtual Classroom", href: "/dashboard/virtual-classroom", color: "text-red-600" },
   { icon: MessageSquare, label: "Student Queries", href: "/dashboard/queries", color: "text-indigo-600" },
   { icon: UserCheck, label: "Mentorship", href: "/dashboard/mentorship", color: "text-pink-600" },
   { icon: Bell, label: "Announcements", href: "/dashboard/announcements", color: "text-yellow-600" },
   { icon: Code, label: "Compiler", href: "/dashboard/compiler", color: "text-teal-600" },
+  { icon: Clock, label: "Timetable", href: "/dashboard/timetable", color: "text-cyan-600" },
+  { icon: FileText, label: "Study Material", href: "/dashboard/study-material", color: "text-violet-600" },
   { icon: Settings, label: "Other Services", href: "/dashboard/other-services", color: "text-purple-600" },
 ]
 
@@ -63,6 +68,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (facultySession) {
       try {
         const faculty = JSON.parse(facultySession)
+        console.log("Faculty session data:", faculty) // Debug log
         setUser(faculty)
       } catch (error) {
         console.error("Error parsing faculty session:", error)
@@ -71,6 +77,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     } else if (currentUser) {
       try {
         const userData = JSON.parse(currentUser)
+        console.log("Current user data:", userData) // Debug log
         if (userData.userType === "faculty") {
           setUser(userData)
         } else {
@@ -180,13 +187,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="mt-auto">
             <div className="flex items-center gap-x-4 px-3 py-3 text-sm font-semibold leading-6 text-gray-900 bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl border border-gray-200/50">
               <Avatar className="h-10 w-10 ring-2 ring-blue-200">
-                <AvatarImage src="/placeholder.svg?height=40&width=40" alt="User" />
+                <AvatarImage src={user?.face_url || user?.photo || user?.avatar || "/placeholder.svg?height=40&width=40"} alt="User" />
                 <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
-                  {user?.name?.charAt(0) || "F"}
+                  {(user?.name || user?.full_name)?.charAt(0) || "F"}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{user?.name || "Faculty Member"}</p>
+                <p className="text-sm font-medium text-gray-900 truncate">{user?.name || user?.full_name || "Faculty Member"}</p>
                 <p className="text-xs text-gray-500 truncate">{user?.email}</p>
                 {user?.department && <p className="text-xs text-blue-600 truncate">{user.department.toUpperCase()}</p>}
               </div>
@@ -232,9 +239,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-8 w-8 rounded-full">
               <Avatar className="h-8 w-8">
-                <AvatarImage src="/placeholder.svg?height=32&width=32" alt="User" />
+                <AvatarImage src={user?.face_url || user?.photo || user?.avatar || "/placeholder.svg?height=32&width=32"} alt="User" />
                 <AvatarFallback className="bg-gradient-to-br from-blue-500 to-blue-600 text-white text-xs">
-                  {user?.name?.charAt(0) || "F"}
+                  {(user?.name || user?.full_name)?.charAt(0) || "F"}
                 </AvatarFallback>
               </Avatar>
               {notifications > 0 && (
@@ -247,7 +254,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <DropdownMenuContent align="end" className="w-56">
             <div className="flex items-center justify-start gap-2 p-2">
               <div className="flex flex-col space-y-1 leading-none">
-                <p className="font-medium">{user?.name || "Faculty Member"}</p>
+                <p className="font-medium">{user?.name || user?.full_name || "Faculty Member"}</p>
                 <p className="w-[200px] truncate text-sm text-muted-foreground">{user?.email}</p>
                 {user?.department && <p className="text-xs text-blue-600">{user.department.toUpperCase()}</p>}
               </div>
