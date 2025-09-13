@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { motion } from "framer-motion"
-import { ArrowLeft, Save, Calendar, Loader2, FileText, ExternalLink, Eye, Bot, FileUp, Shield } from "lucide-react"
+import { ArrowLeft, Save, Calendar, Loader2, FileText, ExternalLink, Eye, Bot, FileUp, Shield, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -59,7 +59,10 @@ export default function AssignmentEditPage() {
     status: "draft" as "draft" | "published",
     plagiarism_check_enabled: false,
     allow_late_submission: false,
-    allow_resubmission: false
+    allow_resubmission: false,
+    auto_grading_enabled: false,
+    allowed_file_types: [] as string[],
+    subject: ""
   })
 
   const departments = [
@@ -92,20 +95,27 @@ export default function AssignmentEditPage() {
         
         if (assignment) {
           setAssignment(assignment as any)
-          setFormData({
-            title: assignment.title || "",
-            description: assignment.description || "",
-            questions: assignment.questions || "",
-            department: assignment.department || "",
-            year: assignment.target_years?.[0] || "",
-            due_date: assignment.due_date || "",
-            total_marks: assignment.max_marks || 100,
-            instructions: assignment.submission_guidelines || "",
-            status: assignment.status as "draft" | "published", 
-            plagiarism_check_enabled: assignment.enable_plagiarism_check === true,
-            allow_late_submission: assignment.allow_late_submission === true,
-            allow_resubmission: assignment.allow_resubmission === true
-          })
+          // Format due_date for datetime-local input
+          const formattedDueDate = assignment.due_date ? 
+            new Date(assignment.due_date).toISOString().slice(0, 16) : ""
+          
+            setFormData({
+              title: assignment.title || "",
+              description: assignment.description || "",
+              questions: assignment.questions || "",
+              department: assignment.department || "",
+              year: assignment.target_years?.[0] || "",
+              due_date: formattedDueDate,
+              total_marks: assignment.max_marks || assignment.total_marks || 100,
+              instructions: assignment.submission_guidelines || assignment.instructions || "",
+              status: assignment.status as "draft" | "published", 
+              plagiarism_check_enabled: Boolean(assignment.enable_plagiarism_check || assignment.plagiarism_check_enabled),
+              allow_late_submission: Boolean(assignment.allow_late_submission),
+              allow_resubmission: Boolean(assignment.allow_resubmission),
+              auto_grading_enabled: Boolean(assignment.auto_grading_enabled),
+              allowed_file_types: assignment.allowed_file_types || [],
+              subject: assignment.subject || ""
+            })
         } else {
           toast({
             title: "Assignment not found",

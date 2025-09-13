@@ -89,24 +89,57 @@ async function getStudentAssignments(department: string, year: string) {
     .from('assignments')
     .select(`
       *,
-      faculty:faculty_id (name, email),
-      assignment_submissions!left (id, status, grade, submitted_at)
+      faculty:faculty_id (name, email, department),
+      assignment_submissions!left (id, status, grade, submitted_at, student_id)
     `)
-    .eq('department', department)
-    .contains('target_years', [year])
     .eq('status', 'published')
     .order('created_at', { ascending: false })
-    .limit(10)
+    .limit(20)
 
   if (error) {
     console.error('Error fetching student assignments:', error)
     return []
   }
 
-  return data || []
+  // Create year mapping for flexible matching
+  const yearMapping = {
+    '1': ['1', 'first', 'First', '1st'],
+    '2': ['2', 'second', 'Second', '2nd'], 
+    '3': ['3', 'third', 'Third', '3rd'],
+    '4': ['4', 'fourth', 'Fourth', '4th']
+  }
+  
+  const possibleYearValues = yearMapping[year as keyof typeof yearMapping] || [year]
+  
+  // Filter assignments that are either:
+  // 1. For all departments (no department specified)
+  // 2. For student's department
+  // 3. For all years (no target_years specified)
+  // 4. For student's year (flexible matching)
+  const filteredData = (data || []).filter(assignment => {
+    const isDeptMatch = !assignment.department || assignment.department === department || assignment.department === 'all'
+    const isYearMatch = !assignment.target_years || assignment.target_years.length === 0 || 
+                       assignment.target_years.some((targetYear: string) => 
+                         possibleYearValues.includes(targetYear) || targetYear === 'all'
+                       )
+    return isDeptMatch && isYearMatch
+  })
+
+  return filteredData
 }
 
 async function getStudentAnnouncements(department: string, year: string) {
+  // Create year mapping for flexible matching
+  const yearMapping = {
+    '1': ['1', 'first', 'First', '1st'],
+    '2': ['2', 'second', 'Second', '2nd'], 
+    '3': ['3', 'third', 'Third', '3rd'],
+    '4': ['4', 'fourth', 'Fourth', '4th']
+  }
+  
+  const possibleYearValues = yearMapping[year as keyof typeof yearMapping] || [year]
+  const yearQuery = possibleYearValues.map(y => `target_years.cs.{${y}}`).join(',')
+  
   const { data, error } = await supabaseAdmin
     .from('announcements')
     .select(`
@@ -114,7 +147,7 @@ async function getStudentAnnouncements(department: string, year: string) {
       faculty:faculty_id (name, email)
     `)
     .or(`department.is.null,department.eq.${department}`)
-    .or(`target_years.is.null,target_years.cs.{${year}}`)
+    .or(`target_years.is.null,${yearQuery}`)
     .in('target_audience', ['all', 'students'])
     .order('created_at', { ascending: false })
     .limit(10)
@@ -128,6 +161,16 @@ async function getStudentAnnouncements(department: string, year: string) {
 }
 
 async function getStudentStudyGroups(department: string, year: string) {
+  // Create year mapping for flexible matching
+  const yearMapping = {
+    '1': ['1', 'first', 'First', '1st'],
+    '2': ['2', 'second', 'Second', '2nd'], 
+    '3': ['3', 'third', 'Third', '3rd'],
+    '4': ['4', 'fourth', 'Fourth', '4th']
+  }
+  
+  const possibleYearValues = yearMapping[year as keyof typeof yearMapping] || [year]
+  
   const { data, error } = await supabaseAdmin
     .from('study_groups')
     .select(`
@@ -136,7 +179,6 @@ async function getStudentStudyGroups(department: string, year: string) {
       study_group_members (id)
     `)
     .eq('department', department)
-    .contains('target_years', [year])
     .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(10)
@@ -146,10 +188,29 @@ async function getStudentStudyGroups(department: string, year: string) {
     return []
   }
 
-  return data || []
+  // Filter study groups by year after fetching
+  const filteredData = (data || []).filter(group => {
+    if (!group.target_years || group.target_years.length === 0) return true
+    return group.target_years.some((targetYear: string) => 
+      possibleYearValues.includes(targetYear) || targetYear === 'all'
+    )
+  })
+
+  return filteredData
 }
 
 async function getStudentEvents(department: string, year: string) {
+  // Create year mapping for flexible matching
+  const yearMapping = {
+    '1': ['1', 'first', 'First', '1st'],
+    '2': ['2', 'second', 'Second', '2nd'], 
+    '3': ['3', 'third', 'Third', '3rd'],
+    '4': ['4', 'fourth', 'Fourth', '4th']
+  }
+  
+  const possibleYearValues = yearMapping[year as keyof typeof yearMapping] || [year]
+  const yearQuery = possibleYearValues.map(y => `target_years.cs.{${y}}`).join(',')
+
   const { data, error } = await supabaseAdmin
     .from('events')
     .select(`
@@ -157,7 +218,7 @@ async function getStudentEvents(department: string, year: string) {
       faculty:faculty_id (name, email)
     `)
     .or(`department.is.null,department.eq.${department}`)
-    .or(`target_years.is.null,target_years.cs.{${year}}`)
+    .or(`target_years.is.null,${yearQuery}`)
     .in('status', ['upcoming', 'ongoing'])
     .order('event_date', { ascending: true })
     .limit(10)

@@ -53,32 +53,31 @@ export default function AssignmentDetailPage() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        // Get current user from Supabase session
+        // Get current user from Supabase Auth session only
         const { data: { session } } = await supabase.auth.getSession()
         let user = null
         
         if (session?.user) {
-          // Get student profile from database
-          const { data: student } = await supabase
-            .from('students')
-            .select('*')
-            .eq('email', session.user.email)
-            .single()
-          
-          if (student) {
-            user = student
-          }
-        } else {
-          // Fallback to localStorage
-          const studentSession = localStorage.getItem("studentSession")
-          const currentUserData = localStorage.getItem("currentUser")
-          
-          if (studentSession) {
-            user = JSON.parse(studentSession)
-          } else if (currentUserData) {
-            user = JSON.parse(currentUserData)
+          // Use API route to get current user data from correct table
+          try {
+            const response = await fetch('/api/auth/current-user', {
+              headers: {
+                'Authorization': `Bearer ${session.access_token}`
+              }
+            })
+            
+            if (response.ok) {
+              user = await response.json()
+              console.log('Current user loaded from API:', user)
+            } else {
+              console.error('Failed to load user from API:', response.status)
+            }
+          } catch (error) {
+            console.error('Error fetching current user:', error)
           }
         }
+        
+        console.log('Current user found:', user)
         
         if (user) {
           setCurrentUser(user)
@@ -97,29 +96,50 @@ export default function AssignmentDetailPage() {
                 phone,
                 photo,
                 avatar
+              ),
+              assignment_files (
+                id,
+                file_name,
+                file_url,
+                file_size,
+                file_type
               )
             `)
             .eq('id', params.id)
             .single()
           
-          if (assignmentError) {
+          console.log('Assignment query result:', { assignmentData, assignmentError })
+          
+          if (assignmentError || !assignmentData) {
             console.error('Error loading assignment:', assignmentError)
-            toast({
-              title: "Error",
-              description: "Failed to load assignment details.",
-              variant: "destructive"
-            })
-            return
+            // Try to fetch assignment with service role (bypass RLS)
+            try {
+              const response = await fetch(`/api/assignments/${params.id}`)
+              
+              if (response.ok) {
+                const fallbackAssignment = await response.json()
+                console.log('Fallback assignment loaded:', fallbackAssignment)
+                setAssignment(fallbackAssignment)
+              } else {
+                console.error('API fetch failed:', response.status, response.statusText)
+                // Don't return here, continue to show error but don't block loading
+                setAssignment(null)
+              }
+            } catch (fetchError) {
+              console.error('Fetch error:', fetchError)
+              setAssignment(null)
+            }
+          } else {
+            console.log('Assignment loaded successfully:', assignmentData)
+            setAssignment(assignmentData)
           }
           
-          setAssignment(assignmentData)
-          
-          // Load existing submission
+          // Load existing submission from assignment_submissions table
           const { data: submissionData } = await supabase
-            .from('submissions')
+            .from('assignment_submissions')
             .select(`
               *,
-              files:submission_files (
+              submission_files (
                 id,
                 file_name,
                 file_url,
@@ -134,6 +154,19 @@ export default function AssignmentDetailPage() {
           if (submissionData) {
             setSubmission(submissionData)
             setSubmissionText(submissionData.submission_text || "")
+          }
+        } else {
+          console.log('No user found')
+          // Still try to load assignment for debugging
+          try {
+            const response = await fetch(`/api/assignments/${params.id}`)
+            if (response.ok) {
+              const fallbackAssignment = await response.json()
+              console.log('Assignment loaded without user:', fallbackAssignment)
+              setAssignment(fallbackAssignment)
+            }
+          } catch (error) {
+            console.error('Failed to load assignment without user:', error)
           }
         }
       } catch (error) {
@@ -174,6 +207,23 @@ export default function AssignmentDetailPage() {
       return
     }
 
+    // Validate file types if assignment has restrictions
+    if (submissionFiles.length > 0 && assignment.allowed_file_types && assignment.allowed_file_types.length > 0) {
+      const invalidFiles = submissionFiles.filter(file => {
+        const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase()
+        return !assignment.allowed_file_types.includes(fileExtension)
+      })
+      
+      if (invalidFiles.length > 0) {
+        toast({
+          title: "Invalid File Type",
+          description: `Files ${invalidFiles.map(f => f.name).join(', ')} are not allowed. Only ${assignment.allowed_file_types.join(', ')} files are permitted.`,
+          variant: "destructive"
+        })
+        return
+      }
+    }
+
     setIsSubmitting(true)
     
     try {
@@ -183,14 +233,15 @@ export default function AssignmentDetailPage() {
         student_id: currentUser.id,
         submission_text: submissionText,
         submitted_at: new Date().toISOString(),
-        status: 'submitted'
+        status: 'submitted',
+        is_late: new Date() > new Date(assignment.due_date)
       }
 
       let submissionResult
       if (submission) {
         // Update existing submission
         const { data, error } = await supabase
-          .from('submissions')
+          .from('assignment_submissions')
           .update(submissionData)
           .eq('id', submission.id)
           .select()
@@ -201,7 +252,7 @@ export default function AssignmentDetailPage() {
       } else {
         // Create new submission
         const { data, error } = await supabase
-          .from('submissions')
+          .from('assignment_submissions')
           .insert([submissionData])
           .select()
           .single()
@@ -243,6 +294,11 @@ export default function AssignmentDetailPage() {
         }
       }
 
+      // Run plagiarism check if enabled
+      if (assignment.enable_plagiarism_check && submissionText.trim()) {
+        await runPlagiarismCheck(submissionResult.id, submissionText)
+      }
+
       // Create notification for faculty
       await createFacultyNotification(assignment, currentUser)
 
@@ -262,6 +318,33 @@ export default function AssignmentDetailPage() {
       })
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const runPlagiarismCheck = async (submissionId: string, text: string) => {
+    try {
+      const response = await fetch('/api/plagiarism/check', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text })
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        
+        // Update submission with plagiarism score
+        await supabase
+          .from('assignment_submissions')
+          .update({
+            plagiarism_score: result.similarity_percentage,
+            plagiarism_report: result
+          })
+          .eq('id', submissionId)
+      }
+    } catch (error) {
+      console.error('Error running plagiarism check:', error)
     }
   }
 
@@ -341,8 +424,8 @@ export default function AssignmentDetailPage() {
   const isSubmitted = !!submission
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
+    <div className="min-h-screen bg-white">
+      <div className="w-full px-6 py-8">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}

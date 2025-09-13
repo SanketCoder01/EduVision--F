@@ -5,25 +5,26 @@ export interface Assignment {
   id: string
   title: string
   description: string
-  questions?: string
-  submission_guidelines?: string
-  faculty_id: string
   department: string
   target_years: string[]
-  assignment_type: 'normal' | 'ai' | 'file_upload' | 'text_based' | 'quiz' | 'coding'
-  max_marks: number
+  assignment_type: 'file_upload' | 'text_based' | 'quiz' | 'coding' | 'normal' | 'ai'
   due_date: string
+  max_marks: number
+  faculty_id: string
   status: 'draft' | 'published' | 'closed'
+  questions?: string
+  submission_guidelines?: string
+  allowed_file_types?: string[]
+  enable_plagiarism_check?: boolean
   allow_late_submission?: boolean
   allow_resubmission?: boolean
-  enable_plagiarism_check?: boolean
   allow_group_submission?: boolean
   visibility?: boolean
   difficulty?: string
   estimated_time?: number
   ai_prompt?: string
   created_at: string
-  updated_at?: string
+  updated_at: string
   faculty?: {
     name: string
     email: string
@@ -84,30 +85,37 @@ export class SupabaseAssignmentService {
     }
   }
 
-  // Create a new assignment
+
+  // Create assignment
   static async createAssignment(assignmentData: Partial<Assignment>): Promise<Assignment> {
     try {
-      // Check for duplicate title first
-      if (assignmentData.title && assignmentData.faculty_id) {
-        const isDuplicate = await this.checkDuplicateTitle(assignmentData.title, assignmentData.faculty_id)
-        if (isDuplicate) {
-          throw new Error(`Assignment with title "${assignmentData.title}" already exists. Please choose a different name.`)
-        }
+      // Validate required fields
+      if (!assignmentData.title || !assignmentData.faculty_id) {
+        throw new Error('Title and faculty ID are required')
+      }
+
+      // Check for duplicate title
+      const isDuplicate = await this.checkDuplicateTitle(assignmentData.title, assignmentData.faculty_id)
+      if (isDuplicate) {
+        throw new Error('An assignment with this title already exists for this faculty')
+      }
+
+      // Only include fields that exist in the database schema
+      const assignmentToCreate = {
+        title: assignmentData.title,
+        description: assignmentData.description || '',
+        faculty_id: assignmentData.faculty_id,
+        department: assignmentData.department || '',
+        target_years: assignmentData.target_years || [],
+        assignment_type: assignmentData.assignment_type || 'file_upload',
+        max_marks: assignmentData.max_marks || 100,
+        due_date: assignmentData.due_date || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'draft' as const // Always create as draft
       }
 
       const { data, error } = await supabase
         .from('assignments')
-        .insert([{
-          title: assignmentData.title,
-          description: assignmentData.description,
-          department: assignmentData.department,
-          target_years: assignmentData.target_years || ['first'],
-          assignment_type: assignmentData.assignment_type || 'file_upload',
-          due_date: assignmentData.due_date,
-          max_marks: assignmentData.max_marks || 100,
-          faculty_id: assignmentData.faculty_id,
-          status: assignmentData.status || 'draft'
-        }])
+        .insert([assignmentToCreate])
         .select('*')
         .single()
 
@@ -116,6 +124,7 @@ export class SupabaseAssignmentService {
         throw new Error(error.message)
       }
 
+      console.log('Assignment created successfully:', data)
       return data
     } catch (error) {
       console.error('Error in createAssignment:', error)
@@ -123,15 +132,38 @@ export class SupabaseAssignmentService {
     }
   }
 
+  // Securely publish an assignment
+  static async publishAssignment(assignmentId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const { data, error } = await supabase.rpc('publish_assignment_securely', {
+        assignment_id: assignmentId
+      })
+
+      if (error) {
+        console.error('Error publishing assignment:', error)
+        return { success: false, message: error.message }
+      }
+
+      if (!data || !data.success) {
+        return { success: false, message: data?.message || 'Failed to publish assignment' }
+      }
+
+      return { success: true, message: 'Assignment published successfully' }
+    } catch (error) {
+      console.error('Error in publishAssignment:', error)
+      return { success: false, message: 'An error occurred while publishing the assignment' }
+    }
+  }
+
   // Update an existing assignment
   static async updateAssignment(id: string, updates: Partial<Assignment>): Promise<Assignment> {
     try {
+      // Remove updated_at from updates since it doesn't exist in database schema
+      const { updated_at, ...validUpdates } = updates
+      
       const { data, error } = await supabase
         .from('assignments')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString()
-        })
+        .update(validUpdates)
         .eq('id', id)
         .select('*')
         .single()

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
+import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -10,7 +11,9 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
-import { useToast } from "@/hooks/use-toast"
+import { toast } from "sonner"
+import { supabase } from "@/lib/supabase"
+import AssignmentAnalytics from "@/components/analytics/AssignmentAnalytics"
 import { 
   ArrowLeft, 
   FileText, 
@@ -24,7 +27,12 @@ import {
   Clock,
   GraduationCap,
   FileCheck,
-  FileX
+  FileX,
+  Shield,
+  TrendingUp,
+  Eye,
+  Star,
+  Award
 } from "lucide-react"
 
 interface Submission {
@@ -35,11 +43,15 @@ interface Submission {
   status: string
   submitted_at: string
   graded_at?: string
-  grade?: string
+  grade?: number
   feedback?: string
   plagiarism_score?: number
+  is_late?: boolean
+  submission_text?: string
   files: Array<{
-    name: string
+    id?: string
+    file_name: string
+    file_url?: string
     file_type: string
     file_size: number
   }>
@@ -56,7 +68,6 @@ interface Student {
 export default function AssignmentSubmissionsPage() {
   const params = useParams()
   const router = useRouter()
-  const { toast } = useToast()
   const [assignment, setAssignment] = useState<any>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [students, setStudents] = useState<Student[]>([])
@@ -67,116 +78,119 @@ export default function AssignmentSubmissionsPage() {
   const [feedback, setFeedback] = useState("")
   const [grade, setGrade] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isAutoGrading, setIsAutoGrading] = useState(false)
 
-  // Get real students data from localStorage
-  const getRealStudentsData = () => {
+  const handleAutoGrade = async (submission: Submission) => {
+    setIsAutoGrading(true)
     try {
-      // Check multiple possible localStorage keys for student data
-      const studentSession = localStorage.getItem('studentSession')
-      const currentUser = localStorage.getItem('currentUser')
-      const studentsData = localStorage.getItem('students')
-      
-      let students = []
-      
-      // Try to get from studentSession first
-      if (studentSession) {
-        const sessionData = JSON.parse(studentSession)
-        students.push({
-          id: sessionData.id,
-          name: sessionData.name || sessionData.full_name,
-          email: sessionData.email,
-          class: `${sessionData.year} ${sessionData.department}`,
-          prn: sessionData.prn || sessionData.id,
-          department: sessionData.department,
-          year: sessionData.year
+      // Call auto-grading API
+      const response = await fetch('/api/ai/auto-grade', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          submission_text: submission.submission_text,
+          assignment_questions: assignment.questions,
+          max_marks: assignment.max_marks,
+          assignment_type: assignment.assignment_type
         })
-      }
+      })
       
-      // Try to get from currentUser
-      if (currentUser) {
-        const userData = JSON.parse(currentUser)
-        if (userData.role === 'student') {
-          students.push({
-            id: userData.id,
-            name: userData.name || userData.full_name,
-            email: userData.email,
-            class: `${userData.year} ${userData.department}`,
-            prn: userData.prn || userData.id,
-            department: userData.department,
-            year: userData.year
+      if (response.ok) {
+        const result = await response.json()
+        
+        // Update submission with auto-generated grade
+        const { error: updateError } = await supabase
+          .from('assignment_submissions')
+          .update({
+            grade: result.grade,
+            feedback: result.feedback,
+            status: 'graded',
+            graded_at: new Date().toISOString(),
+            auto_graded: true
           })
-        }
+          .eq('id', submission.id)
+        
+        if (updateError) throw updateError
+        
+        // Update local state
+        const updatedSubmissions = submissions.map(sub => 
+          sub.id === submission.id 
+            ? { ...sub, grade: result.grade, feedback: result.feedback, status: "graded" as const, graded_at: new Date().toISOString() }
+            : sub
+        )
+        setSubmissions(updatedSubmissions)
+        
+        toast.success(`Auto-grading complete: ${result.grade}/${assignment.max_marks} marks`)
+      } else {
+        throw new Error('Auto-grading failed')
       }
-      
-      // Try to get from students array
-      if (studentsData) {
-        const studentsArray = JSON.parse(studentsData)
-        studentsArray.forEach((student: any) => {
-          students.push({
-            id: student.id,
-            name: student.name || student.full_name,
-            email: student.email,
-            class: `${student.year} ${student.department}`,
-            prn: student.prn || student.id,
-            department: student.department,
-            year: student.year
-          })
-        })
-      }
-      
-      // Remove duplicates based on id
-      const uniqueStudents = students.filter((student, index, self) => 
-        index === self.findIndex(s => s.id === student.id)
-      )
-      
-      return uniqueStudents
     } catch (error) {
-      console.error('Error loading students:', error)
-      return []
+      console.error('Error auto-grading:', error)
+      toast.error("Failed to auto-grade assignment. Please grade manually.")
+    } finally {
+      setIsAutoGrading(false)
     }
   }
 
-  // Get real submissions data from localStorage
-  const getRealSubmissionsData = (assignmentId: string) => {
+  const loadAssignmentData = async () => {
     try {
-      // Check multiple possible localStorage keys for submission data
-      const studentSubmissions = localStorage.getItem('studentSubmissions')
-      const assignmentSubmissions = localStorage.getItem('assignmentSubmissions')
+      const { data: assignmentData, error: assignmentError } = await supabase
+        .from('assignments')
+        .select(`
+          *,
+          faculty:faculty_id (
+            id,
+            name,
+            email,
+            department
+          )
+        `)
+        .eq('id', params.id)
+        .single()
       
-      let submissions = []
-      
-      // Try studentSubmissions first
-      if (studentSubmissions) {
-        const submissionsData = JSON.parse(studentSubmissions)
-        submissions = submissionsData.filter((sub: any) => sub.assignment_id === assignmentId)
+      if (assignmentError) {
+        console.error('Error loading assignment:', assignmentError)
+        toast({
+          title: "Error",
+          description: "Assignment not found.",
+          variant: "destructive"
+        })
+        router.push('/dashboard/assignments')
+        return null
       }
       
-      // Try assignmentSubmissions as fallback
-      if (submissions.length === 0 && assignmentSubmissions) {
-        const submissionsData = JSON.parse(assignmentSubmissions)
-        submissions = submissionsData.filter((sub: any) => sub.assignmentId === assignmentId)
+      return assignmentData
+    } catch (error) {
+      console.error('Error loading assignment:', error)
+      return null
+    }
+  }
+
+  const loadSubmissionsData = async (assignmentId: string) => {
+    try {
+      const { data: submissionsData, error: submissionsError } = await supabase
+        .from('assignment_submissions')
+        .select(`
+          *,
+          submission_files (
+            id,
+            file_name,
+            file_url,
+            file_size,
+            file_type
+          )
+        `)
+        .eq('assignment_id', assignmentId)
+        .order('submitted_at', { ascending: false })
+      
+      if (submissionsError) {
+        console.error('Error loading submissions:', submissionsError)
+        return []
       }
       
-      return submissions.map((sub: any) => ({
-        id: sub.id || `sub_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        student_id: sub.student_id || sub.studentId,
-        assignment_id: sub.assignment_id || sub.assignmentId,
-        submission_type: sub.submission_type || sub.submissionType || 'file',
-        status: sub.status || 'submitted',
-        submitted_at: sub.submitted_at || sub.submittedAt || new Date().toISOString(),
-        graded_at: sub.graded_at || sub.gradedAt,
-        grade: sub.grade,
-        feedback: sub.feedback,
-        plagiarism_score: sub.plagiarism_score || sub.plagiarismScore || Math.floor(Math.random() * 20),
-        files: sub.files || (sub.file_name ? [{ 
-          name: sub.file_name, 
-          file_type: sub.file_type || 'application/pdf', 
-          file_size: sub.file_size || 1240000,
-          url: sub.file_url
-        }] : []),
-        content: sub.content || sub.text_content,
-        submission_text: sub.submission_text
-      }))
+      return submissionsData || []
     } catch (error) {
       console.error('Error loading submissions:', error)
       return []
@@ -186,24 +200,14 @@ export default function AssignmentSubmissionsPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // In a real app, you would fetch this data from your API
-        const storedAssignments = localStorage.getItem("assignments")
-        if (storedAssignments) {
-          const assignments = JSON.parse(storedAssignments)
-          const foundAssignment = assignments.find((a: any) => a.id.toString() === params.id)
+        const assignmentData = await loadAssignmentData()
+        if (assignmentData) {
+          setAssignment(assignmentData)
+          const submissionsData = await loadSubmissionsData(params.id as string)
+          setSubmissions(submissionsData)
           
-          if (foundAssignment) {
-            setAssignment(foundAssignment)
-            setSubmissions(getRealSubmissionsData(params.id as string))
-            setStudents(getRealStudentsData())
-          } else {
-            toast({
-              title: "Assignment not found",
-              description: "The assignment you're looking for doesn't exist.",
-              variant: "destructive",
-            })
-            router.push("/dashboard/assignments")
-          }
+          // Load students from all department tables
+          await loadAllStudents()
         }
       } catch (error) {
         console.error("Error loading data:", error)
@@ -218,7 +222,43 @@ export default function AssignmentSubmissionsPage() {
     }
 
     fetchData()
-  }, [params.id, router, toast])
+  }, [params.id, router])
+  
+  const loadAllStudents = async () => {
+    try {
+      const tables = [
+        'students_cse_1st_year', 'students_cse_2nd_year', 'students_cse_3rd_year', 'students_cse_4th_year',
+        'students_cyber_1st_year', 'students_cyber_2nd_year', 'students_cyber_3rd_year', 'students_cyber_4th_year',
+        'students_aids_1st_year', 'students_aids_2nd_year', 'students_aids_3rd_year', 'students_aids_4th_year',
+        'students_aiml_1st_year', 'students_aiml_2nd_year', 'students_aiml_3rd_year', 'students_aiml_4th_year'
+      ]
+      
+      let allStudents: Student[] = []
+      
+      for (const table of tables) {
+        const { data: studentsData } = await supabase
+          .from(table)
+          .select('*')
+        
+        if (studentsData) {
+          const formattedStudents = studentsData.map(student => ({
+            id: student.id,
+            name: student.name,
+            email: student.email,
+            class: `${student.year} ${student.department}`,
+            prn: student.prn,
+            department: student.department,
+            year: student.year
+          }))
+          allStudents = [...allStudents, ...formattedStudents]
+        }
+      }
+      
+      setStudents(allStudents)
+    } catch (error) {
+      console.error('Error loading students:', error)
+    }
+  }
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("en-US", {
@@ -271,58 +311,51 @@ export default function AssignmentSubmissionsPage() {
     
     setIsSubmitting(true)
     try {
-      // Update submission with grade and feedback
+      // Update submission in Supabase
+      const { error: updateError } = await supabase
+        .from('assignment_submissions')
+        .update({
+          grade: parseFloat(grade),
+          feedback,
+          status: 'graded',
+          graded_at: new Date().toISOString()
+        })
+        .eq('id', selectedSubmission.id)
+      
+      if (updateError) throw updateError
+      
+      // Update local state
       const updatedSubmissions = submissions.map(sub => 
         sub.id === selectedSubmission.id 
-          ? { ...sub, grade, feedback, status: "graded", graded_at: new Date().toISOString() }
+          ? { ...sub, grade: parseFloat(grade), feedback, status: "graded" as const, graded_at: new Date().toISOString() }
           : sub
       )
       setSubmissions(updatedSubmissions)
       
-      // Update localStorage with graded submission
-      const allSubmissions = JSON.parse(localStorage.getItem('studentSubmissions') || '[]')
-      const updatedAllSubmissions = allSubmissions.map((sub: any) => 
-        sub.id === selectedSubmission.id 
-          ? { ...sub, grade, feedback, status: "graded", graded_at: new Date().toISOString() }
-          : sub
-      )
-      localStorage.setItem('studentSubmissions', JSON.stringify(updatedAllSubmissions))
-      
       // Create notification for student
       const student = students.find(s => s.id === selectedSubmission.student_id)
       if (student && assignment) {
-        const notification = {
-          id: `notif_${Date.now()}`,
+        await supabase.from('notifications').insert([{
           type: "grade",
           title: "Assignment Graded",
           message: `Your assignment "${assignment.title}" has been graded: ${grade}/${assignment.max_marks}`,
           assignment_id: assignment.id,
           student_id: student.id,
-          grade: grade,
-          feedback: feedback,
+          faculty_id: assignment.faculty_id,
+          department: assignment.department,
           created_at: new Date().toISOString(),
           read: false
-        }
-        
-        const existingNotifications = JSON.parse(localStorage.getItem('student_notifications') || '[]')
-        existingNotifications.push(notification)
-        localStorage.setItem('student_notifications', JSON.stringify(existingNotifications))
+        }])
       }
       
-      toast({
-        title: "Grade Submitted",
-        description: "The grade has been successfully submitted and student has been notified.",
-      })
+      toast.success("Grade and feedback have been saved successfully.")
       
       setSelectedSubmission(null)
       setGrade("")
       setFeedback("")
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to submit grade",
-        variant: "destructive",
-      })
+      console.error('Error submitting grade:', error)
+      toast.error("Failed to submit grade. Please try again.")
     } finally {
       setIsSubmitting(false)
     }
@@ -362,7 +395,7 @@ export default function AssignmentSubmissionsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-white w-full px-6 py-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
@@ -382,7 +415,14 @@ export default function AssignmentSubmissionsPage() {
         </Button>
       </div>
 
-      {/* Analytics Cards */}
+      {/* Analytics Dashboard */}
+      <AssignmentAnalytics 
+        submissions={submissions}
+        assignment={assignment}
+        students={students}
+      />
+
+      {/* Quick Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -520,22 +560,59 @@ export default function AssignmentSubmissionsPage() {
                         </TableCell>
                         <TableCell>
                           {submission.plagiarism_score !== undefined ? (
-                            <span className={getPlagiarismColor(submission.plagiarism_score)}>
-                              {submission.plagiarism_score}%
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={getPlagiarismColor(submission.plagiarism_score)}>
+                                {submission.plagiarism_score}%
+                              </span>
+                              {submission.plagiarism_score >= 15 && (
+                                <AlertTriangle className="h-4 w-4 text-red-500" />
+                              )}
+                            </div>
                           ) : (
-                            <span className="text-muted-foreground">-</span>
+                            <span className="text-muted-foreground">Checking...</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8"
-                            onClick={() => setSelectedSubmission(submission)}
-                          >
-                            {submission.status === 'graded' ? 'View' : 'Grade'}
-                          </Button>
+                          <div className="flex items-center justify-end space-x-2">
+                            {submission.status !== 'graded' && assignment.auto_grading_enabled && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleAutoGrade(submission)}
+                                disabled={isAutoGrading}
+                                className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                              >
+                                {isAutoGrading ? (
+                                  <div className="flex items-center space-x-2">
+                                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-600"></div>
+                                    <span>Grading...</span>
+                                  </div>
+                                ) : (
+                                  <>🤖 Auto Grade</>
+                                )}
+                              </Button>
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedSubmission(submission)
+                                setGrade(submission.grade?.toString() || "")
+                                setFeedback(submission.feedback || "")
+                              }}
+                            >
+                              {submission.status === 'graded' ? 'View Details' : 'Grade'}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                // Add functionality to download submission files
+                              }}
+                            >
+                              Download Files
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     )
@@ -545,7 +622,7 @@ export default function AssignmentSubmissionsPage() {
                     <TableCell colSpan={7} className="h-24 text-center">
                       No submissions found
                     </TableCell>
-                  </TableRow>
+{{ ... }}
                 )}
               </TableBody>
             </Table>
@@ -590,7 +667,7 @@ export default function AssignmentSubmissionsPage() {
                       <div className="flex items-center space-x-3">
                         <FileText className="h-5 w-5 text-muted-foreground" />
                         <div>
-                          <p className="text-sm font-medium">{file.name}</p>
+                          <p className="text-sm font-medium">{file.file_name}</p>
                           <p className="text-xs text-muted-foreground">{formatFileSize(file.file_size)}</p>
                         </div>
                       </div>
@@ -607,7 +684,7 @@ export default function AssignmentSubmissionsPage() {
                 <h3 className="font-medium mb-1">Grade</h3>
                 {selectedSubmission.status === 'graded' ? (
                   <p className="text-lg font-semibold">
-                    {selectedSubmission.grade}/{assignment.total_marks}
+                    {selectedSubmission.grade}/{assignment.max_marks}
                   </p>
                 ) : (
                   <div className="flex items-center space-x-2">
@@ -618,10 +695,10 @@ export default function AssignmentSubmissionsPage() {
                       value={grade}
                       onChange={(e) => setGrade(e.target.value)}
                       min={0}
-                      max={assignment.total_marks}
+                      max={assignment.max_marks}
                     />
                     <span className="text-sm text-muted-foreground">
-                      / {assignment.total_marks} points
+                      / {assignment.max_marks} points
                     </span>
                   </div>
                 )}

@@ -253,6 +253,14 @@ export default function CreateAssignmentPage() {
       }
 
       const createdAssignment = await SupabaseAssignmentService.createAssignment(assignmentData)
+      
+      // If user wants to publish immediately, use secure publish function
+      if (status === 'published') {
+        const publishResult = await SupabaseAssignmentService.publishAssignment(createdAssignment.id)
+        if (!publishResult.success) {
+          throw new Error(publishResult.message)
+        }
+      }
 
       // Upload resources if any
       if (resources.length > 0) {

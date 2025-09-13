@@ -262,7 +262,7 @@ export class SupabaseRealtimeService {
   }
 
   // Get Today's Hub data for students
-  static async getStudentTodaysHubData(student: Student) {
+  static async getTodaysHubData(student: Student) {
     try {
       const [assignments, announcements, events, studyGroups, attendance] = await Promise.all([
         this.getStudentAssignments(student),
