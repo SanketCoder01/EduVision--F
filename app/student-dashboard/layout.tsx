@@ -24,6 +24,7 @@ import {
   FileText,
   Bot,
   ClipboardCheck,
+  Brain,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -37,11 +38,13 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { toast } from "@/hooks/use-toast"
 import ChatbotWidget from "@/components/ai/ChatbotWidget"
+import AttendanceExpiryService from "@/lib/attendance-expiry-service"
 
 const sidebarItems = [
   { icon: Home, label: "Dashboard", href: "/student-dashboard", color: "text-blue-600" },
   { icon: ClipboardCheck, label: "Attendance", href: "/student-dashboard/attendance", color: "text-emerald-600" },
   { icon: BookOpen, label: "Assignments", href: "/student-dashboard/assignments", color: "text-green-600" },
+  { icon: Brain, label: "Quiz", href: "/student-dashboard/quiz", color: "text-rose-600" },
   { icon: Code, label: "Compiler", href: "/student-dashboard/compiler", color: "text-teal-600" },
   { icon: Users, label: "Study Groups", href: "/student-dashboard/study-groups", color: "text-blue-600" },
   { icon: Calendar, label: "Timetable", href: "/student-dashboard/timetable", color: "text-red-600" },
@@ -88,6 +91,14 @@ export default function StudentDashboardLayout({ children }: { children: React.R
       }
     } else {
       router.push("/login?type=student")
+    }
+
+    // Start attendance expiry service
+    AttendanceExpiryService.start()
+
+    // Cleanup on unmount
+    return () => {
+      AttendanceExpiryService.stop()
     }
   }, [router])
 

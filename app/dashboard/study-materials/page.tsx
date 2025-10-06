@@ -33,9 +33,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 export default function FacultyStudyMaterialsPage() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [studyMaterials, setStudyMaterials] = useState<any[]>([])
-  const [selectedDepartment, setSelectedDepartment] = useState("")
-  const [selectedYear, setSelectedYear] = useState("")
-  const [selectedSubject, setSelectedSubject] = useState("")
+  const [selectedDepartment, setSelectedDepartment] = useState("all")
+  const [selectedYear, setSelectedYear] = useState("all")
+  const [selectedSubject, setSelectedSubject] = useState("all")
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false)
   const [uploadForm, setUploadForm] = useState({
     title: "",
@@ -316,7 +316,7 @@ export default function FacultyStudyMaterialsPage() {
                 <SelectValue placeholder="All Departments" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Departments</SelectItem>
+                <SelectItem value="all">All Departments</SelectItem>
                 {departments.map((dept) => (
                   <SelectItem key={dept} value={dept}>
                     {dept}
@@ -330,7 +330,7 @@ export default function FacultyStudyMaterialsPage() {
                 <SelectValue placeholder="All Years" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Years</SelectItem>
+                <SelectItem value="all">All Years</SelectItem>
                 {years.map((year) => (
                   <SelectItem key={year} value={year}>
                     {year}
@@ -344,7 +344,7 @@ export default function FacultyStudyMaterialsPage() {
                 <SelectValue placeholder="All Subjects" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Subjects</SelectItem>
+                <SelectItem value="all">All Subjects</SelectItem>
                 {subjects.map((subject) => (
                   <SelectItem key={subject} value={subject}>
                     {subject}

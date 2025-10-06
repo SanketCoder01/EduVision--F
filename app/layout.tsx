@@ -1,28 +1,31 @@
-import type React from "react"
-import { Inter } from "next/font/google"
-import "./globals.css"
-import { ThemeProvider } from "@/components/theme-provider"
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css";
+import { Toaster } from "@/components/ui/toaster";
+import PageTransition from "@/components/PageTransition";
 
-const inter = Inter({ subsets: ["latin"] })
+const inter = Inter({
+  subsets: ["latin"],
+});
 
-export const metadata = {
-  title: "EduVision",
-  description: "Modern Education Technology Platform",
-    generator: 'v0.dev'
-}
+export const metadata: Metadata = {
+  title: "Sanjivani University | EduVision",
+  description: "Excellence in Education",
+};
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode
+  children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <body className={inter.className}>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+        <PageTransition>
           {children}
-        </ThemeProvider>
+        </PageTransition>
+        <Toaster />
       </body>
     </html>
-  )
+  );
 }

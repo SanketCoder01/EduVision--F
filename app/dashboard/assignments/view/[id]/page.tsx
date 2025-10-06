@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/hooks/use-toast"
+import { SupabaseAssignmentService } from "@/lib/supabase-assignments"
 import { 
   ArrowLeft, 
   Calendar, 
@@ -20,25 +21,33 @@ import {
   Building2,
   Star,
   Bot,
-  FileUp
+  FileUp,
+  Shield,
+  CheckCircle,
+  XCircle,
+  HelpCircle
 } from "lucide-react"
 
 interface Assignment {
   id: string
   title: string
   description: string
+  questions?: string
   subject: string
   department: string
-  year: string
+  target_years: string[]
   due_date: string
   created_at: string
   status: "draft" | "published"
-  difficulty: "beginner" | "intermediate" | "advanced"
-  isAIGenerated?: boolean
-  isFileGenerated?: boolean
-  total_marks: number
-  instructions?: string
-  resources?: string[]
+  max_marks: number
+  submission_guidelines?: string
+  enable_plagiarism_check?: boolean
+  allow_late_submission?: boolean
+  allow_resubmission?: boolean
+  faculty?: {
+    name: string
+    email: string
+  }
 }
 
 export default function AssignmentViewPage() {
@@ -49,28 +58,22 @@ export default function AssignmentViewPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchAssignment = () => {
+    const fetchAssignment = async () => {
       try {
-        const storedAssignments = localStorage.getItem("assignments")
-        if (storedAssignments) {
-          const assignments = JSON.parse(storedAssignments)
-          const foundAssignment = assignments.find((a: any) => a.id.toString() === params.id)
-          
-          if (foundAssignment) {
-            setAssignment({
-              ...foundAssignment,
-              total_marks: foundAssignment.total_marks || 100,
-              instructions: foundAssignment.instructions || "Complete all questions within the given time frame.",
-              resources: foundAssignment.resources || []
-            })
-          } else {
-            toast({
-              title: "Assignment not found",
-              description: "The assignment you're looking for doesn't exist.",
-              variant: "destructive",
-            })
-            router.push("/dashboard/assignments")
-          }
+        setLoading(true)
+        
+        // Get assignment from Supabase
+        const assignment = await SupabaseAssignmentService.getAssignmentById(params.id as string)
+        
+        if (assignment) {
+          setAssignment(assignment as Assignment)
+        } else {
+          toast({
+            title: "Assignment not found",
+            description: "The assignment you're looking for doesn't exist.",
+            variant: "destructive",
+          })
+          router.push("/dashboard/assignments")
         }
       } catch (error) {
         console.error("Error loading assignment:", error)
@@ -176,29 +179,19 @@ export default function AssignmentViewPage() {
         <CardHeader>
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <CardTitle className="text-2xl mb-2">{assignment.title}</CardTitle>
-              <CardDescription className="text-base">
-                {assignment.subject} • {assignment.department} • {assignment.year}
+              <CardTitle className="text-2xl mb-2 font-sans">{assignment.title}</CardTitle>
+              <CardDescription className="text-base font-sans">
+                {assignment.subject} • {assignment.department} • {assignment.target_years?.[0] || 'N/A'}
               </CardDescription>
             </div>
             <div className="flex flex-col gap-2">
               <Badge className={getStatusColor(assignment.status)}>
                 {assignment.status.charAt(0).toUpperCase() + assignment.status.slice(1)}
               </Badge>
-              <Badge className={getDifficultyColor(assignment.difficulty)}>
-                <Star className="mr-1 h-3 w-3" />
-                {assignment.difficulty.charAt(0).toUpperCase() + assignment.difficulty.slice(1)}
-              </Badge>
-              {assignment.isAIGenerated && (
+              {assignment.enable_plagiarism_check && (
                 <Badge variant="secondary">
-                  <Bot className="mr-1 h-3 w-3" />
-                  AI Generated
-                </Badge>
-              )}
-              {assignment.isFileGenerated && (
-                <Badge variant="secondary">
-                  <FileUp className="mr-1 h-3 w-3" />
-                  File Based
+                  <Shield className="mr-1 h-3 w-3" />
+                  Plagiarism Check
                 </Badge>
               )}
             </div>
@@ -213,56 +206,100 @@ export default function AssignmentViewPage() {
           {/* Description */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 font-sans">
                 <FileText className="h-5 w-5" />
                 Assignment Description
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="prose prose-sm max-w-none">
-                <div className="whitespace-pre-wrap text-gray-700">
+                <div className="whitespace-pre-wrap text-gray-700 font-sans">
                   {assignment.description}
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Instructions */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5" />
-                Instructions
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-gray-700">
-                {assignment.instructions}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Resources */}
-          {assignment.resources && assignment.resources.length > 0 && (
+          {/* Assignment Questions */}
+          {assignment.questions && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5" />
-                  Resources
+                <CardTitle className="flex items-center gap-2 font-sans">
+                  <HelpCircle className="h-5 w-5" />
+                  Assignment Questions
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
-                  {assignment.resources.map((resource, index) => (
-                    <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-                      <FileText className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm text-gray-700">{resource}</span>
-                    </div>
-                  ))}
+                <div className="whitespace-pre-wrap text-gray-700 font-sans bg-gray-50 p-4 rounded-lg border">
+                  {assignment.questions}
                 </div>
               </CardContent>
             </Card>
           )}
+
+          {/* Submission Guidelines */}
+          {assignment.submission_guidelines && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 font-sans">
+                  <BookOpen className="h-5 w-5" />
+                  Submission Guidelines
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="whitespace-pre-wrap text-gray-700 font-sans">
+                  {assignment.submission_guidelines}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Assignment Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 font-sans">
+                <Shield className="h-5 w-5" />
+                Assignment Settings
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-medium font-sans">Plagiarism Check</span>
+                </div>
+                {assignment.enable_plagiarism_check ? (
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-gray-400" />
+                )}
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-orange-600" />
+                  <span className="text-sm font-medium font-sans">Late Submission</span>
+                </div>
+                {assignment.allow_late_submission ? (
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-gray-400" />
+                )}
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-purple-600" />
+                  <span className="text-sm font-medium font-sans">Resubmission</span>
+                </div>
+                {assignment.allow_resubmission ? (
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-gray-400" />
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Sidebar */}
@@ -270,14 +307,14 @@ export default function AssignmentViewPage() {
           {/* Assignment Info */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Assignment Details</CardTitle>
+              <CardTitle className="text-lg font-sans">Assignment Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center gap-3">
                 <Calendar className="h-4 w-4 text-gray-500" />
                 <div>
-                  <p className="text-sm font-medium">Due Date</p>
-                  <p className="text-sm text-gray-600">{formatDate(assignment.due_date)}</p>
+                  <p className="text-sm font-medium font-sans">Due Date</p>
+                  <p className="text-sm text-gray-600 font-sans">{formatDate(assignment.due_date)}</p>
                 </div>
               </div>
               
@@ -286,8 +323,8 @@ export default function AssignmentViewPage() {
               <div className="flex items-center gap-3">
                 <Clock className="h-4 w-4 text-gray-500" />
                 <div>
-                  <p className="text-sm font-medium">Created</p>
-                  <p className="text-sm text-gray-600">{formatDate(assignment.created_at)}</p>
+                  <p className="text-sm font-medium font-sans">Created</p>
+                  <p className="text-sm text-gray-600 font-sans">{formatDate(assignment.created_at)}</p>
                 </div>
               </div>
               
@@ -296,8 +333,8 @@ export default function AssignmentViewPage() {
               <div className="flex items-center gap-3">
                 <GraduationCap className="h-4 w-4 text-gray-500" />
                 <div>
-                  <p className="text-sm font-medium">Total Marks</p>
-                  <p className="text-sm text-gray-600">{assignment.total_marks} points</p>
+                  <p className="text-sm font-medium font-sans">Total Marks</p>
+                  <p className="text-sm text-gray-600 font-sans">{assignment.max_marks} points</p>
                 </div>
               </div>
               
@@ -306,8 +343,8 @@ export default function AssignmentViewPage() {
               <div className="flex items-center gap-3">
                 <Building2 className="h-4 w-4 text-gray-500" />
                 <div>
-                  <p className="text-sm font-medium">Department</p>
-                  <p className="text-sm text-gray-600">{assignment.department}</p>
+                  <p className="text-sm font-medium font-sans">Department</p>
+                  <p className="text-sm text-gray-600 font-sans">{assignment.department}</p>
                 </div>
               </div>
               
@@ -316,17 +353,30 @@ export default function AssignmentViewPage() {
               <div className="flex items-center gap-3">
                 <Users className="h-4 w-4 text-gray-500" />
                 <div>
-                  <p className="text-sm font-medium">Year</p>
-                  <p className="text-sm text-gray-600">{assignment.year}</p>
+                  <p className="text-sm font-medium font-sans">Target Years</p>
+                  <p className="text-sm text-gray-600 font-sans">{assignment.target_years?.join(', ') || 'N/A'}</p>
                 </div>
               </div>
+              
+              {assignment.faculty && (
+                <>
+                  <Separator />
+                  <div className="flex items-center gap-3">
+                    <GraduationCap className="h-4 w-4 text-gray-500" />
+                    <div>
+                      <p className="text-sm font-medium font-sans">Faculty</p>
+                      <p className="text-sm text-gray-600 font-sans">{assignment.faculty.name}</p>
+                    </div>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
           {/* Quick Actions */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Quick Actions</CardTitle>
+              <CardTitle className="text-lg font-sans">Quick Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <Button

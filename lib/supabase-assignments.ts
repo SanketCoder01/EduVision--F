@@ -136,7 +136,7 @@ export class SupabaseAssignmentService {
   static async publishAssignment(assignmentId: string): Promise<{ success: boolean; message: string }> {
     try {
       const { data, error } = await supabase.rpc('publish_assignment_securely', {
-        assignment_id: assignmentId
+        p_assignment_id: assignmentId
       })
 
       if (error) {
@@ -399,12 +399,32 @@ export class SupabaseAssignmentService {
   // Submit assignment
   static async submitAssignment(submissionData: Partial<AssignmentSubmission>): Promise<AssignmentSubmission> {
     try {
+      // Get current user to fetch student details
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        throw new Error('User not authenticated')
+      }
+
+      // Get student details from user_profiles
+      const { data: studentProfile } = await supabase
+        .from('user_profiles')
+        .select('department, year')
+        .eq('email', user.email)
+        .single()
+
+      if (!studentProfile) {
+        throw new Error('Student profile not found')
+      }
+
       const { data, error } = await supabase
         .from('assignment_submissions')
         .insert([{
           assignment_id: submissionData.assignment_id,
           student_id: submissionData.student_id,
-          content: submissionData.content,
+          student_email: user.email,
+          student_department: studentProfile.department,
+          student_year: studentProfile.year,
+          submission_text: submissionData.content,
           file_urls: submissionData.file_urls || [],
           file_names: submissionData.file_names || [],
           status: 'submitted'

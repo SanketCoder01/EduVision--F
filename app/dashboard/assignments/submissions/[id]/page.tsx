@@ -622,7 +622,7 @@ export default function AssignmentSubmissionsPage() {
                     <TableCell colSpan={7} className="h-24 text-center">
                       No submissions found
                     </TableCell>
-{{ ... }}
+                  </TableRow>
                 )}
               </TableBody>
             </Table>
@@ -671,10 +671,29 @@ export default function AssignmentSubmissionsPage() {
                           <p className="text-xs text-muted-foreground">{formatFileSize(file.file_size)}</p>
                         </div>
                       </div>
-                      <Button variant="outline" size="sm">
-                        <Download className="h-4 w-4 mr-2" />
-                        Download
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => window.open(file.file_url, '_blank')}
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          View
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => {
+                            const link = document.createElement('a')
+                            link.href = file.file_url
+                            link.download = file.file_name
+                            link.click()
+                          }}
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          Download
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>

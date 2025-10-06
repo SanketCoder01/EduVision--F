@@ -24,13 +24,6 @@ export async function GET(
           phone,
           photo,
           avatar
-        ),
-        assignment_files (
-          id,
-          file_name,
-          file_url,
-          file_size,
-          file_type
         )
       `)
       .eq('id', params.id)

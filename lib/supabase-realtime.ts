@@ -347,4 +347,55 @@ export class SupabaseRealtimeService {
       `department=eq.${student.department}`
     )
   }
+
+  // Subscribe to study group updates for a student
+  static subscribeToStudentStudyGroups(student: Student, callback: (payload: any) => void) {
+    return this.subscribeToTable(
+      'study_groups',
+      callback,
+      `department=eq.${student.department}`
+    )
+  }
+
+  // Subscribe to attendance session updates for a student
+  static subscribeToStudentAttendance(student: Student, callback: (payload: any) => void) {
+    return this.subscribeToTable(
+      'attendance_sessions',
+      callback,
+      `department=eq.${student.department}`
+    )
+  }
+
+  // Subscribe to all student updates at once
+  static subscribeToAllStudentUpdates(student: Student, callbacks: {
+    assignments?: (payload: any) => void;
+    announcements?: (payload: any) => void;
+    events?: (payload: any) => void;
+    studyGroups?: (payload: any) => void;
+    attendance?: (payload: any) => void;
+  }) {
+    const subscriptions: any[] = []
+
+    if (callbacks.assignments) {
+      subscriptions.push(this.subscribeToStudentAssignments(student, callbacks.assignments))
+    }
+    if (callbacks.announcements) {
+      subscriptions.push(this.subscribeToStudentAnnouncements(student, callbacks.announcements))
+    }
+    if (callbacks.events) {
+      subscriptions.push(this.subscribeToStudentEvents(student, callbacks.events))
+    }
+    if (callbacks.studyGroups) {
+      subscriptions.push(this.subscribeToStudentStudyGroups(student, callbacks.studyGroups))
+    }
+    if (callbacks.attendance) {
+      subscriptions.push(this.subscribeToStudentAttendance(student, callbacks.attendance))
+    }
+
+    return {
+      unsubscribe: () => {
+        subscriptions.forEach(sub => sub.unsubscribe())
+      }
+    }
+  }
 }

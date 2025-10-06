@@ -25,6 +25,7 @@ import {
   ClipboardCheck,
   Clock,
   FileText,
+  Brain,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -37,19 +38,20 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "@/hooks/use-toast"
+import AttendanceExpiryService from "@/lib/attendance-expiry-service"
 
 const sidebarItems = [
   { icon: Home, label: "Dashboard", href: "/dashboard", color: "text-blue-600" },
   { icon: ClipboardCheck, label: "Attendance", href: "/dashboard/attendance", color: "text-emerald-600" },
   { icon: BookOpen, label: "Assignments", href: "/dashboard/assignments", color: "text-green-600" },
+  { icon: Brain, label: "Quiz", href: "/dashboard/quiz", color: "text-rose-600" },
   { icon: Users, label: "Study Groups", href: "/dashboard/study-groups", color: "text-blue-600" },
   { icon: Calendar, label: "Events", href: "/dashboard/events", color: "text-orange-600" },
   { icon: MessageSquare, label: "Student Queries", href: "/dashboard/queries", color: "text-indigo-600" },
-  { icon: UserCheck, label: "Mentorship", href: "/dashboard/mentorship", color: "text-pink-600" },
   { icon: Bell, label: "Announcements", href: "/dashboard/announcements", color: "text-yellow-600" },
   { icon: Code, label: "Compiler", href: "/dashboard/compiler", color: "text-teal-600" },
   { icon: Clock, label: "Timetable", href: "/dashboard/timetable", color: "text-cyan-600" },
-  { icon: FileText, label: "Study Material", href: "/dashboard/study-material", color: "text-violet-600" },
+  { icon: FileText, label: "Study Materials", href: "/dashboard/study-materials", color: "text-violet-600" },
   { icon: Settings, label: "Other Services", href: "/dashboard/other-services", color: "text-purple-600" },
 ]
 
@@ -90,6 +92,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     } else {
       router.push("/login?type=faculty")
     }
+
+    // Temporarily disabled attendance expiry service
+    // AttendanceExpiryService.start()
+
+    // Cleanup on unmount
+    // return () => {
+    //   AttendanceExpiryService.stop()
+    // }
   }, [router])
 
   const handleLogout = () => {

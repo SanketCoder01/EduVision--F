@@ -96,13 +96,6 @@ export default function AssignmentDetailPage() {
                 phone,
                 photo,
                 avatar
-              ),
-              assignment_files (
-                id,
-                file_name,
-                file_url,
-                file_size,
-                file_type
               )
             `)
             .eq('id', params.id)
@@ -137,16 +130,7 @@ export default function AssignmentDetailPage() {
           // Load existing submission from assignment_submissions table
           const { data: submissionData } = await supabase
             .from('assignment_submissions')
-            .select(`
-              *,
-              submission_files (
-                id,
-                file_name,
-                file_url,
-                file_size,
-                file_type
-              )
-            `)
+            .select('*')
             .eq('assignment_id', params.id)
             .eq('student_id', user.id)
             .single()
@@ -227,10 +211,13 @@ export default function AssignmentDetailPage() {
     setIsSubmitting(true)
     
     try {
-      // Create submission data
+      // Create submission data - only include fields that exist in currentUser
       const submissionData = {
         assignment_id: assignment.id,
         student_id: currentUser.id,
+        student_email: currentUser.email || currentUser.user_email,
+        student_department: currentUser.department,
+        student_year: currentUser.year,
         submission_text: submissionText,
         submitted_at: new Date().toISOString(),
         status: 'submitted',
@@ -621,32 +608,70 @@ export default function AssignmentDetailPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div>
-                      <Label htmlFor="submission-text">Text Submission</Label>
-                      <Textarea
-                        id="submission-text"
-                        placeholder="Enter your assignment submission here..."
-                        value={submissionText}
-                        onChange={(e) => setSubmissionText(e.target.value)}
-                        rows={6}
-                        className="mt-1"
-                      />
-                    </div>
+                    {/* Show text area only for text_based assignments */}
+                    {assignment.assignment_type === 'text_based' && (
+                      <div>
+                        <Label htmlFor="submission-text">Text Submission</Label>
+                        <Textarea
+                          id="submission-text"
+                          placeholder="Enter your assignment submission here..."
+                          value={submissionText}
+                          onChange={(e) => setSubmissionText(e.target.value)}
+                          rows={6}
+                          className="mt-1"
+                        />
+                      </div>
+                    )}
 
-                    <div>
-                      <Label htmlFor="file-upload">Upload Files</Label>
-                      <Input
-                        id="file-upload"
-                        type="file"
-                        multiple
-                        onChange={handleFileUpload}
-                        className="mt-1"
-                        accept={assignment.allowed_file_types?.join(',') || ".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.zip"}
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Supported formats: {assignment.allowed_file_types?.join(', ') || 'PDF, DOC, DOCX, TXT, JPG, PNG, ZIP'}
-                      </p>
-                    </div>
+                    {/* Show file upload for file_upload assignments */}
+                    {assignment.assignment_type === 'file_upload' && (
+                      <div>
+                        <Label htmlFor="file-upload">Upload Files</Label>
+                        <Input
+                          id="file-upload"
+                          type="file"
+                          multiple
+                          onChange={handleFileUpload}
+                          className="mt-1"
+                          accept={assignment.allowed_file_types?.join(',') || ".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.zip"}
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Supported formats: {assignment.allowed_file_types?.join(', ') || 'PDF, DOC, DOCX, TXT, JPG, PNG, ZIP'}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Show both for other assignment types */}
+                    {assignment.assignment_type !== 'text_based' && assignment.assignment_type !== 'file_upload' && (
+                      <>
+                        <div>
+                          <Label htmlFor="submission-text">Text Submission</Label>
+                          <Textarea
+                            id="submission-text"
+                            placeholder="Enter your assignment submission here..."
+                            value={submissionText}
+                            onChange={(e) => setSubmissionText(e.target.value)}
+                            rows={6}
+                            className="mt-1"
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor="file-upload">Upload Files (Optional)</Label>
+                          <Input
+                            id="file-upload"
+                            type="file"
+                            multiple
+                            onChange={handleFileUpload}
+                            className="mt-1"
+                            accept={assignment.allowed_file_types?.join(',') || ".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.zip"}
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            Supported formats: {assignment.allowed_file_types?.join(', ') || 'PDF, DOC, DOCX, TXT, JPG, PNG, ZIP'}
+                          </p>
+                        </div>
+                      </>
+                    )}
 
                     {submissionFiles.length > 0 && (
                       <div>
@@ -704,7 +729,11 @@ export default function AssignmentDetailPage() {
 
                     <Button
                       onClick={handleSubmission}
-                      disabled={isSubmitting || (!submissionText.trim() && submissionFiles.length === 0)}
+                      disabled={isSubmitting || (
+                        assignment.assignment_type === 'text_based' ? !submissionText.trim() : 
+                        assignment.assignment_type === 'file_upload' ? submissionFiles.length === 0 :
+                        (!submissionText.trim() && submissionFiles.length === 0)
+                      )}
                       className="w-full"
                     >
                       {isSubmitting ? (

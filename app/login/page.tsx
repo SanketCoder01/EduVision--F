@@ -1,10 +1,9 @@
 "use client"
 
 import type React from "react"
-import { useSearchParams } from "next/navigation"
+import { useSearchParams, useRouter } from "next/navigation"
 import { Suspense } from "react"
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { motion } from "framer-motion"
 import { Eye, EyeOff, Mail, Lock, GraduationCap, Building2, Users, BookOpen } from "lucide-react"
@@ -14,7 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "@/hooks/use-toast"
-import { authenticateFaculty, supabase } from "@/lib/supabase"
+import { authenticateFaculty } from "@/lib/supabase"
 import UniversityPortal from "@/components/UniversityPortal"
 import StudentLoginPage from "@/components/StudentLoginPage"
 
@@ -30,12 +29,7 @@ function LoginContent() {
   const type = searchParams.get("type")
 
   if (type === "student") {
-    return <StudentLoginPage onBack={() => router.push("/")} />
-  }
-
-  if (type === "faculty") {
-    // Show faculty-specific login form (current form is already for faculty)
-    // Continue with the existing faculty login form below
+    return <StudentLoginPage />
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -43,64 +37,47 @@ function LoginContent() {
     setIsLoading(true)
     setError("")
 
-    try {
-      console.log("Attempting login with:", { email, password })
-      const authResult = await authenticateFaculty(email, password)
-      console.log("Authentication successful:", authResult)
+    // Temporarily commented out Supabase auth
+    // try {
+    //   const faculty = await authenticateFaculty(email, password)
+    //   localStorage.setItem("faculty", JSON.stringify(faculty))
+    //   toast({
+    //     title: "Login Successful",
+    //     description: `Welcome back, ${faculty.name}!`,
+    //   })
+    //   router.push("/dashboard")
+    // } catch (error: any) {
+    //   setError(error.message || "Login failed. Please try again.")
+    //   toast({
+    //     title: "Login Failed",
+    //     description: error.message || "Please check your credentials and try again.",
+    //     variant: "destructive",
+    //   })
+    // } finally {
+    //   setIsLoading(false)
+    // }
 
-      // Check if this is first login - redirect to personal info collection
-      const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('user_id', authResult.id)
-        .single()
-
-      if (!profile) {
-        // First time login - store basic auth data and redirect to profile completion
-        localStorage.setItem("facultySession", JSON.stringify(authResult))
-        
-        toast({
-          title: "Welcome to EduVision!",
-          description: "Please complete your profile to get started.",
-        })
-        router.push("/complete-profile?type=faculty")
-      } else {
-        // Existing user - merge profile data with auth data
-        const completeUserData = {
-          ...authResult,
-          profile: profile,
-          name: profile.name,
-          full_name: profile.name,
-          department: profile.department,
-          designation: profile.designation,
-          phone: profile.phone,
-          address: profile.address,
-          face_url: profile.face_image,
-          photo: profile.face_image,
-          avatar: profile.face_image,
-          profile_completed: profile.profile_completed
-        }
-        
-        // Store complete user data including profile
-        localStorage.setItem("facultySession", JSON.stringify(completeUserData))
-        
-        toast({
-          title: `Welcome back, ${profile.name || authResult.email?.split('@')[0]}!`,
-          description: "You have successfully logged in to your faculty dashboard.",
-        })
-        router.push("/dashboard")
-      }
-    } catch (error: any) {
-      console.error("Login error:", error)
-      setError(error.message || "Login failed. Please try again.")
-      toast({
-        title: "Login Failed",
-        description: error.message || "Please check your credentials and try again.",
-        variant: "destructive",
-      })
-    } finally {
+    // Temporary bypass - redirect directly to dashboard
+    setTimeout(() => {
+      router.push("/dashboard")
       setIsLoading(false)
+    }, 500)
+  }
+
+  const handleDevPass = () => {
+    // Set mock faculty session for dev access
+    const mockFaculty = {
+      id: "dev-faculty-1",
+      name: "Dev Faculty",
+      email: "faculty@sanjivani.edu.in",
+      department: "Computer Science",
+      userType: "faculty"
     }
+    localStorage.setItem("facultySession", JSON.stringify(mockFaculty))
+    localStorage.setItem("currentUser", JSON.stringify(mockFaculty))
+    
+    // Direct navigation to dashboard
+    window.location.href = "/dashboard"
   }
 
   if (showUniversityPortal) {
@@ -110,7 +87,6 @@ function LoginContent() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
       <div className="w-full max-w-6xl grid lg:grid-cols-2 gap-8 items-center">
-        {/* Left Side - Branding */}
         <motion.div
           initial={{ opacity: 0, x: -50 }}
           animate={{ opacity: 1, x: 0 }}
@@ -145,7 +121,6 @@ function LoginContent() {
             </p>
           </div>
 
-          {/* Feature Cards */}
           <div className="grid grid-cols-2 gap-4">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -171,7 +146,6 @@ function LoginContent() {
           </div>
         </motion.div>
 
-        {/* Right Side - Login Form */}
         <motion.div
           initial={{ opacity: 0, x: 50 }}
           animate={{ opacity: 1, x: 0 }}
@@ -191,7 +165,6 @@ function LoginContent() {
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
-
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
@@ -246,7 +219,15 @@ function LoginContent() {
                 </Button>
               </form>
 
-              {/* University Access Button - Below the login form */}
+              {/* Dev Pass Button */}
+              <Button
+                onClick={handleDevPass}
+                variant="outline"
+                className="w-full h-10 border-2 border-green-600 text-green-700 hover:bg-green-50 text-sm font-medium"
+              >
+                Dev Pass (Dashboard)
+              </Button>
+
               <div className="pt-4 border-t border-gray-200">
                 <Button
                   onClick={() => setShowUniversityPortal(true)}
