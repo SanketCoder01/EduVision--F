@@ -132,7 +132,6 @@ export default function SanjivaniLandingPage() {
             <div className="flex items-center space-x-3 pr-4">
               <Button variant="outline" size="sm" className="border-orange-600 text-orange-600 hover:bg-orange-600 hover:text-white transition-all font-semibold text-xs h-8 px-3" onClick={() => window.location.href = '/login?type=student'}>Student Login</Button>
               <Button variant="outline" size="sm" className="border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white transition-all font-semibold text-xs h-8 px-3" onClick={() => window.location.href = '/login?type=faculty'}>Faculty Login</Button>
-              <Button size="sm" className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 transition-all font-semibold text-xs h-8 px-3" onClick={() => window.location.href = '/deanlogin'}>Dean Portal</Button>
             </div>
           </div>
         </div>

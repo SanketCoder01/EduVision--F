@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { BarChart3, TrendingUp, Users, BookOpen, Award } from "lucide-react"
-import { createClient } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
 
 export default function DepartmentAnalyticsModule({ dean }: { dean: any }) {
   const [analytics, setAnalytics] = useState({

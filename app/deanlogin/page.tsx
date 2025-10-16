@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
+import { supabase } from "@/lib/supabase"
 
 export default function DeanLoginPage() {
   const [email, setEmail] = useState("")
@@ -17,37 +18,64 @@ export default function DeanLoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
+  // Supabase client is already imported
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
 
-    // Simulate login process
-    setTimeout(() => {
-      if (email === "dean@sanjivani.edu" && password === "dean123") {
-        localStorage.setItem("deanSession", JSON.stringify({
-          email,
-          name: "Dr. Kavitha Rani",
-          role: "Dean",
-          department: "Computer Science",
-          loginTime: new Date().toISOString()
-        }))
-        
-        toast({
-          title: "Login Successful",
-          description: "Welcome to Dean Dashboard",
-        })
-        
-        router.push("/dean-dashboard")
-      } else {
+    try {
+      // Authenticate with Supabase
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      if (authError) {
         toast({
           title: "Login Failed",
           description: "Invalid email or password",
           variant: "destructive"
         })
+        setIsLoading(false)
+        return
       }
+
+      // Fetch dean profile
+      const { data: deanData, error: deanError } = await supabase
+        .from('deans')
+        .select('*')
+        .eq('email', email)
+        .single()
+
+      if (deanError || !deanData) {
+        // Not a dean account
+        await supabase.auth.signOut()
+        toast({
+          title: "Access Denied",
+          description: "This account is not authorized as a dean",
+          variant: "destructive"
+        })
+        setIsLoading(false)
+        return
+      }
+
+      toast({
+        title: "Login Successful",
+        description: `Welcome back, ${deanData.name}`,
+      })
+
+      router.push("/dean-dashboard")
+    } catch (error) {
+      console.error("Login error:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred",
+        variant: "destructive"
+      })
+    } finally {
       setIsLoading(false)
-    }, 1500)
+    }
   }
 
   const features = [
@@ -187,11 +215,10 @@ export default function DeanLoginPage() {
                 </Button>
               </form>
 
-              {/* Demo Credentials */}
+              {/* Info Note */}
               <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="text-sm font-medium text-blue-900 mb-2">Demo Credentials:</p>
-                <p className="text-xs text-blue-700">Email: dean@sanjivani.edu</p>
-                <p className="text-xs text-blue-700">Password: dean123</p>
+                <p className="text-sm font-medium text-blue-900 mb-2">Secure Authentication:</p>
+                <p className="text-xs text-blue-700">Login with your official university credentials</p>
               </div>
 
               <div className="mt-6 text-center">

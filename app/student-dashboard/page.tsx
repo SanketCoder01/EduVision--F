@@ -20,13 +20,19 @@ import {
   FileText,
   Bot,
   GraduationCap,
+  AlertTriangle,
+  ArrowRight,
+  Lock,
 } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { SupabaseRealtimeService, Student } from "@/lib/supabase-realtime"
+import { supabase } from "@/lib/supabase"
 
 export default function StudentDashboardPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<Student | null>(null)
+  const [registrationCompleted, setRegistrationCompleted] = useState<boolean>(true)
   const [assignments, setAssignments] = useState<any[]>([])
   const [announcements, setAnnouncements] = useState<any[]>([])
   const [events, setEvents] = useState<any[]>([])
@@ -53,6 +59,17 @@ export default function StudentDashboardPage() {
         }
         
         if (user) {
+          // Fetch latest registration status
+          const { data: student } = await supabase
+            .from('students')
+            .select('registration_completed')
+            .eq('email', user.email)
+            .single()
+          
+          if (student) {
+            setRegistrationCompleted(student.registration_completed || false)
+          }
+          
           setCurrentUser(user)
           await loadDashboardData(user)
         }
@@ -268,6 +285,55 @@ export default function StudentDashboardPage() {
 
   return (
     <div className="space-y-8">
+      {/* Complete Registration Banner */}
+      {!registrationCompleted && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-r from-red-600 via-orange-600 to-red-600 text-white rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-2xl border-4 border-red-400"
+        >
+          <div className="absolute inset-0 bg-black/10"></div>
+          <div className="relative z-10">
+            <div className="flex items-start gap-4">
+              <motion.div
+                animate={{ scale: [1, 1.2, 1] }}
+                transition={{ repeat: Infinity, duration: 2 }}
+                className="flex-shrink-0"
+              >
+                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
+                  <AlertTriangle className="h-8 w-8 text-white" />
+                </div>
+              </motion.div>
+              
+              <div className="flex-1">
+                <h2 className="text-2xl md:text-3xl font-bold mb-2">Complete Your Registration First!</h2>
+                <p className="text-white/90 text-base md:text-lg mb-4">
+                  You need to complete your registration to unlock all dashboard features and modules. 
+                  Please fill in your mandatory details to get started.
+                </p>
+                
+                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                  <Button
+                    onClick={() => router.push('/student-dashboard/complete-registration')}
+                    size="lg"
+                    className="bg-white text-red-600 hover:bg-gray-100 font-semibold shadow-lg"
+                  >
+                    <FileText className="h-5 w-5 mr-2" />
+                    Complete Registration Now
+                    <ArrowRight className="h-5 w-5 ml-2" />
+                  </Button>
+                  
+                  <div className="flex items-center gap-2 text-white/80 text-sm">
+                    <Lock className="h-4 w-4" />
+                    <span>All features are currently locked</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Welcome Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -284,11 +350,13 @@ export default function StudentDashboardPage() {
           </motion.div>
         </div>
         <div className="relative z-10">
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2">Welcome back, {currentUser?.name || currentUser?.full_name || "Student"}</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2">Welcome back, {currentUser?.name || currentUser?.full_name || "Student"}!</h1>
           <p className="text-white/90 text-lg">
-            PRN: {currentUser?.prn || "N/A"} • {currentUser?.year || "Year"}
+            <span className="font-semibold">PRN:</span> {currentUser?.prn || "Not Set"} • <span className="font-semibold">Year:</span> {currentUser?.year || "N/A"}
           </p>
-          <p className="text-white/80 text-sm mt-1">{currentUser?.department || "Department"}</p>
+          <p className="text-white/80 text-lg mt-1">
+            <span className="font-semibold">Department:</span> {currentUser?.department || "N/A"} {currentUser?.division ? `• Division: ${currentUser?.division}` : ""}
+          </p>
           <div className="mt-4 flex items-center gap-2 text-white/80">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
             <span className="text-sm">Academic Status: Active</span>
@@ -296,45 +364,48 @@ export default function StudentDashboardPage() {
         </div>
       </motion.div>
 
-      {/* Stats Cards */}
-      <motion.div
-        variants={container}
-        initial="hidden"
-        animate="show"
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6"
-      >
-        {statsCards.map((stat, index) => (
-          <motion.div key={index} variants={item}>
-            <div className="border-0 shadow-lg bg-white/80 backdrop-blur-sm rounded-lg">
-              <div className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                    <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-                    {stat.percentage !== undefined && (
-                      <div className="mt-2">
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div 
-                            className="bg-green-600 h-2 rounded-full transition-all duration-300" 
-                            style={{ width: `${stat.percentage}%` }}
-                          ></div>
+      {/* Stats Cards - Only show if registration completed */}
+      {registrationCompleted && (
+        <motion.div
+          variants={container}
+          initial="hidden"
+          animate="show"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6"
+        >
+          {statsCards.map((stat, index) => (
+            <motion.div key={index} variants={item}>
+              <div className="border-0 shadow-lg bg-white/80 backdrop-blur-sm rounded-lg">
+                <div className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-600">{stat.title}</p>
+                      <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+                      {stat.percentage !== undefined && (
+                        <div className="mt-2">
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div 
+                              className="bg-green-600 h-2 rounded-full transition-all duration-300" 
+                              style={{ width: `${stat.percentage}%` }}
+                            ></div>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">{stat.percentage}% Complete</p>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">{stat.percentage}% Complete</p>
-                      </div>
-                    )}
-                    {stat.change && <p className={`text-sm text-gray-500`}>{stat.change} from last month</p>}
-                  </div>
-                  <div className={`p-3 rounded-full ${stat.bgColor}`}>
-                    <stat.icon className={`h-6 w-6 ${stat.color}`} />
+                      )}
+                      {stat.change && <p className={`text-sm text-gray-500`}>{stat.change} from last month</p>}
+                    </div>
+                    <div className={`p-3 rounded-full ${stat.bgColor}`}>
+                      <stat.icon className={`h-6 w-6 ${stat.color}`} />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </motion.div>
-        ))}
-      </motion.div>
+            </motion.div>
+          ))}
+        </motion.div>
+      )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6 lg:gap-8">
+      {registrationCompleted && (
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6 lg:gap-8">
         {/* Today's Hub */}
         <div className="xl:col-span-2">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Today's Hub</h2>
@@ -456,6 +527,7 @@ export default function StudentDashboardPage() {
           </div>
         </div>
       </div>
+      )}
     </div>
   )
 }

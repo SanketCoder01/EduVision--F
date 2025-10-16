@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { supabase } from "@/lib/supabase"
+import ImageCropper from "@/components/ImageCropper"
 
 export default function ProfilePage() {
   const { toast } = useToast()
@@ -37,6 +38,7 @@ export default function ProfilePage() {
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false)
+  const [showImageCropper, setShowImageCropper] = useState(false)
 
   useEffect(() => {
     // Get user data from localStorage
@@ -251,11 +253,44 @@ export default function ProfilePage() {
   }
 
   const handlePhotoUpload = () => {
-    // In a real app, this would open a file picker
-    toast({
-      title: "Feature Not Available",
-      description: "Photo upload is not available in this demo.",
-    })
+    setShowImageCropper(true)
+  }
+
+  const handleSaveCroppedImage = async (croppedImage: string) => {
+    try {
+      setProfile(prev => ({ ...prev, face_image: croppedImage, photoUrl: croppedImage }))
+
+      // Save to backend
+      const facultySession = localStorage.getItem("facultySession")
+      if (facultySession) {
+        const user = JSON.parse(facultySession)
+        
+        const response = await fetch('/api/profile/update-photo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: user.id,
+            photo: croppedImage
+          })
+        })
+
+        if (response.ok) {
+          // Update localStorage
+          const updatedUser = {
+            ...user,
+            profile: { ...user.profile, face_image: croppedImage, photoUrl: croppedImage }
+          }
+          localStorage.setItem("facultySession", JSON.stringify(updatedUser))
+        }
+      }
+    } catch (error) {
+      console.error('Error saving photo:', error)
+      toast({
+        title: "Error",
+        description: "Failed to save photo. Please try again.",
+        variant: "destructive"
+      })
+    }
   }
 
   return (
@@ -539,6 +574,14 @@ export default function ProfilePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Image Cropper Dialog */}
+      <ImageCropper
+        open={showImageCropper}
+        onClose={() => setShowImageCropper(false)}
+        onSave={handleSaveCroppedImage}
+        currentImage={profile.face_image || profile.photoUrl}
+      />
       </div>
     </div>
   )

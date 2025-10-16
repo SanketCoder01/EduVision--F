@@ -398,4 +398,182 @@ export class SupabaseRealtimeService {
       }
     }
   }
+
+  // ============================================
+  // FACULTY METHODS
+  // ============================================
+
+  // Get assignments created by a faculty member
+  static async getFacultyAssignments(facultyId: string): Promise<Assignment[]> {
+    try {
+      const { data, error } = await supabase
+        .from('assignments')
+        .select(`
+          *,
+          faculty:faculty_id (
+            id,
+            name,
+            email,
+            department,
+            designation
+          )
+        `)
+        .eq('faculty_id', facultyId)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching faculty assignments:', error)
+        return []
+      }
+
+      return data || []
+    } catch (error) {
+      console.error('Error fetching faculty assignments:', error)
+      return []
+    }
+  }
+
+  // Get announcements created by a faculty member
+  static async getFacultyAnnouncements(facultyId: string): Promise<Announcement[]> {
+    try {
+      const { data, error } = await supabase
+        .from('announcements')
+        .select('*')
+        .eq('faculty_id', facultyId)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching faculty announcements:', error)
+        return []
+      }
+
+      return data || []
+    } catch (error) {
+      console.error('Error fetching faculty announcements:', error)
+      return []
+    }
+  }
+
+  // Get events created by a faculty member
+  static async getFacultyEvents(facultyId: string): Promise<Event[]> {
+    try {
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('faculty_id', facultyId)
+        .order('event_date', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching faculty events:', error)
+        return []
+      }
+
+      return data || []
+    } catch (error) {
+      console.error('Error fetching faculty events:', error)
+      return []
+    }
+  }
+
+  // Get student queries for a faculty member's department
+  static async getFacultyQueries(facultyId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('student_queries')
+        .select(`
+          *,
+          student:student_id (
+            id,
+            name,
+            full_name,
+            email,
+            department,
+            year,
+            prn
+          )
+        `)
+        .eq('faculty_id', facultyId)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching faculty queries:', error)
+        return []
+      }
+
+      return data || []
+    } catch (error) {
+      console.error('Error fetching faculty queries:', error)
+      return []
+    }
+  }
+
+  // Get grievances assigned to or in faculty's department
+  static async getFacultyGrievances(facultyDepartment: string) {
+    try {
+      const { data, error } = await supabase
+        .from('grievances')
+        .select(`
+          *,
+          student:student_id (
+            id,
+            name,
+            full_name,
+            email,
+            department,
+            year,
+            prn
+          )
+        `)
+        .eq('department', facultyDepartment)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching faculty grievances:', error)
+        return []
+      }
+
+      return data || []
+    } catch (error) {
+      console.error('Error fetching faculty grievances:', error)
+      return []
+    }
+  }
+
+  // Get Today's Hub data for faculty
+  static async getFacultyTodaysHubData(facultyId: string) {
+    try {
+      const [assignments, announcements, queries, grievances] = await Promise.all([
+        this.getFacultyAssignments(facultyId),
+        this.getFacultyAnnouncements(facultyId),
+        this.getFacultyQueries(facultyId),
+        (async () => {
+          const { data: faculty } = await supabase
+            .from('faculty')
+            .select('department')
+            .eq('id', facultyId)
+            .single()
+          
+          if (faculty) {
+            return this.getFacultyGrievances(faculty.department)
+          }
+          return []
+        })()
+      ])
+
+      return {
+        assignments: assignments.slice(0, 5),
+        announcements: announcements.slice(0, 3),
+        queries: queries.slice(0, 5),
+        grievances: grievances.slice(0, 3)
+      }
+    } catch (error) {
+      console.error('Error fetching faculty today\'s hub data:', error)
+      return {
+        assignments: [],
+        announcements: [],
+        queries: [],
+        grievances: []
+      }
+    }
+  }
 }

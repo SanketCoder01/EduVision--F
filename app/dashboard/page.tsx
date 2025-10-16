@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import {
   BookOpen,
@@ -22,14 +23,20 @@ import {
   CheckCircle,
   XCircle,
   Sparkles,
+  ArrowRight,
+  Lock,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { SupabaseRealtimeService } from "@/lib/supabase-realtime"
+import { supabase } from "@/lib/supabase"
 
 export default function DashboardPage() {
+  const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [registrationCompleted, setRegistrationCompleted] = useState<boolean>(true)
   const [notifications, setNotifications] = useState<any[]>([])
   const [publishedAssignments, setPublishedAssignments] = useState<any[]>([])
   const [todaysHubItems, setTodaysHubItems] = useState<any[]>([])
@@ -56,6 +63,17 @@ export default function DashboardPage() {
         }
         
         if (user) {
+          // Fetch latest registration status from Supabase
+          const { data: faculty, error } = await supabase
+            .from('faculty')
+            .select('registration_completed')
+            .eq('email', user.email)
+            .single()
+          
+          if (faculty) {
+            setRegistrationCompleted(faculty.registration_completed || false)
+          }
+          
           setCurrentUser(user)
           await loadRealTimeData(user)
         }
@@ -268,6 +286,61 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      {/* Complete Registration Banner */}
+      {!registrationCompleted && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-r from-red-600 via-orange-600 to-red-600 text-white rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-2xl border-4 border-red-400"
+        >
+          <div className="absolute inset-0 bg-black/10"></div>
+          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32"></div>
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/10 rounded-full -ml-24 -mb-24"></div>
+          
+          <div className="relative z-10">
+            <div className="flex items-start gap-4">
+              <motion.div
+                animate={{ scale: [1, 1.2, 1] }}
+                transition={{ repeat: Infinity, duration: 2 }}
+                className="flex-shrink-0"
+              >
+                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
+                  <AlertTriangle className="h-8 w-8 text-white" />
+                </div>
+              </motion.div>
+              
+              <div className="flex-1">
+                <h2 className="text-2xl md:text-3xl font-bold mb-2">Complete Your Registration First!</h2>
+                <p className="text-white/90 text-base md:text-lg mb-4">
+                  You need to complete your registration to unlock all dashboard features and modules. 
+                  Please fill in your mandatory details to get started.
+                </p>
+                
+                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                  <Button
+                    onClick={() => router.push('/dashboard/complete-registration')}
+                    size="lg"
+                    className="bg-white text-red-600 hover:bg-gray-100 font-semibold shadow-lg"
+                  >
+                    <FileText className="h-5 w-5 mr-2" />
+                    Complete Registration Now
+                    <ArrowRight className="h-5 w-5 ml-2" />
+                  </Button>
+                  
+                  <div className="flex items-center gap-2 text-white/80 text-sm">
+                    <Lock className="h-4 w-4" />
+                    <span>All features are currently locked</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Only show content if registration is completed */}
+      {registrationCompleted && (
+        <>
       {/* Welcome Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -466,6 +539,8 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+        </>
+      )}
     </div>
   )
 }

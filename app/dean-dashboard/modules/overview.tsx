@@ -20,7 +20,7 @@ import {
   CheckCircle,
   AlertTriangle
 } from "lucide-react"
-import { createClient } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
 
 export default function OverviewModule({ dean }: { dean: any }) {
   const [stats, setStats] = useState({
@@ -33,7 +33,6 @@ export default function OverviewModule({ dean }: { dean: any }) {
   })
   const [recentActivity, setRecentActivity] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
 
   useEffect(() => {
     fetchOverviewData()
@@ -45,36 +44,102 @@ export default function OverviewModule({ dean }: { dean: any }) {
       const { count: studentsCount } = await supabase
         .from('students')
         .select('*', { count: 'exact', head: true })
+        .eq('status', 'active')
 
       // Fetch faculty count
       const { count: facultyCount } = await supabase
         .from('faculty')
         .select('*', { count: 'exact', head: true })
+        .eq('status', 'active')
 
-      // Fetch courses count
-      const { count: coursesCount } = await supabase
-        .from('courses')
+      // Fetch upcoming events
+      const { count: eventsCount } = await supabase
+        .from('dean_events')
         .select('*', { count: 'exact', head: true })
+        .eq('status', 'upcoming')
 
-      // Mock recent activity data
-      const mockActivity = [
-        { id: 1, type: 'assignment', message: 'New assignment posted in Data Structures', time: '2 hours ago', icon: BookOpen },
-        { id: 2, type: 'result', message: 'Mid-term results uploaded for CS students', time: '4 hours ago', icon: Award },
-        { id: 3, type: 'event', message: 'Hackathon registration deadline approaching', time: '6 hours ago', icon: Calendar },
-        { id: 4, type: 'student', message: '5 new students enrolled in AI & Data Science', time: '1 day ago', icon: Users },
-        { id: 5, type: 'faculty', message: 'Faculty performance review completed', time: '2 days ago', icon: TrendingUp }
-      ]
+      // Fetch upcoming hackathons
+      const { count: hackathonsCount } = await supabase
+        .from('hackathons')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'upcoming')
+
+      // Fetch recent results for pass rate calculation
+      const { data: resultsData } = await supabase
+        .from('student_results')
+        .select('status')
+        .order('created_at', { ascending: false })
+        .limit(100)
+
+      const passedCount = resultsData?.filter(r => r.status === 'Pass').length || 0
+      const totalResults = resultsData?.length || 1
+      const calculatedPassRate = (passedCount / totalResults) * 100
+
+      // Fetch recent activity from multiple sources
+      const { data: recentEvents } = await supabase
+        .from('dean_events')
+        .select('title, created_at')
+        .order('created_at', { ascending: false })
+        .limit(2)
+
+      const { data: recentHackathons } = await supabase
+        .from('hackathons')
+        .select('title, created_at')
+        .order('created_at', { ascending: false })
+        .limit(2)
+
+      const { data: recentResults } = await supabase
+        .from('student_results')
+        .select('subject, created_at')
+        .order('created_at', { ascending: false })
+        .limit(2)
+
+      // Build activity feed
+      const activityFeed = []
+      if (recentEvents) {
+        recentEvents.forEach(event => {
+          activityFeed.push({
+            id: `event-${event.created_at}`,
+            type: 'event',
+            message: `New event created: ${event.title}`,
+            time: new Date(event.created_at).toLocaleString(),
+            icon: Calendar
+          })
+        })
+      }
+      if (recentHackathons) {
+        recentHackathons.forEach(hack => {
+          activityFeed.push({
+            id: `hack-${hack.created_at}`,
+            type: 'hackathon',
+            message: `New hackathon: ${hack.title}`,
+            time: new Date(hack.created_at).toLocaleString(),
+            icon: Code
+          })
+        })
+      }
+      if (recentResults) {
+        recentResults.forEach(result => {
+          activityFeed.push({
+            id: `result-${result.created_at}`,
+            type: 'result',
+            message: `Results uploaded for ${result.subject}`,
+            time: new Date(result.created_at).toLocaleString(),
+            icon: Award
+          })
+        })
+      }
 
       setStats({
-        totalStudents: studentsCount || 1247,
-        totalFaculty: facultyCount || 45,
-        activeCourses: coursesCount || 28,
-        upcomingEvents: 8,
-        passRate: 94.6,
-        avgGPA: 8.2
+        totalStudents: studentsCount || 0,
+        totalFaculty: facultyCount || 0,
+        activeCourses: 28, // Can be fetched from courses table if exists
+        upcomingEvents: (eventsCount || 0) + (hackathonsCount || 0),
+        passRate: calculatedPassRate || 0,
+        avgGPA: 8.2 // Can be calculated from student results
       })
       
-      setRecentActivity(mockActivity)
+      setRecentActivity(activityFeed.slice(0, 5))
     } catch (error) {
       console.error('Error fetching overview data:', error)
     } finally {

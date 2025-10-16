@@ -26,6 +26,7 @@ import {
   Clock,
   FileText,
   Brain,
+  Lock,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -39,6 +40,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { toast } from "@/hooks/use-toast"
 import AttendanceExpiryService from "@/lib/attendance-expiry-service"
+import { supabase } from "@/lib/supabase"
 
 const sidebarItems = [
   { icon: Home, label: "Dashboard", href: "/dashboard", color: "text-blue-600" },
@@ -61,46 +63,88 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [user, setUser] = useState<any>(null)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [notifications, setNotifications] = useState(0)
+  const [registrationCompleted, setRegistrationCompleted] = useState<boolean | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Check for faculty login
-    const facultySession = localStorage.getItem("facultySession")
-    const currentUser = localStorage.getItem("currentUser")
+    checkRegistrationStatus()
 
-    if (facultySession) {
-      try {
-        const faculty = JSON.parse(facultySession)
-        console.log("Faculty session data:", faculty) // Debug log
-        setUser(faculty)
-      } catch (error) {
-        console.error("Error parsing faculty session:", error)
-        router.push("/login?type=faculty")
-      }
-    } else if (currentUser) {
-      try {
-        const userData = JSON.parse(currentUser)
-        console.log("Current user data:", userData) // Debug log
-        if (userData.userType === "faculty") {
-          setUser(userData)
-        } else {
-          router.push("/login?type=faculty")
-        }
-      } catch (error) {
-        console.error("Error parsing user data:", error)
-        router.push("/login?type=faculty")
-      }
-    } else {
-      router.push("/login?type=faculty")
-    }
-
-    // Temporarily disabled attendance expiry service
-    // AttendanceExpiryService.start()
+    // Start attendance expiry service
+    AttendanceExpiryService.start()
 
     // Cleanup on unmount
-    // return () => {
+    return () => {
     //   AttendanceExpiryService.stop()
-    // }
+    }
   }, [router])
+
+  const checkRegistrationStatus = async () => {
+    try {
+      // Check for faculty login
+      const facultySession = localStorage.getItem("facultySession")
+      const currentUser = localStorage.getItem("currentUser")
+
+      let facultyData = null
+
+      if (facultySession) {
+        try {
+          facultyData = JSON.parse(facultySession)
+        } catch (error) {
+          console.error("Error parsing faculty session:", error)
+          router.push("/login?type=faculty")
+          return
+        }
+      } else if (currentUser) {
+        try {
+          const userData = JSON.parse(currentUser)
+          if (userData.userType === "faculty") {
+            facultyData = userData
+          } else {
+            router.push("/login?type=faculty")
+            return
+          }
+        } catch (error) {
+          console.error("Error parsing user data:", error)
+          router.push("/login?type=faculty")
+          return
+        }
+      } else {
+        router.push("/login?type=faculty")
+        return
+      }
+
+      if (facultyData) {
+        // Fetch latest faculty data from Supabase
+        const { data: faculty, error } = await supabase
+          .from('faculty')
+          .select('*')
+          .eq('email', facultyData.email)
+          .single()
+
+        if (error) {
+          console.error('Error fetching faculty:', error)
+          setUser(facultyData)
+          setRegistrationCompleted(true) // Default to true if error
+        } else {
+          setUser(faculty)
+          setRegistrationCompleted(faculty.registration_completed || false)
+          
+          // Update local storage with latest data
+          localStorage.setItem('facultySession', JSON.stringify(faculty))
+          localStorage.setItem('currentUser', JSON.stringify({ ...faculty, userType: 'faculty' }))
+          
+          // Redirect to registration if not completed and not already on registration page
+          if (!faculty.registration_completed && pathname !== '/dashboard/complete-registration') {
+            router.push('/dashboard/complete-registration')
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error checking registration:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleLogout = () => {
     localStorage.removeItem("facultySession")
@@ -115,19 +159,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const isHomePage = pathname === "/dashboard"
 
-  if (!user) {
+  if (loading || !user || registrationCompleted === null) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading Faculty Dashboard...</p>
+          <p className="text-gray-600">Loading Dashboard...</p>
         </div>
       </div>
     )
   }
 
+  // Always show all items with lock icons if registration not completed
+  const displaySidebarItems = sidebarItems
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
       {/* Desktop Sidebar */}
       <div className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-64 lg:flex-col">
         <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-white/90 backdrop-blur-xl border-r border-gray-200/50 px-6 pb-4 shadow-xl">
@@ -153,8 +200,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <ul role="list" className="flex flex-1 flex-col gap-y-7">
               <li>
                 <ul role="list" className="-mx-2 space-y-1">
-                  {sidebarItems.map((item, index) => {
+                  {!registrationCompleted && (
+                    <motion.li
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="mb-2"
+                    >
+                      <Link
+                        href="/dashboard/complete-registration"
+                        className="group flex gap-x-3 rounded-xl p-3 text-sm leading-6 font-semibold transition-all duration-200 bg-gradient-to-r from-red-50 to-orange-50 text-red-700 shadow-md border border-red-200/50 hover:shadow-lg"
+                      >
+                        <FileText className="h-6 w-6 shrink-0 text-red-600" />
+                        Complete Registration
+                        <motion.div
+                          className="ml-auto"
+                          animate={{ scale: [1, 1.2, 1] }}
+                          transition={{ repeat: Infinity, duration: 2 }}
+                        >
+                          <span className="text-red-600">⚠️</span>
+                        </motion.div>
+                      </Link>
+                    </motion.li>
+                  )}
+                  
+                  {displaySidebarItems.map((item, index) => {
                     const isActive = pathname === item.href
+                    const isLocked = !registrationCompleted && item.href !== "/dashboard"
+                    
                     return (
                       <motion.li
                         key={item.href}
@@ -163,20 +235,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         transition={{ delay: index * 0.1 }}
                       >
                         <Link
-                          href={item.href}
+                          href={isLocked ? "#" : item.href}
+                          onClick={(e) => {
+                            if (isLocked) {
+                              e.preventDefault()
+                              toast({
+                                title: "Registration Required",
+                                description: "Please complete your registration to access this feature.",
+                                variant: "destructive",
+                              })
+                            }
+                          }}
                           className={`group flex gap-x-3 rounded-xl p-3 text-sm leading-6 font-semibold transition-all duration-200 ${
                             isActive
                               ? "bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 shadow-md border border-blue-200/50"
+                              : isLocked
+                              ? "text-gray-400 cursor-not-allowed opacity-60"
                               : "text-gray-700 hover:text-blue-700 hover:bg-gray-50"
                           }`}
                         >
                           <item.icon
                             className={`h-6 w-6 shrink-0 transition-colors ${
-                              isActive ? "text-blue-600" : `${item.color} group-hover:text-blue-600`
+                              isActive ? "text-blue-600" : isLocked ? "text-gray-400" : `${item.color} group-hover:text-blue-600`
                             }`}
                           />
                           {item.label}
-                          {isActive && (
+                          {isLocked && (
+                            <Lock className="ml-auto h-4 w-4 text-gray-400" />
+                          )}
+                          {isActive && !isLocked && (
                             <motion.div
                               layoutId="activeTab"
                               className="ml-auto w-2 h-2 bg-blue-600 rounded-full"
@@ -320,25 +407,57 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
                 <nav className="mt-6">
                   <ul role="list" className="space-y-2">
+                    {!registrationCompleted && (
+                      <li className="mb-2">
+                        <Link
+                          href="/dashboard/complete-registration"
+                          onClick={() => setIsMobileMenuOpen(false)}
+                          className="group flex gap-x-3 rounded-xl p-3 text-sm leading-6 font-semibold transition-all duration-200 bg-gradient-to-r from-red-50 to-orange-50 text-red-700 shadow-md border border-red-200/50"
+                        >
+                          <FileText className="h-6 w-6 shrink-0 text-red-600" />
+                          Complete Registration
+                          <span className="ml-auto text-red-600">⚠️</span>
+                        </Link>
+                      </li>
+                    )}
+                    
                     {sidebarItems.map((item) => {
                       const isActive = pathname === item.href
+                      const isLocked = !registrationCompleted && item.href !== "/dashboard"
+                      
                       return (
                         <li key={item.href}>
                           <Link
-                            href={item.href}
-                            onClick={() => setIsMobileMenuOpen(false)}
+                            href={isLocked ? "#" : item.href}
+                            onClick={(e) => {
+                              if (isLocked) {
+                                e.preventDefault()
+                                toast({
+                                  title: "Registration Required",
+                                  description: "Please complete your registration to access this feature.",
+                                  variant: "destructive",
+                                })
+                              } else {
+                                setIsMobileMenuOpen(false)
+                              }
+                            }}
                             className={`group flex gap-x-3 rounded-xl p-3 text-sm leading-6 font-semibold transition-all duration-200 ${
                               isActive
                                 ? "bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 shadow-md border border-blue-200/50"
+                                : isLocked
+                                ? "text-gray-400 cursor-not-allowed opacity-60"
                                 : "text-gray-700 hover:text-blue-700 hover:bg-gray-50"
                             }`}
                           >
                             <item.icon
                               className={`h-6 w-6 shrink-0 transition-colors ${
-                                isActive ? "text-blue-600" : `${item.color} group-hover:text-blue-600`
+                                isActive ? "text-blue-600" : isLocked ? "text-gray-400" : `${item.color} group-hover:text-blue-600`
                               }`}
                             />
                             {item.label}
+                            {isLocked && (
+                              <Lock className="ml-auto h-4 w-4 text-gray-400" />
+                            )}
                           </Link>
                         </li>
                       )

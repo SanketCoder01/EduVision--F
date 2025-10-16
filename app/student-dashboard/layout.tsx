@@ -25,6 +25,7 @@ import {
   Bot,
   ClipboardCheck,
   Brain,
+  Lock,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -39,6 +40,7 @@ import { Badge } from "@/components/ui/badge"
 import { toast } from "@/hooks/use-toast"
 import ChatbotWidget from "@/components/ai/ChatbotWidget"
 import AttendanceExpiryService from "@/lib/attendance-expiry-service"
+import { supabase } from "@/lib/supabase"
 
 const sidebarItems = [
   { icon: Home, label: "Dashboard", href: "/student-dashboard", color: "text-blue-600" },
@@ -63,35 +65,11 @@ export default function StudentDashboardLayout({ children }: { children: React.R
   const [user, setUser] = useState<any>(null)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [notifications, setNotifications] = useState(0)
+  const [registrationCompleted, setRegistrationCompleted] = useState<boolean | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Check for student login
-    const studentSession = localStorage.getItem("studentSession")
-    const currentUser = localStorage.getItem("currentUser")
-
-    if (studentSession) {
-      try {
-        const student = JSON.parse(studentSession)
-        setUser(student)
-      } catch (error) {
-        console.error("Error parsing student session:", error)
-        router.push("/login?type=student")
-      }
-    } else if (currentUser) {
-      try {
-        const userData = JSON.parse(currentUser)
-        if (userData.userType === "student") {
-          setUser(userData)
-        } else {
-          router.push("/login?type=student")
-        }
-      } catch (error) {
-        console.error("Error parsing user data:", error)
-        router.push("/login?type=student")
-      }
-    } else {
-      router.push("/login?type=student")
-    }
+    checkRegistrationStatus()
 
     // Start attendance expiry service
     AttendanceExpiryService.start()
@@ -101,6 +79,73 @@ export default function StudentDashboardLayout({ children }: { children: React.R
       AttendanceExpiryService.stop()
     }
   }, [router])
+
+  const checkRegistrationStatus = async () => {
+    try {
+      // Check for student login
+      const studentSession = localStorage.getItem("studentSession")
+      const currentUser = localStorage.getItem("currentUser")
+
+      let studentData = null
+
+      if (studentSession) {
+        try {
+          studentData = JSON.parse(studentSession)
+        } catch (error) {
+          console.error("Error parsing student session:", error)
+          router.push("/login?type=student")
+          return
+        }
+      } else if (currentUser) {
+        try {
+          const userData = JSON.parse(currentUser)
+          if (userData.userType === "student") {
+            studentData = userData
+          } else {
+            router.push("/login?type=student")
+            return
+          }
+        } catch (error) {
+          console.error("Error parsing user data:", error)
+          router.push("/login?type=student")
+          return
+        }
+      } else {
+        router.push("/login?type=student")
+        return
+      }
+
+      if (studentData) {
+        // Fetch latest student data from Supabase
+        const { data: student, error } = await supabase
+          .from('students')
+          .select('*')
+          .eq('email', studentData.email)
+          .single()
+
+        if (error) {
+          console.error('Error fetching student:', error)
+          setUser(studentData)
+          setRegistrationCompleted(true) // Default to true if error
+        } else {
+          setUser(student)
+          setRegistrationCompleted(student.registration_completed || false)
+          
+          // Update local storage with latest data
+          localStorage.setItem('studentSession', JSON.stringify(student))
+          
+          // Redirect to registration if not completed and not already on registration page
+          if (!student.registration_completed && pathname !== '/student-dashboard/complete-registration') {
+            router.push('/student-dashboard/complete-registration')
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error checking registration:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleLogout = () => {
     localStorage.removeItem("studentSession")
@@ -115,7 +160,7 @@ export default function StudentDashboardLayout({ children }: { children: React.R
 
   const isHomePage = pathname === "/student-dashboard"
 
-  if (!user) {
+  if (loading || !user || registrationCompleted === null) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-100 flex items-center justify-center">
         <div className="text-center">
@@ -125,6 +170,9 @@ export default function StudentDashboardLayout({ children }: { children: React.R
       </div>
     )
   }
+
+  // Always show all items with lock icons if registration not completed
+  const displaySidebarItems = sidebarItems
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-100">
@@ -153,8 +201,33 @@ export default function StudentDashboardLayout({ children }: { children: React.R
             <ul role="list" className="flex flex-1 flex-col gap-y-7">
               <li>
                 <ul role="list" className="-mx-2 space-y-1">
-                  {sidebarItems.map((item, index) => {
+                  {!registrationCompleted && (
+                    <motion.li
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="mb-2"
+                    >
+                      <Link
+                        href="/student-dashboard/complete-registration"
+                        className="group flex gap-x-3 rounded-xl p-3 text-sm leading-6 font-semibold transition-all duration-200 bg-gradient-to-r from-red-50 to-orange-50 text-red-700 shadow-md border border-red-200/50 hover:shadow-lg"
+                      >
+                        <FileText className="h-6 w-6 shrink-0 text-red-600" />
+                        Complete Registration
+                        <motion.div
+                          className="ml-auto"
+                          animate={{ scale: [1, 1.2, 1] }}
+                          transition={{ repeat: Infinity, duration: 2 }}
+                        >
+                          <span className="text-red-600">⚠️</span>
+                        </motion.div>
+                      </Link>
+                    </motion.li>
+                  )}
+                  
+                  {displaySidebarItems.map((item, index) => {
                     const isActive = pathname === item.href
+                    const isLocked = !registrationCompleted && item.href !== "/student-dashboard"
+                    
                     return (
                       <motion.li
                         key={item.href}
@@ -163,20 +236,35 @@ export default function StudentDashboardLayout({ children }: { children: React.R
                         transition={{ delay: index * 0.1 }}
                       >
                         <Link
-                          href={item.href}
+                          href={isLocked ? "#" : item.href}
+                          onClick={(e) => {
+                            if (isLocked) {
+                              e.preventDefault()
+                              toast({
+                                title: "Registration Required",
+                                description: "Please complete your registration to access this feature.",
+                                variant: "destructive",
+                              })
+                            }
+                          }}
                           className={`group flex gap-x-3 rounded-xl p-3 text-sm leading-6 font-semibold transition-all duration-200 ${
                             isActive
                               ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-md border border-emerald-200/50"
+                              : isLocked
+                              ? "text-gray-400 cursor-not-allowed opacity-60"
                               : "text-gray-700 hover:text-emerald-700 hover:bg-gray-50"
                           }`}
                         >
                           <item.icon
                             className={`h-6 w-6 shrink-0 transition-colors ${
-                              isActive ? "text-emerald-600" : `${item.color} group-hover:text-emerald-600`
+                              isActive ? "text-emerald-600" : isLocked ? "text-gray-400" : `${item.color} group-hover:text-emerald-600`
                             }`}
                           />
                           {item.label}
-                          {isActive && (
+                          {isLocked && (
+                            <Lock className="ml-auto h-4 w-4 text-gray-400" />
+                          )}
+                          {isActive && !isLocked && (
                             <motion.div
                               layoutId="activeTab"
                               className="ml-auto w-2 h-2 bg-emerald-600 rounded-full"
@@ -320,25 +408,57 @@ export default function StudentDashboardLayout({ children }: { children: React.R
                 </div>
                 <nav className="mt-6">
                   <ul role="list" className="space-y-2">
+                    {!registrationCompleted && (
+                      <li className="mb-2">
+                        <Link
+                          href="/student-dashboard/complete-registration"
+                          onClick={() => setIsMobileMenuOpen(false)}
+                          className="group flex gap-x-3 rounded-xl p-3 text-sm leading-6 font-semibold transition-all duration-200 bg-gradient-to-r from-red-50 to-orange-50 text-red-700 shadow-md border border-red-200/50"
+                        >
+                          <FileText className="h-6 w-6 shrink-0 text-red-600" />
+                          Complete Registration
+                          <span className="ml-auto text-red-600">⚠️</span>
+                        </Link>
+                      </li>
+                    )}
+                    
                     {sidebarItems.map((item) => {
                       const isActive = pathname === item.href
+                      const isLocked = !registrationCompleted && item.href !== "/student-dashboard"
+                      
                       return (
                         <li key={item.href}>
                           <Link
-                            href={item.href}
-                            onClick={() => setIsMobileMenuOpen(false)}
+                            href={isLocked ? "#" : item.href}
+                            onClick={(e) => {
+                              if (isLocked) {
+                                e.preventDefault()
+                                toast({
+                                  title: "Registration Required",
+                                  description: "Please complete your registration to access this feature.",
+                                  variant: "destructive",
+                                })
+                              } else {
+                                setIsMobileMenuOpen(false)
+                              }
+                            }}
                             className={`group flex gap-x-3 rounded-xl p-3 text-sm leading-6 font-semibold transition-all duration-200 ${
                               isActive
                                 ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-md border border-emerald-200/50"
+                                : isLocked
+                                ? "text-gray-400 cursor-not-allowed opacity-60"
                                 : "text-gray-700 hover:text-emerald-700 hover:bg-gray-50"
                             }`}
                           >
                             <item.icon
                               className={`h-6 w-6 shrink-0 transition-colors ${
-                                isActive ? "text-emerald-600" : `${item.color} group-hover:text-emerald-600`
+                                isActive ? "text-emerald-600" : isLocked ? "text-gray-400" : `${item.color} group-hover:text-emerald-600`
                               }`}
                             />
                             {item.label}
+                            {isLocked && (
+                              <Lock className="ml-auto h-4 w-4 text-gray-400" />
+                            )}
                           </Link>
                         </li>
                       )

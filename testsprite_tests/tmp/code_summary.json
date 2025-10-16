@@ -1,0 +1,259 @@
+{
+  "tech_stack": [
+    "TypeScript",
+    "Next.js 14",
+    "React 18",
+    "Supabase (PostgreSQL)",
+    "Tailwind CSS",
+    "Framer Motion",
+    "Radix UI",
+    "Recharts",
+    "React Hook Form",
+    "Zod Validation"
+  ],
+  "features": [
+    {
+      "name": "Profile Completion API",
+      "description": "Complete user registration with profile data including department, year, PRN, and face image",
+      "files": ["app/api/profile/complete/route.ts", "app/complete-profile/page.tsx"],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "paths": {
+          "/api/profile/complete": {
+            "post": {
+              "summary": "Complete user profile registration",
+              "requestBody": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "required": ["user_id", "email", "name", "user_type", "department"],
+                      "properties": {
+                        "user_id": {"type": "string", "format": "uuid"},
+                        "email": {"type": "string", "format": "email"},
+                        "name": {"type": "string"},
+                        "user_type": {"type": "string", "enum": ["student", "faculty"]},
+                        "department": {"type": "string"},
+                        "year": {"type": "string", "enum": ["first", "second", "third", "fourth"]},
+                        "prn": {"type": "string"},
+                        "phone": {"type": "string"},
+                        "address": {"type": "string"},
+                        "face_image": {"type": "string"}
+                      }
+                    }
+                  }
+                }
+              },
+              "responses": {
+                "200": {
+                  "description": "Profile completed successfully"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Profile Photo Update API",
+      "description": "Update user profile picture with cropped image",
+      "files": ["app/api/profile/update-photo/route.ts"],
+      "api_doc": {
+        "openapi": "3.0.0",
+        "paths": {
+          "/api/profile/update-photo": {
+            "post": {
+              "summary": "Update profile photo",
+              "requestBody": {
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "required": ["user_id", "photo"],
+                      "properties": {
+                        "user_id": {"type": "string", "format": "uuid"},
+                        "photo": {"type": "string", "description": "Base64 encoded image"},
+                        "user_type": {"type": "string", "enum": ["student", "faculty"]}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Student Data Service",
+      "description": "Fetch students dynamically by department and year for faculty operations",
+      "files": ["lib/student-data-service.ts"],
+      "api_doc": {
+        "description": "Client-side service for querying student data from Supabase",
+        "methods": [
+          "getStudentsByDepartment(dept: string)",
+          "getStudentsByDepartmentAndYear(dept: string, year: string)",
+          "getStudentsByDepartmentAndYears(dept: string, years: string[])",
+          "searchStudents(query: string, dept?: string, year?: string)",
+          "getDepartmentStats(dept: string)",
+          "getStudentsForFaculty(facultyDept: string)"
+        ]
+      }
+    },
+    {
+      "name": "Notification Service",
+      "description": "Real-time notification system for students when faculty posts content",
+      "files": ["lib/notification-service.ts"],
+      "api_doc": {
+        "description": "Client-side service for managing real-time notifications",
+        "methods": [
+          "createNotificationsForStudents(contentType, contentId, dept, years, title, message)",
+          "getUnreadNotifications(userId: string)",
+          "subscribeToNotifications(userId: string, callback: Function)",
+          "markNotificationAsRead(notificationId: string)",
+          "getUnreadCount(userId: string)"
+        ]
+      }
+    },
+    {
+      "name": "Image Cropper Component",
+      "description": "Profile picture editing with crop, zoom, rotate functionality",
+      "files": ["components/ImageCropper.tsx"],
+      "api_doc": {
+        "description": "React component for image editing",
+        "props": {
+          "open": {"type": "boolean"},
+          "onClose": {"type": "function"},
+          "onSave": {"type": "function", "params": ["croppedImage: string"]},
+          "currentImage": {"type": "string", "optional": true}
+        }
+      }
+    },
+    {
+      "name": "Student Selector Component",
+      "description": "Dynamic student selection component with filters and search",
+      "files": ["components/StudentSelector.tsx"],
+      "api_doc": {
+        "description": "React component for selecting students",
+        "props": {
+          "department": {"type": "string", "optional": true},
+          "years": {"type": "array", "items": "string", "optional": true},
+          "selectedStudents": {"type": "array", "items": "string"},
+          "onSelectionChange": {"type": "function", "params": ["studentIds: string[]"]},
+          "multiSelect": {"type": "boolean", "default": true},
+          "showFilters": {"type": "boolean", "default": true},
+          "title": {"type": "string", "optional": true}
+        }
+      }
+    },
+    {
+      "name": "Notification Bell Component",
+      "description": "Real-time notification dropdown with unread count badge",
+      "files": ["components/NotificationBell.tsx"],
+      "api_doc": {
+        "description": "React component for displaying notifications",
+        "props": {
+          "userId": {"type": "string", "required": true},
+          "userType": {"type": "string", "enum": ["student", "faculty", "dean"], "required": true}
+        }
+      }
+    },
+    {
+      "name": "Faculty Profile Page",
+      "description": "Faculty profile viewing and editing with image cropper integration",
+      "files": ["app/dashboard/profile/page.tsx"],
+      "api_doc": {
+        "description": "Faculty profile management page with edit functionality"
+      }
+    },
+    {
+      "name": "Student Profile Page",
+      "description": "Student profile viewing with comprehensive information display",
+      "files": ["app/student-dashboard/profile/page.tsx"],
+      "api_doc": {
+        "description": "Student profile display page"
+      }
+    },
+    {
+      "name": "Database Functions",
+      "description": "PostgreSQL functions for student queries and notifications",
+      "files": ["supabase/migrations/300_comprehensive_real_data_system.sql"],
+      "api_doc": {
+        "description": "SQL functions and triggers",
+        "functions": [
+          "get_students_by_dept_year(p_department TEXT, p_years TEXT[])",
+          "get_department_stats(p_department TEXT)",
+          "notify_new_content() TRIGGER",
+          "create_notifications_for_content() TRIGGER"
+        ]
+      }
+    },
+    {
+      "name": "Attendance System",
+      "description": "Real-time attendance tracking with face verification and location validation",
+      "files": [
+        "app/dashboard/attendance/create/page.tsx",
+        "app/dashboard/attendance/settings/page.tsx",
+        "app/student-dashboard/attendance/page.tsx"
+      ],
+      "api_doc": {
+        "description": "Complete attendance management system with real-time updates"
+      }
+    },
+    {
+      "name": "Assignment System",
+      "description": "Assignment creation, submission, and grading with notifications",
+      "files": [
+        "app/dashboard/assignments/create/page.tsx",
+        "app/student-dashboard/assignments/page.tsx"
+      ],
+      "api_doc": {
+        "description": "Assignment management with target year filtering"
+      }
+    },
+    {
+      "name": "Study Groups",
+      "description": "Collaborative study group management with task assignment",
+      "files": [
+        "app/dashboard/study-groups/create/page.tsx",
+        "app/student-dashboard/study-groups/page.tsx"
+      ],
+      "api_doc": {
+        "description": "Study group creation and management"
+      }
+    },
+    {
+      "name": "Announcements",
+      "description": "Department and year-specific announcements with notifications",
+      "files": [
+        "app/dashboard/announcements/create/page.tsx",
+        "app/student-dashboard/announcements/page.tsx"
+      ],
+      "api_doc": {
+        "description": "Announcement broadcasting system"
+      }
+    },
+    {
+      "name": "Events Management",
+      "description": "Event creation and registration tracking",
+      "files": [
+        "app/dashboard/events/create/page.tsx",
+        "app/student-dashboard/events/page.tsx"
+      ],
+      "api_doc": {
+        "description": "Event management with RSVP tracking"
+      }
+    },
+    {
+      "name": "Today's Hub",
+      "description": "Centralized notification and activity feed",
+      "files": [
+        "app/dashboard/todays-hub/page.tsx",
+        "app/student-dashboard/todays-hub/page.tsx"
+      ],
+      "api_doc": {
+        "description": "Real-time activity feed with notifications"
+      }
+    }
+  ]
+}

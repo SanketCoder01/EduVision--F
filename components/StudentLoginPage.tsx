@@ -8,6 +8,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { toast } from "@/hooks/use-toast"
+import { supabase } from "@/lib/supabase"
+import { authenticateStudent } from "@/lib/simple-auth"
 import Link from "next/link"
 
 export default function StudentLoginPage() {
@@ -15,33 +19,45 @@ export default function StudentLoginPage() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
   const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    setTimeout(() => {
-      window.location.href = "/student-dashboard"
+    setError("")
+
+    try {
+      // Simple database authentication (development mode)
+      const student = await authenticateStudent(email, password)
+
+      if (!student) throw new Error('Student not found')
+
+      // Store student session
+      localStorage.setItem('studentSession', JSON.stringify(student))
+      localStorage.setItem('currentUser', JSON.stringify({ ...student, userType: 'student' }))
+      localStorage.setItem('userType', 'student')
+
+      toast({
+        title: "Login Successful",
+        description: `Welcome back, ${student.name}!`,
+      })
+
+      // Redirect to dashboard (registration check will happen in layout)
+      router.push('/student-dashboard')
+    } catch (error: any) {
+      console.error('Login error:', error)
+      setError(error.message || 'Login failed. Please check your credentials.')
+      toast({
+        title: "Login Failed",
+        description: error.message || "Please check your credentials and try again.",
+        variant: "destructive",
+      })
+    } finally {
       setIsLoading(false)
-    }, 500)
+    }
   }
 
-  const handleDevPass = () => {
-    // Set mock student session for dev access
-    const mockStudent = {
-      id: "dev-student-1",
-      name: "Dev Student",
-      email: "student@sanjivani.edu.in",
-      department: "CSE",
-      year: "3rd Year",
-      userType: "student"
-    }
-    localStorage.setItem("studentSession", JSON.stringify(mockStudent))
-    localStorage.setItem("currentUser", JSON.stringify(mockStudent))
-    
-    // Direct navigation to student dashboard
-    window.location.href = "/student-dashboard"
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
@@ -95,6 +111,12 @@ export default function StudentLoginPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="email" className="text-sm font-medium text-gray-700">
@@ -147,15 +169,6 @@ export default function StudentLoginPage() {
                   {isLoading ? "Signing In..." : "Sign In"}
                 </Button>
               </form>
-
-              {/* Dev Pass Button for Student */}
-              <Button
-                onClick={handleDevPass}
-                variant="outline"
-                className="w-full h-10 border-2 border-green-600 text-green-700 hover:bg-green-50 text-sm font-medium"
-              >
-                Dev Pass (Dashboard)
-              </Button>
 
               <div className="text-center pt-4">
                 <Link href="/" className="text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors">

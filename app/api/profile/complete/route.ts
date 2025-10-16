@@ -39,59 +39,63 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create the user_profiles table if it doesn't exist
-    const createTableQuery = `
-      CREATE TABLE IF NOT EXISTS user_profiles (
-        id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-        user_id UUID NOT NULL,
-        email VARCHAR(255) NOT NULL,
-        name VARCHAR(255) NOT NULL,
-        user_type VARCHAR(20) NOT NULL CHECK (user_type IN ('student', 'faculty')),
-        department VARCHAR(100) NOT NULL,
-        year VARCHAR(20),
-        designation VARCHAR(100),
-        prn VARCHAR(50),
-        phone VARCHAR(20),
-        address TEXT,
-        face_image TEXT,
-        profile_completed BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        UNIQUE(user_id),
-        UNIQUE(email)
-      );
-    `
-
-    // Execute table creation
-    const { error: createError } = await supabaseAdmin.rpc('exec_sql', {
-      sql: createTableQuery
-    })
-
-    if (createError) {
-      console.log('Table might already exist:', createError.message)
+    // Determine which table to use
+    const tableName = user_type === 'student' ? 'students' : 'faculty'
+    
+    // Prepare the data object based on user type
+    const profileData: any = {
+      name,
+      full_name: name,
+      email,
+      department,
+      phone,
+      address,
+      face_url: face_image,
+      photo: face_image,
+      avatar: face_image,
+      registration_completed: true,
+      updated_at: new Date().toISOString()
     }
 
-    // Insert the profile data
-    const { data, error } = await supabaseAdmin
-      .from('user_profiles')
-      .upsert({
-        user_id,
-        email,
-        name,
-        user_type,
-        department,
-        year: user_type === 'student' ? year : null,
-        designation: user_type === 'faculty' ? designation : null,
-        prn: user_type === 'student' ? prn : null,
-        phone,
-        address,
-        face_image,
-        profile_completed: true,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'user_id'
-      })
-      .select()
+    // Add student-specific or faculty-specific fields
+    if (user_type === 'student') {
+      profileData.year = year
+      profileData.prn = prn
+    } else if (user_type === 'faculty') {
+      profileData.designation = designation
+    }
+
+    // First, try to find existing record by email
+    const { data: existingUser } = await supabaseAdmin
+      .from(tableName)
+      .select('id')
+      .eq('email', email)
+      .single()
+
+    let data, error
+
+    if (existingUser) {
+      // Update existing record
+      const updateResult = await supabaseAdmin
+        .from(tableName)
+        .update(profileData)
+        .eq('email', email)
+        .select()
+        .single()
+      
+      data = updateResult.data
+      error = updateResult.error
+    } else {
+      // Insert new record
+      const insertResult = await supabaseAdmin
+        .from(tableName)
+        .insert(profileData)
+        .select()
+        .single()
+      
+      data = insertResult.data
+      error = insertResult.error
+    }
 
     if (error) {
       console.error('Database error:', error)
@@ -103,8 +107,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: data?.[0] || null,
-      message: 'Profile completed successfully'
+      data: data,
+      message: 'Profile completed successfully',
+      user_type
     })
 
   } catch (error) {

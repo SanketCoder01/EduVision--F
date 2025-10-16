@@ -2,25 +2,28 @@
 
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Upload, Download, Eye, Edit, Bot, FileText, Users, CheckCircle, XCircle, Filter } from "lucide-react"
-import { createClient } from "@/lib/supabase"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { supabase } from "@/lib/supabase"
 
 interface StudentResult {
   id: string
   roll_no: string
   name: string
+  email: string
   department: string
+  year: string
+  subject: string
+  exam_type: string
   marks: number
   total_marks: number
-  status: "Pass" | "Fail"
-  email: string
-  improvement_plan: string | null
-  created_at: string
+  percentage: number
+  grade: string
+  status: string
 }
 
 export default function ResultManagementModule({ dean }: { dean: any }) {
@@ -28,7 +31,6 @@ export default function ResultManagementModule({ dean }: { dean: any }) {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
-  const supabase = createClient()
 
   useEffect(() => {
     fetchResults()

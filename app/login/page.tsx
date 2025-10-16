@@ -13,7 +13,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "@/hooks/use-toast"
-import { authenticateFaculty } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
+import { authenticateFaculty } from "@/lib/simple-auth"
 import UniversityPortal from "@/components/UniversityPortal"
 import StudentLoginPage from "@/components/StudentLoginPage"
 
@@ -37,48 +38,36 @@ function LoginContent() {
     setIsLoading(true)
     setError("")
 
-    // Temporarily commented out Supabase auth
-    // try {
-    //   const faculty = await authenticateFaculty(email, password)
-    //   localStorage.setItem("faculty", JSON.stringify(faculty))
-    //   toast({
-    //     title: "Login Successful",
-    //     description: `Welcome back, ${faculty.name}!`,
-    //   })
-    //   router.push("/dashboard")
-    // } catch (error: any) {
-    //   setError(error.message || "Login failed. Please try again.")
-    //   toast({
-    //     title: "Login Failed",
-    //     description: error.message || "Please check your credentials and try again.",
-    //     variant: "destructive",
-    //   })
-    // } finally {
-    //   setIsLoading(false)
-    // }
+    try {
+      // Simple database authentication (development mode)
+      const faculty = await authenticateFaculty(email, password)
 
-    // Temporary bypass - redirect directly to dashboard
-    setTimeout(() => {
-      router.push("/dashboard")
+      if (!faculty) throw new Error('Faculty not found')
+
+      // Store faculty session
+      localStorage.setItem('facultySession', JSON.stringify(faculty))
+      localStorage.setItem('currentUser', JSON.stringify({ ...faculty, userType: 'faculty' }))
+      localStorage.setItem('userType', 'faculty')
+
+      toast({
+        title: "Login Successful",
+        description: `Welcome back, ${faculty.name}!`,
+      })
+
+      router.push('/dashboard')
+    } catch (error: any) {
+      console.error('Login error:', error)
+      setError(error.message || 'Login failed. Please check your credentials.')
+      toast({
+        title: "Login Failed",
+        description: error.message || "Please check your credentials and try again.",
+        variant: "destructive",
+      })
+    } finally {
       setIsLoading(false)
-    }, 500)
+    }
   }
 
-  const handleDevPass = () => {
-    // Set mock faculty session for dev access
-    const mockFaculty = {
-      id: "dev-faculty-1",
-      name: "Dev Faculty",
-      email: "faculty@sanjivani.edu.in",
-      department: "Computer Science",
-      userType: "faculty"
-    }
-    localStorage.setItem("facultySession", JSON.stringify(mockFaculty))
-    localStorage.setItem("currentUser", JSON.stringify(mockFaculty))
-    
-    // Direct navigation to dashboard
-    window.location.href = "/dashboard"
-  }
 
   if (showUniversityPortal) {
     return <UniversityPortal onBack={() => setShowUniversityPortal(false)} />
@@ -218,15 +207,6 @@ function LoginContent() {
                   {isLoading ? "Signing In..." : "Sign In"}
                 </Button>
               </form>
-
-              {/* Dev Pass Button */}
-              <Button
-                onClick={handleDevPass}
-                variant="outline"
-                className="w-full h-10 border-2 border-green-600 text-green-700 hover:bg-green-50 text-sm font-medium"
-              >
-                Dev Pass (Dashboard)
-              </Button>
 
               <div className="pt-4 border-t border-gray-200">
                 <Button

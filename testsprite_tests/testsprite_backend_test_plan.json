@@ -1,0 +1,12 @@
+[
+  {
+    "id": "TC001",
+    "title": "complete user profile registration",
+    "description": "Test the /api/profile/complete POST endpoint to ensure it correctly completes user registration with all required profile data including user_id, email, name, user_type, department, and optional fields like year, prn, phone, address, and face_image. Verify successful completion response and data persistence."
+  },
+  {
+    "id": "TC002",
+    "title": "update user profile photo",
+    "description": "Test the /api/profile/update-photo POST endpoint to verify that it accepts a base64 encoded image and updates the user's profile photo correctly. Validate that the photo is stored and reflected properly for the given user_id and user_type."
+  }
+]

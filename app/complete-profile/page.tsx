@@ -471,7 +471,7 @@ export default function CompleteProfilePage() {
               {currentStep === 1 && <GraduationCap className="w-5 h-5" />}
               {currentStep === 2 && <Phone className="w-5 h-5" />}
               {currentStep === 3 && <Camera className="w-5 h-5" />}
-              {currentStep === 1 && "Academic Information"}
+              {currentStep === 1 && "University or College Details"}
               {currentStep === 2 && "Contact Details"}
               {currentStep === 3 && "Face Capture"}
             </CardTitle>
@@ -510,7 +510,7 @@ export default function CompleteProfilePage() {
 
                 <div>
                   <Label htmlFor="department">Department *</Label>
-                  <Select onValueChange={(value) => handleSelectChange("department", value)}>
+                  <Select onValueChange={(value) => handleSelectChange("department", value)} value={formData.department}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select your department" />
                     </SelectTrigger>
@@ -527,21 +527,10 @@ export default function CompleteProfilePage() {
                 {userType === 'student' && (
                   <>
                     <div>
-                      <Label htmlFor="prn">PRN (Permanent Registration Number) *</Label>
-                      <Input
-                        id="prn"
-                        name="prn"
-                        value={formData.prn}
-                        onChange={handleInputChange}
-                        placeholder="Enter your PRN (e.g., 22CSE001)"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="year">Academic Year *</Label>
-                      <Select onValueChange={(value) => handleSelectChange("year", value)}>
+                      <Label htmlFor="year">Studying Year *</Label>
+                      <Select onValueChange={(value) => handleSelectChange("year", value)} value={formData.year}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select your year" />
+                          <SelectValue placeholder="Select your studying year" />
                         </SelectTrigger>
                         <SelectContent>
                           {years.map((year) => (
@@ -552,13 +541,25 @@ export default function CompleteProfilePage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div>
+                      <Label htmlFor="prn">University PRN (Permanent Registration Number) *</Label>
+                      <Input
+                        id="prn"
+                        name="prn"
+                        value={formData.prn}
+                        onChange={handleInputChange}
+                        placeholder="Enter your University PRN (e.g., 22CSE001)"
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1">This will be used to identify you across all modules</p>
+                    </div>
                   </>
                 )}
 
                 {userType === 'faculty' && (
                   <div>
                     <Label htmlFor="designation">Designation *</Label>
-                    <Select onValueChange={(value) => handleSelectChange("designation", value)}>
+                    <Select onValueChange={(value) => handleSelectChange("designation", value)} value={formData.designation}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select your designation" />
                       </SelectTrigger>

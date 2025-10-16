@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import { supabase } from '@/lib/supabase'
 import {
   Bell,
   Calendar,
@@ -28,21 +29,19 @@ import { useToast } from "@/components/ui/use-toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 
-// Mock data for departments and classes
-const departments = ["Computer Science", "Information Technology", "Mechanical Engineering", "Electrical Engineering"]
-const classes = [
-  { id: "fy-cse", name: "FY CSE", count: 120 },
-  { id: "sy-cse", name: "SY CSE", count: 110 },
-  { id: "ty-cse", name: "TY CSE", count: 105 },
-  { id: "fy-it", name: "FY IT", count: 90 },
-  { id: "sy-it", name: "SY IT", count: 85 },
-  { id: "ty-it", name: "TY IT", count: 80 },
+// Department and year configurations
+const departments = [
+  { id: "cse", name: "Computer Science (CSE)", count: 400 },
+  { id: "aids", name: "AI & Data Science (AIDS)", count: 350 },
+  { id: "aiml", name: "AI & Machine Learning (AIML)", count: 300 },
+  { id: "cyber", name: "Cyber Security", count: 250 },
 ]
 
 const years = [
-  { id: "AIDS", name: "AIDS", count: 350 },
-  { id: "CSE", name: "CSE", count: 320 },
-  { id: "AIML", name: "AIML", count: 300 },
+  { id: "first", name: "1st Year", count: 100 },
+  { id: "second", name: "2nd Year", count: 90 },
+  { id: "third", name: "3rd Year", count: 85 },
+  { id: "fourth", name: "4th Year", count: 80 },
 ]
 
 export default function AnnouncementsPage() {
@@ -63,12 +62,22 @@ export default function AnnouncementsPage() {
   const [scheduleDate, setScheduleDate] = useState("")
   const [isRecurring, setIsRecurring] = useState(false)
   const [recurringType, setRecurringType] = useState("weekly")
-  const [poster, setPoster] = useState(null)
+  const [poster, setPoster] = useState<string | null>(null)
+  const [posterPath, setPosterPath] = useState<string | null>(null)
+  const [isUploadingPoster, setIsUploadingPoster] = useState(false)
 
-  const fileInputRef = useRef(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Mock announcements data
-  const [announcements, setAnnouncements] = useState([
+  // Real announcements data from Supabase
+  const [announcements, setAnnouncements] = useState<any[]>([])
+  const [facultyId, setFacultyId] = useState<string | null>(null)
+  const [facultyDepartment, setFacultyDepartment] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [selectedDepartment, setSelectedDepartment] = useState("")
+  const [selectedYears, setSelectedYears] = useState<string[]>([])
+
+  // Mock data backup
+  const oldMockAnnouncements = [
     {
       id: 1,
       title: "Mid-Semester Examination Schedule",
@@ -113,18 +122,133 @@ export default function AnnouncementsPage() {
       readCount: 1200,
       registeredCount: 800,
     },
-  ])
+  ]
 
-  const handlePosterUpload = () => {
-    // In a real app, this would handle file upload
-    setPoster("/placeholder.svg?height=300&width=600")
-    toast({
-      title: "Poster Uploaded",
-      description: "Announcement poster has been uploaded successfully.",
-    })
+  // Fetch faculty info and announcements on mount
+  useEffect(() => {
+    fetchFacultyInfo()
+    fetchAnnouncements()
+  }, [])
+
+  const fetchFacultyInfo = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: faculty } = await supabase
+        .from('faculty')
+        .select('id, department')
+        .eq('email', user.email)
+        .single()
+
+      if (faculty) {
+        setFacultyId(faculty.id)
+        setFacultyDepartment(faculty.department)
+      }
+    } catch (error) {
+      console.error('Error fetching faculty info:', error)
+    }
   }
 
-  const createAnnouncement = () => {
+  const fetchAnnouncements = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('announcements')
+        .select(`
+          *,
+          faculty:faculty_id (
+            name,
+            department
+          )
+        `)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setAnnouncements(data || [])
+    } catch (error) {
+      console.error('Error fetching announcements:', error)
+    }
+  }
+
+  const handlePosterUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid File",
+        description: "Please upload an image file (PNG, JPG, JPEG)",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File Too Large",
+        description: "Please upload an image smaller than 5MB",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsUploadingPoster(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      // Call API route directly
+      const response = await fetch('/api/announcements/upload-poster', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const result = await response.json()
+
+      if (result.success && result.url && result.path) {
+        setPoster(result.url)
+        setPosterPath(result.path)
+        toast({
+          title: "Poster Uploaded",
+          description: "Announcement poster has been uploaded successfully.",
+        })
+      } else {
+        throw new Error(result.error || 'Upload failed')
+      }
+    } catch (error) {
+      console.error('Upload error:', error)
+      toast({
+        title: "Upload Failed",
+        description: error instanceof Error ? error.message : "Failed to upload poster",
+        variant: "destructive",
+      })
+    } finally {
+      setIsUploadingPoster(false)
+    }
+  }
+
+  const handleRemovePoster = async () => {
+    if (posterPath) {
+      try {
+        // Call API route directly
+        await fetch(`/api/announcements/delete-poster?path=${encodeURIComponent(posterPath)}`, {
+          method: 'DELETE',
+        })
+      } catch (error) {
+        console.error('Error deleting poster:', error)
+      }
+    }
+    setPoster(null)
+    setPosterPath(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const createAnnouncement = async () => {
     if (currentStep < 3) {
       setCurrentStep(currentStep + 1)
       return
@@ -139,49 +263,103 @@ export default function AnnouncementsPage() {
       return
     }
 
-    const newAnnouncement = {
-      id: announcements.length + 1,
-      title,
-      description,
-      date: scheduleForLater ? scheduleDate : date,
-      time,
-      venue,
-      poster,
-      targetType,
-      target: selectedTarget,
-      totalStudents:
-        targetType === "class"
-          ? classes.find((c) => c.id === selectedTarget)?.count || 0
-          : targetType === "department"
-            ? years.find((y) => y.id === selectedTarget)?.count || 0
-            : 2500, // Mock total for university
-      readCount: 0,
-      registeredCount: 0,
+    if (!facultyId) {
+      toast({
+        title: "Error",
+        description: "Faculty information not found",
+        variant: "destructive",
+      })
+      return
     }
 
-    setAnnouncements([...announcements, newAnnouncement])
+    setIsSubmitting(true)
 
-    // Reset form
-    setTitle("")
-    setDescription("")
-    setDate("")
-    setTime("")
-    setVenue("")
-    setTargetType("")
-    setSelectedTarget("")
-    setScheduleForLater(false)
-    setScheduleDate("")
-    setIsRecurring(false)
-    setRecurringType("weekly")
-    setPoster(null)
-    setCurrentStep(1)
+    try {
+      // Determine department and years based on target type
+      let dept = null
+      let target_years: string[] = []
 
-    setActiveTab("manage")
+      if (targetType === "class") {
+        // Specific classes: department + specific years
+        dept = selectedDepartment
+        target_years = selectedYears
+      } else if (targetType === "department") {
+        // Specific department: all years
+        dept = selectedTarget
+        target_years = [] // Empty means all years
+      } else if (targetType === "university") {
+        // University-wide
+        dept = null // null means all departments
+        target_years = []
+      }
 
-    toast({
-      title: "Success",
-      description: "Announcement created successfully!",
-    })
+      // Call API route directly
+      const response = await fetch('/api/announcements/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title,
+          content: description,
+          department: dept,
+          target_years,
+          faculty_id: facultyId,
+          priority: 'normal',
+          target_audience: 'students',
+          poster_url: poster || undefined,
+          date: date || undefined,
+          time: time || undefined,
+          venue: venue || undefined,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to create announcement')
+      }
+
+      // Reset form
+      setTitle("")
+      setDescription("")
+      setDate("")
+      setTime("")
+      setVenue("")
+      setTargetType("")
+      setSelectedTarget("")
+      setSelectedDepartment("")
+      setSelectedYears([])
+      setScheduleForLater(false)
+      setScheduleDate("")
+      setIsRecurring(false)
+      setRecurringType("weekly")
+      setPoster(null)
+      setPosterPath(null)
+      setCurrentStep(1)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+
+      // Refresh announcements
+      await fetchAnnouncements()
+
+      setActiveTab("manage")
+
+      toast({
+        title: "Success",
+        description: "Announcement created and students notified!",
+      })
+    } catch (error) {
+      console.error('Error creating announcement:', error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to create announcement",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const renderCreateTab = () => (
@@ -240,23 +418,50 @@ export default function AnnouncementsPage() {
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: "auto" }}
-                    className="pt-4"
+                    className="pt-4 space-y-4"
                   >
-                    <Label className="mb-2 block">Select Class</Label>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                      {classes.map((cls) => (
-                        <Button
-                          key={cls.id}
-                          variant={selectedTarget === cls.id ? "default" : "outline"}
-                          className="justify-start"
-                          onClick={() => setSelectedTarget(cls.id)}
-                        >
-                          <GraduationCap className="h-4 w-4 mr-2" />
-                          {cls.name}
-                          <span className="ml-auto text-xs text-gray-500">{cls.count}</span>
-                        </Button>
-                      ))}
+                    <div>
+                      <Label className="mb-2 block">Select Department</Label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {departments.map((dept) => (
+                          <Button
+                            key={dept.id}
+                            variant={selectedDepartment === dept.id ? "default" : "outline"}
+                            className="justify-start"
+                            onClick={() => setSelectedDepartment(dept.id)}
+                          >
+                            <Building className="h-4 w-4 mr-2" />
+                            {dept.name}
+                          </Button>
+                        ))}
+                      </div>
                     </div>
+                    
+                    {selectedDepartment && (
+                      <div>
+                        <Label className="mb-2 block">Select Years (Multiple)</Label>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                          {years.map((year) => (
+                            <Button
+                              key={year.id}
+                              variant={selectedYears.includes(year.id) ? "default" : "outline"}
+                              className="justify-start"
+                              onClick={() => {
+                                if (selectedYears.includes(year.id)) {
+                                  setSelectedYears(selectedYears.filter(y => y !== year.id))
+                                } else {
+                                  setSelectedYears([...selectedYears, year.id])
+                                }
+                                setSelectedTarget(selectedDepartment)
+                              }}
+                            >
+                              <GraduationCap className="h-4 w-4 mr-2" />
+                              {year.name}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </motion.div>
                 )}
 
@@ -266,18 +471,18 @@ export default function AnnouncementsPage() {
                     animate={{ opacity: 1, height: "auto" }}
                     className="pt-4"
                   >
-                    <Label className="mb-2 block">Select Year</Label>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                      {years.map((year) => (
+                    <Label className="mb-2 block">Select Department (All Years)</Label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {departments.map((dept) => (
                         <Button
-                          key={year.id}
-                          variant={selectedTarget === year.id ? "default" : "outline"}
+                          key={dept.id}
+                          variant={selectedTarget === dept.id ? "default" : "outline"}
                           className="justify-start"
-                          onClick={() => setSelectedTarget(year.id)}
+                          onClick={() => setSelectedTarget(dept.id)}
                         >
-                          <Users className="h-4 w-4 mr-2" />
-                          {year.name}
-                          <span className="ml-auto text-xs text-gray-500">{year.count}</span>
+                          <Building className="h-4 w-4 mr-2" />
+                          {dept.name}
+                          <span className="ml-auto text-xs text-gray-500">{dept.count}</span>
                         </Button>
                       ))}
                     </div>
@@ -305,7 +510,10 @@ export default function AnnouncementsPage() {
             </Card>
 
             <div className="flex justify-end pt-4">
-              <Button onClick={() => setCurrentStep(2)} disabled={!targetType || !selectedTarget}>
+              <Button 
+                onClick={() => setCurrentStep(2)} 
+                disabled={!targetType || !selectedTarget || (targetType === 'class' && selectedYears.length === 0)}
+              >
                 Continue <ChevronRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
@@ -468,7 +676,7 @@ export default function AnnouncementsPage() {
                           className="absolute top-2 right-2 bg-white"
                           onClick={(e) => {
                             e.stopPropagation()
-                            setPoster(null)
+                            handleRemovePoster()
                           }}
                         >
                           <X className="h-4 w-4" />
@@ -477,10 +685,19 @@ export default function AnnouncementsPage() {
                     ) : (
                       <>
                         <Upload className="h-10 w-10 text-gray-400 mx-auto mb-4" />
-                        <h4 className="text-lg font-medium text-gray-700 mb-1">Upload Poster</h4>
-                        <p className="text-gray-500 text-sm mb-4">PNG, JPG, JPEG</p>
-                        <Button variant="outline" size="sm">
-                          Browse Files
+                        <h4 className="text-lg font-medium text-gray-700 mb-1">
+                          {isUploadingPoster ? "Uploading..." : "Upload Poster"}
+                        </h4>
+                        <p className="text-gray-500 text-sm mb-4">PNG, JPG, JPEG (Max 5MB)</p>
+                        <Button variant="outline" size="sm" disabled={isUploadingPoster}>
+                          {isUploadingPoster ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-gray-600 border-t-transparent rounded-full animate-spin mr-2"></div>
+                              Uploading...
+                            </>
+                          ) : (
+                            "Browse Files"
+                          )}
                         </Button>
                       </>
                     )}
@@ -490,6 +707,7 @@ export default function AnnouncementsPage() {
                       onChange={handlePosterUpload}
                       className="hidden"
                       accept="image/*"
+                      disabled={isUploadingPoster}
                     />
                   </div>
                 </div>
@@ -501,9 +719,9 @@ export default function AnnouncementsPage() {
                       <span className="text-gray-500">Target:</span>
                       <span className="font-medium">
                         {targetType === "class"
-                          ? classes.find((c) => c.id === selectedTarget)?.name
+                          ? `${departments.find((d) => d.id === selectedDepartment)?.name} - ${selectedYears.map(y => years.find(yr => yr.id === y)?.name).join(', ')}`
                           : targetType === "department"
-                            ? years.find((y) => y.id === selectedTarget)?.name
+                            ? `${departments.find((d) => d.id === selectedTarget)?.name} (All Years)`
                             : "All University"}
                       </span>
                     </div>
@@ -538,11 +756,20 @@ export default function AnnouncementsPage() {
             </Card>
 
             <div className="flex justify-between pt-4">
-              <Button variant="outline" onClick={() => setCurrentStep(2)}>
+              <Button variant="outline" onClick={() => setCurrentStep(2)} disabled={isSubmitting}>
                 <ChevronLeft className="mr-2 h-4 w-4" /> Back
               </Button>
-              <Button onClick={createAnnouncement}>
-                <Check className="mr-2 h-4 w-4" /> Create Announcement
+              <Button onClick={createAnnouncement} disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <Check className="mr-2 h-4 w-4" /> Create Announcement
+                  </>
+                )}
               </Button>
             </div>
           </motion.div>
@@ -568,16 +795,16 @@ export default function AnnouncementsPage() {
             <Card key={announcement.id} className="mb-6">
               <CardContent className="p-0">
                 <div className="md:flex">
-                  {announcement.poster && (
+                  {announcement.poster_url && (
                     <div className="md:w-1/3">
                       <img
-                        src={announcement.poster || "/placeholder.svg"}
+                        src={announcement.poster_url}
                         alt={announcement.title}
-                        className="w-full h-48 md:h-full object-cover"
+                        className="w-full h-48 md:h-full object-cover rounded-l-lg"
                       />
                     </div>
                   )}
-                  <div className="p-6 md:w-2/3">
+                  <div className={`p-6 ${announcement.poster_url ? 'md:w-2/3' : 'w-full'}`}>
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <h3 className="text-xl font-bold mb-1">{announcement.title}</h3>
@@ -604,7 +831,7 @@ export default function AnnouncementsPage() {
                       </div>
                     </div>
 
-                    <p className="text-gray-600 mb-4 line-clamp-2">{announcement.description}</p>
+                    <p className="text-gray-600 mb-4 line-clamp-2">{announcement.content || announcement.description}</p>
 
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
                       <div className="bg-purple-50 p-3 rounded-lg">

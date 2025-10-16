@@ -1,0 +1,18 @@
+{
+  "status": "commited",
+  "type": "backend",
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:3000",
+  "backendAuthType": "basic token",
+  "backendUsername": "amruta.pankade_24uce@sanjivani.edu.in",
+  "backendPassword": "2124UCEM2085",
+  "executionArgs": {
+    "projectName": "EduVision--F",
+    "projectPath": "d:/EduVision--F",
+    "testIds": [],
+    "additionalInstruction": "Test the newly implemented real data system including: 1) Profile completion API with department/year/PRN collection, 2) Profile photo update API with image cropping, 3) Student data fetching service, 4) Notification service with real-time subscriptions, 5) Image cropper component, 6) Student selector component, 7) Notification bell component. Focus on API endpoints, component rendering, and database integration.",
+    "envs": {
+      "API_KEY": "sk-user-0SOifJ6lYgnE2bXoljoRyz9lvdgkJHKiHdobQ_OpV5w6_VOSsu05vEaPVzJ06tQSvn7ZfHg6cN1OMBLGKOa-9x5Vzhpng8crSU6n-BpMuD_duwjQE7lnY-Q4Y9coQWivlVY"
+    }
+  }
+}
