@@ -26,7 +26,6 @@ import {
   Search,
   Settings,
   Thermometer,
-  Tool,
   Upload,
   Wifi,
   Wrench
@@ -180,7 +179,7 @@ export default function MaintenancePage() {
           <div>
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-100 text-blue-700">
-                <Tool className="h-6 w-6" />
+                <Wrench className="h-6 w-6" />
               </div>
               <h1 className="text-3xl font-bold text-gray-900">Maintenance Complaints</h1>
             </div>
@@ -266,7 +265,7 @@ export default function MaintenancePage() {
                           }`}>
                             {
                               complaint.status === "Resolved" ? <Check className="h-6 w-6" /> :
-                              complaint.status === "In Progress" ? <Tool className="h-6 w-6" /> :
+                              complaint.status === "In Progress" ? <Wrench className="h-6 w-6" /> :
                               <Clock className="h-6 w-6" />
                             }
                           </div>

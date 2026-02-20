@@ -3,6 +3,28 @@
 
 import { supabase } from './supabase'
 
+// Helper function to get table name based on department and year
+function getStudentTableName(department: string, year: string): string {
+  const deptMap: Record<string, string> = {
+    'CSE': 'cse',
+    'CYBER': 'cyber', 
+    'AIDS': 'aids',
+    'AIML': 'aiml'
+  }
+  
+  const yearMap: Record<string, string> = {
+    'first': '1st',
+    'second': '2nd',
+    'third': '3rd',
+    'fourth': '4th'
+  }
+  
+  const dept = deptMap[department.toUpperCase()] || 'cse'
+  const yr = yearMap[year.toLowerCase()] || '3rd'
+  
+  return `students_${dept}_${yr}_year`
+}
+
 export async function authenticateStudent(email: string, password: string) {
   try {
     console.log('🔍 Step 1: Authenticating with Supabase Auth:', email)
@@ -19,9 +41,9 @@ export async function authenticateStudent(email: string, password: string) {
     }
 
     console.log('✅ Step 1 Complete: Supabase Auth successful')
-    console.log('🔍 Step 2: Fetching student from database...')
+    console.log('🔍 Step 2: Searching for student across all department-year tables...')
 
-    // Step 2: Check if student exists in database
+    // Step 2: Search across all department-year tables using the union view
     const { data: students, error: queryError } = await supabase
       .from('students')
       .select('*')
@@ -34,7 +56,7 @@ export async function authenticateStudent(email: string, password: string) {
       
       // Check if it's an RLS error
       if (queryError.message.includes('row-level security') || queryError.code === '406') {
-        throw new Error('Database access denied. Run this in Supabase SQL Editor:\n\nALTER TABLE students DISABLE ROW LEVEL SECURITY;')
+        throw new Error('Database access denied. Run fix_auth_with_department_tables.sql in Supabase SQL Editor')
       }
       
       throw new Error(`Database error: ${queryError.message}`)
@@ -42,19 +64,22 @@ export async function authenticateStudent(email: string, password: string) {
 
     let student = students && students.length > 0 ? students[0] : null
 
-    // Step 3: If student doesn't exist in database, create entry
+    // Step 3: If student doesn't exist in database, create entry in default table
     if (!student) {
-      console.log('⚠️ Student not in database, creating entry...')
+      console.log('⚠️ Student not in database, creating entry in CSE 3rd year table...')
+      
+      const defaultDept = 'CSE'
+      const defaultYear = 'third'
+      const tableName = getStudentTableName(defaultDept, defaultYear)
+      
+      console.log(`📝 Inserting into table: ${tableName}`)
       
       const { data: newStudent, error: insertError } = await supabase
-        .from('students')
+        .from(tableName)
         .insert({
           email: email,
           name: authData.user?.user_metadata?.full_name || email.split('@')[0],
-          department: 'CSE', // Default, will be updated during registration
-          year: 'third', // Default, will be updated during registration
-          prn: 'TEMP_' + Date.now(), // Temporary PRN, will be updated during registration
-          registration_completed: false
+          prn: 'TEMP_' + Date.now() // Temporary PRN, will be updated during registration
         })
         .select()
         .single()
@@ -64,7 +89,8 @@ export async function authenticateStudent(email: string, password: string) {
         throw new Error(`Failed to create student profile: ${insertError.message}`)
       }
 
-      student = newStudent
+      // Add department and year to the returned object
+      student = { ...newStudent, department: defaultDept, year: defaultYear }
       console.log('✅ Created new student entry:', student)
     }
 

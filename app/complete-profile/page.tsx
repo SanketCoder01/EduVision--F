@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect, useRef } from "react"
+import { Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { motion } from "framer-motion"
 import { Camera, User, ArrowRight, Check, MapPin, Phone, GraduationCap, Building2 } from "lucide-react"
@@ -14,6 +15,14 @@ import { toast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
 
 export default function CompleteProfilePage() {
+  return (
+    <Suspense fallback={null}>
+      <CompleteProfilePageInner />
+    </Suspense>
+  )
+}
+
+function CompleteProfilePageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const userType = searchParams.get("type") // 'student' or 'faculty'

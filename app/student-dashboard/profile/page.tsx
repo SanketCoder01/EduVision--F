@@ -16,7 +16,49 @@ export default function StudentProfilePage() {
 
   useEffect(() => {
     loadStudentProfile()
+    setupRealtimeSubscription()
   }, [])
+
+  const setupRealtimeSubscription = () => {
+    try {
+      const studentSession = localStorage.getItem("studentSession")
+      const currentUser = localStorage.getItem("currentUser")
+      
+      let user = null
+      if (studentSession) {
+        user = JSON.parse(studentSession)
+      } else if (currentUser) {
+        user = JSON.parse(currentUser)
+      }
+
+      if (!user || !user.id) return
+
+      // Subscribe to profile_updates table for real-time changes
+      const subscription = supabase
+        .channel('student_profile_updates')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'profile_updates',
+            filter: `user_id=eq.${user.id}`
+          },
+          (payload) => {
+            console.log('Student profile update received:', payload)
+            // Reload profile from database
+            loadStudentProfile()
+          }
+        )
+        .subscribe()
+
+      return () => {
+        subscription.unsubscribe()
+      }
+    } catch (error) {
+      console.error("Error setting up profile subscription:", error)
+    }
+  }
 
   const loadStudentProfile = async () => {
     try {

@@ -28,7 +28,7 @@ import {
   Filter,
   ArrowLeft,
   MapPin,
-  Tool,
+  Wrench,
   Phone
 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -441,7 +441,7 @@ export default function MaintenanceComplaintsPage() {
               <>
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2">
-                    <Tool className="h-5 w-5 text-blue-600" />
+                    <Wrench className="h-5 w-5 text-blue-600" />
                     Maintenance Complaint Details
                   </DialogTitle>
                   <DialogDescription>

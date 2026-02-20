@@ -1,13 +1,35 @@
-import { createClient } from "@supabase/supabase-js"
+import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jtguryzyprgqraimyimt.supabase.co"
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp0Z3VyeXp5cHJncXJhaW15aW10Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY5ODIxNTMsImV4cCI6MjA2MjU1ODE1M30.798s8F7LDFsit82qTGZ7X97ww9SAQvmawIDpNgANeYE"
 
-export const supabase = createClient(supabaseUrl, supabaseKey)
+export const supabase = createSupabaseClient(supabaseUrl, supabaseKey)
 
 // Create server-side client for API routes
-export function createServerSupabaseClient() {
-  return createClient(supabaseUrl, supabaseKey)
+export function createServerSupabaseClient(): SupabaseClient {
+  return createSupabaseClient(supabaseUrl, supabaseKey)
+}
+
+// Backwards-compatible helper used by some server components/pages
+export function createClient(): SupabaseClient {
+  return createServerSupabaseClient()
+}
+
+// Simple realtime helper used by some UI pages
+export function subscribeToTable(
+  table: string,
+  callback: (payload: any) => void,
+) {
+  const channel = supabase
+    .channel(`realtime:${table}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table },
+      (payload) => callback(payload),
+    )
+    .subscribe()
+
+  return channel
 }
 
 // Types
@@ -77,6 +99,12 @@ export async function authenticateUniversityAdmin(email: string, password: strin
     console.error("Error authenticating admin:", error)
     throw error
   }
+}
+
+// Generic authentication used by legacy API routes
+export async function authenticateUser(email: string, password: string, userType: "faculty" | "student") {
+  if (userType === "faculty") return authenticateFaculty(email, password)
+  return authenticateStudent(email, password)
 }
 
 // Faculty Authentication using Supabase Auth

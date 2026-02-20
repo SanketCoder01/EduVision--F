@@ -20,6 +20,28 @@ const sections = [
   "Bank Details", "Upload Documents", "Emergency Contact"
 ]
 
+// Helper function to get table name based on department and year
+function getStudentTableName(department: string, year: string): string {
+  const deptMap: Record<string, string> = {
+    'CSE': 'cse',
+    'CYBER': 'cyber', 
+    'AIDS': 'aids',
+    'AIML': 'aiml'
+  }
+  
+  const yearMap: Record<string, string> = {
+    'first': '1st',
+    'second': '2nd',
+    'third': '3rd',
+    'fourth': '4th'
+  }
+  
+  const dept = deptMap[department?.toUpperCase()] || 'cse'
+  const yr = yearMap[year?.toLowerCase()] || '3rd'
+  
+  return `students_${dept}_${yr}_year`
+}
+
 export default function CompleteRegistration() {
   const [currentStep, setCurrentStep] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -97,6 +119,7 @@ export default function CompleteRegistration() {
         return
       }
 
+      // First, try to fetch from the students view to get department and year
       const { data: studentData, error } = await supabase
         .from('students')
         .select('*')
@@ -105,20 +128,11 @@ export default function CompleteRegistration() {
 
       if (error) {
         console.error('Student fetch error:', error)
-        // If student doesn't exist, create a basic one
-        const { data: newStudent, error: createError } = await supabase
-          .from('students')
-          .insert({
-            email: session.user.email,
-            name: session.user.user_metadata?.full_name || "",
-            registration_completed: false,
-            registration_step: 0
-          })
-          .select()
-          .single()
-        
-        if (createError) throw createError
-        setStudent(newStudent)
+        toast({
+          title: "Error",
+          description: "Student not found. Please contact admin.",
+          variant: "destructive"
+        })
         return
       }
 
@@ -251,6 +265,7 @@ export default function CompleteRegistration() {
       const updateData: any = {
         prn: formData.prn,
         name: `${formData.first_name} ${formData.middle_name} ${formData.last_name}`.trim(),
+        first_name: formData.first_name,
         middle_name: formData.middle_name,
         last_name: formData.last_name,
         date_of_birth: formData.date_of_birth && formData.date_of_birth.trim() !== "" ? formData.date_of_birth : null,
@@ -307,12 +322,39 @@ export default function CompleteRegistration() {
         registration_step: currentStep
       }
 
-      const { error } = await supabase
+      console.log('📝 Student data:', { id: student.id, department: student.department, year: student.year })
+      
+      // Update main students table first
+      const { error: mainError } = await supabase
         .from('students')
         .update(updateData)
         .eq('id', student.id)
 
-      if (error) throw error
+      if (mainError) {
+        console.error('Main table update error:', mainError)
+        throw new Error(`Failed to update main table: ${mainError.message}`)
+      }
+
+      // Try to update department-specific table if student has department and year
+      if (student.department && student.year) {
+        try {
+          const tableName = getStudentTableName(student.department, student.year)
+          console.log(`📝 Updating department table: ${tableName}`)
+          
+          const { error: deptError } = await supabase
+            .from(tableName)
+            .update(updateData)
+            .eq('id', student.id)
+
+          if (deptError) {
+            console.warn('Department table update warning:', deptError)
+            // Don't fail the whole save if department table update fails
+          }
+        } catch (deptErr) {
+          console.warn('Department table update failed:', deptErr)
+          // Continue even if department table fails
+        }
+      }
 
       toast({
         title: "Progress Saved",

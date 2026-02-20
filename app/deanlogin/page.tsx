@@ -167,7 +167,7 @@ export default function DeanLoginPage() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="dean@sanjivani.edu"
+                    placeholder="Enter dean email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="h-12 border-gray-200 focus:border-blue-500 focus:ring-blue-500"

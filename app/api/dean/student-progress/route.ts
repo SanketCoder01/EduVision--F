@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServerSupabaseClient } from "@/lib/supabase"
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -110,8 +112,9 @@ export async function GET(request: NextRequest) {
             .select('*', { count: 'exact', head: true })
             .eq('student_id', student.id)
           
-          const attendancePercentage = totalAttendance > 0 
-            ? ((attendanceCount || 0) / totalAttendance) * 100 
+          const totalAttendanceCount = totalAttendance || 0
+          const attendancePercentage = totalAttendanceCount > 0 
+            ? ((attendanceCount || 0) / totalAttendanceCount) * 100 
             : 0
           
           const totalMarks = results?.reduce((sum, r) => sum + r.marks, 0) || 0

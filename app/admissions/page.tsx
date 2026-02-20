@@ -1,9 +1,10 @@
 "use client"
 
 import { motion } from "framer-motion";
-import { FileText, Calendar, CheckCircle, Phone } from "lucide-react";
+import { FileText, Calendar, CheckCircle, Phone, MapPin, Mail, Award, Users, BookOpen, Briefcase } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 export default function AdmissionsPage() {
   return (
@@ -63,7 +64,7 @@ export default function AdmissionsPage() {
             </motion.div>
           </div>
 
-          <div className="grid md:grid-cols-4 gap-6">
+          <div className="grid md:grid-cols-4 gap-6 mb-16">
             {[
               { icon: <FileText className="w-10 h-10" />, title: "Easy Application" },
               { icon: <Calendar className="w-10 h-10" />, title: "Flexible Dates" },
@@ -82,6 +83,122 @@ export default function AdmissionsPage() {
                 <h3 className="font-bold text-gray-900">{item.title}</h3>
               </motion.div>
             ))}
+          </div>
+
+          {/* Professional Tab - Placements & Activities */}
+          <div className="mb-16">
+            <h2 className="text-3xl font-bold text-center mb-8 text-gray-900">Why Choose Sanjivani University?</h2>
+            <div className="grid md:grid-cols-2 gap-8">
+              {/* Placement Highlights */}
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-8 rounded-2xl shadow-lg">
+                <div className="flex items-center mb-6">
+                  <Briefcase className="w-8 h-8 text-blue-600 mr-3" />
+                  <h3 className="text-2xl font-bold text-gray-900">Placements</h3>
+                </div>
+                <ul className="space-y-4">
+                  <li className="flex items-start">
+                    <Award className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-semibold text-gray-900">95%+ Placement Rate</p>
+                      <p className="text-sm text-gray-600">Consistent placement success across all departments</p>
+                    </div>
+                  </li>
+                  <li className="flex items-start">
+                    <Award className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-semibold text-gray-900">Top Recruiters</p>
+                      <p className="text-sm text-gray-600">TCS, Infosys, Wipro, Accenture, Microsoft, Google & more</p>
+                    </div>
+                  </li>
+                  <li className="flex items-start">
+                    <Award className="w-5 h-5 text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-semibold text-gray-900">12 LPA Highest Package</p>
+                      <p className="text-sm text-gray-600">6.5 LPA average package in 2024-25</p>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Campus Activities */}
+              <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-8 rounded-2xl shadow-lg">
+                <div className="flex items-center mb-6">
+                  <Users className="w-8 h-8 text-orange-600 mr-3" />
+                  <h3 className="text-2xl font-bold text-gray-900">Activities & Programs</h3>
+                </div>
+                <ul className="space-y-4">
+                  <li className="flex items-start">
+                    <BookOpen className="w-5 h-5 text-orange-600 mr-3 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-semibold text-gray-900">Industry Workshops</p>
+                      <p className="text-sm text-gray-600">Regular workshops with industry experts</p>
+                    </div>
+                  </li>
+                  <li className="flex items-start">
+                    <BookOpen className="w-5 h-5 text-orange-600 mr-3 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-semibold text-gray-900">Hackathons & Competitions</p>
+                      <p className="text-sm text-gray-600">National and international coding competitions</p>
+                    </div>
+                  </li>
+                  <li className="flex items-start">
+                    <BookOpen className="w-5 h-5 text-orange-600 mr-3 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-semibold text-gray-900">Technical & Cultural Fests</p>
+                      <p className="text-sm text-gray-600">Annual events showcasing student talents</p>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Contact & Apply Online Section */}
+          <div className="bg-gray-900 text-white p-10 rounded-2xl shadow-2xl">
+            <div className="grid md:grid-cols-2 gap-8 mb-8">
+              {/* Contact Information */}
+              <div>
+                <h3 className="text-2xl font-bold mb-6 flex items-center">
+                  <Phone className="w-6 h-6 mr-3" />
+                  Contact Information
+                </h3>
+                <div className="space-y-4">
+                  <div className="flex items-start">
+                    <MapPin className="w-5 h-5 mr-3 mt-1 flex-shrink-0 text-orange-400" />
+                    <div>
+                      <p className="font-semibold">Address</p>
+                      <p className="text-gray-300 text-sm">Sanjivani University, Kopargaon, Maharashtra 423603</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start">
+                    <Phone className="w-5 h-5 mr-3 mt-1 flex-shrink-0 text-orange-400" />
+                    <div>
+                      <p className="font-semibold">Phone</p>
+                      <p className="text-gray-300 text-sm">+91 2423-271700 / 271800</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start">
+                    <Mail className="w-5 h-5 mr-3 mt-1 flex-shrink-0 text-orange-400" />
+                    <div>
+                      <p className="font-semibold">Email</p>
+                      <p className="text-gray-300 text-sm">admissions@sanjivani.edu.in</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Apply Online */}
+              <div className="flex flex-col justify-center items-center text-center">
+                <h3 className="text-2xl font-bold mb-4">Ready to Begin Your Journey?</h3>
+                <p className="text-gray-300 mb-6">Join thousands of successful students at Sanjivani University</p>
+                <Link href="/student-registration">
+                  <Button className="bg-orange-600 hover:bg-orange-700 text-white px-8 py-6 text-lg rounded-xl shadow-lg hover:shadow-xl transition-all">
+                    <FileText className="w-6 h-6 mr-2" />
+                    Apply Online Now
+                  </Button>
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
       </section>

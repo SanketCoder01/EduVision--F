@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServerSupabaseClient } from "@/lib/supabase"
 
+export const dynamic = 'force-dynamic'
+
 interface Result {
   status: string
   marks: number
   total_marks: number
-  subject: string
+  subject?: string
 }
 
 interface SubjectStat {
@@ -56,12 +58,12 @@ export async function GET(request: NextRequest) {
         .select('status, marks, total_marks')
         .eq('department', dept)
       
-      const passedCount = results?.filter((r: Result) => r.status === 'Pass').length || 0
+      const passedCount = results?.filter((r: any) => r.status === 'Pass').length || 0
       const totalResults = results?.length || 1
       const passRate = (passedCount / totalResults) * 100
       
       // Get average marks
-      const avgMarks = results?.reduce((sum: number, r: Result) => sum + r.marks, 0) / totalResults || 0
+      const avgMarks = ((results || []).reduce((sum: number, r: any) => sum + (r.marks || 0), 0) / totalResults) || 0
       
       analyticsData.push({
         department: dept,
@@ -80,16 +82,19 @@ export async function GET(request: NextRequest) {
     
     const subjectStats: { [key: string]: SubjectStat } = {}
     subjectPerformance?.forEach((result: Result) => {
-      if (!subjectStats[result.subject]) {
-        subjectStats[result.subject] = {
-          subject: result.subject,
+      const subject = result.subject
+      if (!subject) return
+
+      if (!subjectStats[subject]) {
+        subjectStats[subject] = {
+          subject,
           totalStudents: 0,
           passed: 0,
           failed: 0,
           totalMarks: 0
         }
       }
-      const stat = subjectStats[result.subject]
+      const stat = subjectStats[subject]
       stat.totalStudents++
       if (result.status === 'Pass') {
         stat.passed++

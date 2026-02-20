@@ -192,6 +192,45 @@ export default function ProfilePage() {
     }
   }
 
+  // Set up real-time profile update listener
+  useEffect(() => {
+    const facultySession = localStorage.getItem("facultySession")
+    if (!facultySession) return
+
+    try {
+      const user = JSON.parse(facultySession)
+      
+      // Subscribe to profile_updates table for real-time changes
+      const subscription = supabase
+        .channel('profile_updates')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'profile_updates',
+            filter: `user_id=eq.${user.id}`
+          },
+          (payload) => {
+            console.log('Profile update received:', payload)
+            // Reload profile from database
+            loadProfileFromDatabase(user.id)
+            toast({
+              title: "Profile Updated",
+              description: "Your profile has been updated.",
+            })
+          }
+        )
+        .subscribe()
+
+      return () => {
+        subscription.unsubscribe()
+      }
+    } catch (error) {
+      console.error("Error setting up profile subscription:", error)
+    }
+  }, [])
+
   const handleSave = async () => {
     const facultySession = localStorage.getItem("facultySession")
     if (!facultySession) return
@@ -211,7 +250,9 @@ export default function ProfilePage() {
           phone: profile.phone,
           address: profile.address,
           department: profile.department,
-          designation: profile.designation
+          designation: profile.designation,
+          user_type: 'faculty',
+          photo_url: profile.photoUrl
         })
       })
 
@@ -240,7 +281,7 @@ export default function ProfilePage() {
       setIsEditing(false)
       toast({
         title: "Profile Updated",
-        description: "Your profile has been updated successfully.",
+        description: "Your profile has been updated successfully and synced across all devices.",
       })
     } catch (error) {
       console.error('Error updating profile:', error)
