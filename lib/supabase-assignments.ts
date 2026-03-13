@@ -110,7 +110,16 @@ export class SupabaseAssignmentService {
         assignment_type: assignmentData.assignment_type || 'file_upload',
         max_marks: assignmentData.max_marks || 100,
         due_date: assignmentData.due_date || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        status: 'draft' as const // Always create as draft
+        status: 'draft' as const,
+        questions: assignmentData.questions,
+        submission_guidelines: assignmentData.submission_guidelines,
+        allowed_file_types: assignmentData.allowed_file_types,
+        allow_late_submission: assignmentData.allow_late_submission ?? false,
+        allow_resubmission: assignmentData.allow_resubmission ?? false,
+        visibility: assignmentData.visibility ?? true,
+        difficulty: assignmentData.difficulty,
+        estimated_time: assignmentData.estimated_time,
+        ai_prompt: assignmentData.ai_prompt
       }
 
       const { data, error } = await supabase
@@ -206,41 +215,46 @@ export class SupabaseAssignmentService {
     try {
       console.log('DEBUG: Fetching assignments for:', { department: studentDepartment, year: studentYear })
       
+      // Normalize department to lowercase for consistent matching
+      const normalizedDept = studentDepartment.toLowerCase().trim()
+      
       // Convert year format to match database format 
       // Database stores: 'first', 'second', 'third', 'fourth'
-      // Students might have: '1', '2', '3', '4' or 'first', 'second', etc.
+      // Students might have: '1', '2', '3', '4' or '1st', '2nd', '3rd', '4th' or 'first', 'second', etc.
       const yearMapping: { [key: string]: string } = {
         '1': 'first',
         '2': 'second', 
         '3': 'third',
         '4': 'fourth',
+        '1st': 'first',
+        '2nd': 'second',
+        '3rd': 'third',
+        '4th': 'fourth',
         'first': 'first',
         'second': 'second',
         'third': 'third',
         'fourth': 'fourth'
       }
       
-      const normalizedYear = yearMapping[studentYear.toLowerCase()] || studentYear
-      console.log('DEBUG: Normalized year:', normalizedYear, 'from input:', studentYear)
+      const normalizedYear = yearMapping[studentYear.toLowerCase().trim()] || studentYear.toLowerCase().trim()
+      console.log('DEBUG: Normalized - department:', normalizedDept, 'year:', normalizedYear, 'from input:', studentDepartment, studentYear)
       
-      // First, let's check all assignments without filters to debug
+      // First, let's check all published assignments to debug
       const { data: allAssignments, error: allError } = await supabase
         .from('assignments')
         .select('id, title, department, target_years, status, faculty_id')
+        .eq('status', 'published')
         .order('created_at', { ascending: false })
 
-      console.log('DEBUG: All assignments in database:', allAssignments?.length, allAssignments)
+      console.log('DEBUG: All published assignments:', allAssignments?.length, allAssignments?.map(a => ({
+        id: a.id,
+        title: a.title,
+        dept: a.department,
+        years: a.target_years
+      })))
 
-      // Check published assignments for this department
-      const { data: deptAssignments, error: deptError } = await supabase
-        .from('assignments')
-        .select('id, title, department, target_years, status')
-        .eq('status', 'published')
-        .eq('department', studentDepartment)
-
-      console.log('DEBUG: Published assignments for department:', studentDepartment, deptAssignments?.length, deptAssignments)
-
-      // Now get filtered assignments with proper target_years handling
+      // Now get filtered assignments - use case-insensitive department matching
+      // Query for both lowercase and uppercase department variants
       const { data, error } = await supabase
         .from('assignments')
         .select(`
@@ -251,23 +265,50 @@ export class SupabaseAssignmentService {
           )
         `)
         .eq('status', 'published')
-        .eq('department', studentDepartment)
+        .or(`department.eq.${normalizedDept},department.eq.${normalizedDept.toUpperCase()},department.eq.${normalizedDept.charAt(0).toUpperCase() + normalizedDept.slice(1)}`)
         .contains('target_years', [normalizedYear])
         .order('created_at', { ascending: false })
 
-      console.log('DEBUG: Final filtered assignments query result:', { 
-        data: data?.length, 
+      console.log('DEBUG: Filtered assignments result:', { 
+        count: data?.length,
         error,
         filters: { 
           status: 'published', 
-          department: studentDepartment, 
-          target_years_contains: normalizedYear,
-          query_used: `target_years.cs.{${normalizedYear}} OR target_years.is.null`
+          department: normalizedDept,
+          target_years_contains: normalizedYear
         }
       })
 
       if (error) {
         console.error('Error fetching student assignments:', error)
+        // Fallback: try without target_years filter to see if data exists
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('assignments')
+          .select(`
+            *,
+            faculty:faculty_id (
+              name,
+              email
+            )
+          `)
+          .eq('status', 'published')
+          .or(`department.eq.${normalizedDept},department.eq.${normalizedDept.toUpperCase()}`)
+          .order('created_at', { ascending: false })
+        
+        console.log('DEBUG: Fallback query (no year filter):', fallbackData?.length, fallbackData?.map(a => ({
+          title: a.title,
+          dept: a.department,
+          years: a.target_years
+        })))
+        
+        if (fallbackData && !fallbackError) {
+          // Filter by year on client side
+          const filtered = fallbackData.filter(a => 
+            a.target_years && a.target_years.includes(normalizedYear)
+          )
+          console.log('DEBUG: Client-side filtered:', filtered.length)
+          return filtered
+        }
         throw new Error(error.message)
       }
 

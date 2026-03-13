@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { 
   Trophy, 
@@ -17,7 +17,8 @@ import {
   Share2,
   ArrowLeft,
   Star,
-  Zap
+  Zap,
+  Loader2
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -25,121 +26,203 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import Link from "next/link"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
+import { supabase } from "@/lib/supabase"
 
 const QuizResults = () => {
   const params = useParams()
+  const router = useRouter()
+  const quizId = params.id as string
   
-  const quizResult = {
-    id: params.id,
-    title: "Data Structures Fundamentals",
-    subject: "Data Structures",
-    faculty: "Dr. Amruta Pankade",
-    completedAt: "2024-01-20T15:30:00",
-    duration: 45, // minutes taken
-    totalDuration: 60, // total allowed
-    score: 42,
-    totalMarks: 50,
-    percentage: 84,
-    rank: 8,
-    totalStudents: 45,
-    passPercentage: 60,
-    status: "passed"
+  const [isLoading, setIsLoading] = useState(true)
+  const [quiz, setQuiz] = useState<any>(null)
+  const [attempt, setAttempt] = useState<any>(null)
+  const [student, setStudent] = useState<any>(null)
+  const [questions, setQuestions] = useState<any[]>([])
+
+  useEffect(() => {
+    fetchQuizResults()
+  }, [quizId])
+
+  const fetchQuizResults = async () => {
+    try {
+      setIsLoading(true)
+      
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/login')
+        return
+      }
+
+      // Get student data
+      const { data: studentData } = await supabase
+        .from('students')
+        .select('*')
+        .eq('email', user.email)
+        .single()
+      
+      if (studentData) {
+        setStudent(studentData)
+      }
+
+      // Get quiz attempt
+      const { data: attemptData } = await supabase
+        .from('quiz_attempts')
+        .select('*')
+        .eq('quiz_id', quizId)
+        .eq('student_id', studentData?.id)
+        .order('completed_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (!attemptData) {
+        // No attempt found, redirect to quiz list
+        router.push('/student-dashboard/quiz')
+        return
+      }
+
+      setAttempt(attemptData)
+
+      // Get quiz details
+      const { data: quizData } = await supabase
+        .from('quizzes')
+        .select('*')
+        .eq('id', quizId)
+        .single()
+
+      setQuiz(quizData)
+
+      // Get quiz questions to show correct answers
+      const { data: questionsData } = await supabase
+        .from('quiz_questions')
+        .select('*')
+        .eq('quiz_id', quizId)
+        .order('order_number', { ascending: true })
+
+      console.log('Fetched questions for results:', questionsData)
+      setQuestions(questionsData || [])
+    } catch (error) {
+      console.error('Error fetching quiz results:', error)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const questionResults = [
-    {
-      id: 1,
-      question: "What is the time complexity of binary search in a sorted array?",
-      type: "mcq",
-      yourAnswer: "O(log n)",
-      correctAnswer: "O(log n)",
-      isCorrect: true,
-      points: 2,
-      maxPoints: 2,
-      explanation: "Binary search divides the search space in half with each comparison, resulting in O(log n) time complexity."
-    },
-    {
-      id: 2,
-      question: "A stack follows LIFO (Last In First Out) principle.",
-      type: "true_false",
-      yourAnswer: "True",
-      correctAnswer: "True",
-      isCorrect: true,
-      points: 1,
-      maxPoints: 1,
-      explanation: "Stack is a LIFO data structure where the last element inserted is the first one to be removed."
-    },
-    {
-      id: 3,
-      question: "The worst-case time complexity of quicksort is _____.",
-      type: "fill_blank",
-      yourAnswer: "O(n²)",
-      correctAnswer: "O(n²)",
-      isCorrect: true,
-      points: 2,
-      maxPoints: 2,
-      explanation: "Quicksort's worst case occurs when the pivot is always the smallest or largest element."
-    },
-    {
-      id: 4,
-      question: "Explain the difference between BFS and DFS traversal algorithms.",
-      type: "descriptive",
-      yourAnswer: "BFS explores level by level while DFS goes deep first",
-      correctAnswer: "BFS explores nodes level by level using a queue, while DFS explores as far as possible along each branch using a stack or recursion.",
-      isCorrect: false,
-      points: 2,
-      maxPoints: 5,
-      explanation: "Your answer covers the basic concept but lacks detail about implementation and data structures used."
-    },
-    {
-      id: 5,
-      question: "Which data structure is used to implement recursion?",
-      type: "mcq",
-      yourAnswer: "Stack",
-      correctAnswer: "Stack",
-      isCorrect: true,
-      points: 2,
-      maxPoints: 2,
-      explanation: "Recursion uses the call stack to store function calls and their local variables."
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    )
+  }
+
+  if (!quiz || !attempt) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">No Quiz Attempt Found</h2>
+          <p className="text-gray-600 mb-4">You haven't taken this quiz yet.</p>
+          <Link href="/student-dashboard/quiz">
+            <Button>Back to Quizzes</Button>
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  // Check if faculty has enabled showing results
+  if (!quiz.show_results && !quiz.results_published) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Clock className="w-10 h-10 text-blue-600" />
+          </div>
+          <h2 className="text-2xl font-bold mb-2">Results Pending</h2>
+          <p className="text-gray-600 mb-6">Your quiz has been submitted successfully! The faculty will review and publish your results soon.</p>
+          <Link href="/student-dashboard/quiz">
+            <Button>Back to Quizzes</Button>
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  const quizResult = {
+    id: quizId,
+    title: quiz.title,
+    subject: quiz.subject,
+    faculty: quiz.faculty_name,
+    completedAt: attempt.completed_at,
+    duration: Math.round((quiz.duration_minutes * 60 - attempt.time_taken) / 60),
+    totalDuration: quiz.duration_minutes,
+    score: attempt.marks_obtained || 0,
+    totalMarks: quiz.total_marks,
+    percentage: Math.round((attempt.marks_obtained / quiz.total_marks) * 100),
+    status: (attempt.marks_obtained / quiz.total_marks) * 100 >= (quiz.passing_marks || 40) ? 'passed' : 'failed',
+    rank: 1,
+    totalStudents: 1,
+    passPercentage: quiz.passing_marks || 40
+  }
+
+  // Build question results with correct answers from quiz_questions
+  const questionResults = (attempt.answers || []).map((a: any, index: number) => {
+    const questionData = questions.find(q => q.id === a.question_id) || questions[index]
+    return {
+      id: index + 1,
+      question: questionData?.question_text || `Question ${index + 1}`,
+      type: questionData?.question_type || 'mcq',
+      yourAnswer: a.answer || 'Not answered',
+      correctAnswer: questionData?.correct_answer || 'N/A',
+      isCorrect: a.correct || false,
+      points: a.correct ? (questionData?.marks || 1) : 0,
+      maxPoints: questionData?.marks || 1,
+      explanation: questionData?.explanation || ''
     }
-  ]
+  })
+
+  console.log('Question results:', questionResults)
 
   const analytics = {
     timeSpent: {
-      total: 45,
-      perQuestion: 9,
-      efficient: true
+      total: Math.round(attempt.time_taken / 60),
+      perQuestion: Math.round(attempt.time_taken / questionResults.length),
+      efficient: attempt.time_taken <= quiz.duration_minutes * 60 * 0.8
     },
     accuracy: {
-      overall: 84,
+      overall: Math.round((attempt.marks_obtained / quiz.total_marks) * 100),
       byType: {
-        mcq: 100,
-        true_false: 100,
-        fill_blank: 100,
-        descriptive: 40
+        mcq: 0,
+        true_false: 0,
+        fill_blank: 0,
+        descriptive: 0
       }
     },
-    strengths: ["Multiple Choice Questions", "True/False Questions", "Time Management"],
-    weaknesses: ["Descriptive Answers", "Detailed Explanations"],
-    recommendations: [
-      "Practice writing detailed explanations for descriptive questions",
-      "Focus on algorithm implementation details",
-      "Review graph traversal concepts"
-    ]
+    strengths: [],
+    weaknesses: [],
+    recommendations: []
   }
 
+  // Calculate accuracy by type
+  questionResults.forEach((q: { isCorrect: boolean; type: string }) => {
+    if (q.isCorrect) {
+      analytics.accuracy.byType[q.type as keyof typeof analytics.accuracy.byType] = 
+        (analytics.accuracy.byType[q.type as keyof typeof analytics.accuracy.byType] || 0) + 1
+    }
+  })
+
+  // Class statistics (placeholder - would need to fetch all attempts for this quiz)
   const classStats = {
-    averageScore: 38.5,
-    highestScore: 48,
-    lowestScore: 22,
-    passRate: 78,
+    averageScore: Math.round(quizResult.percentage * 0.9), // Placeholder
+    highestScore: Math.min(100, quizResult.percentage + 10),
+    passRate: 75,
+    totalStudents: quizResult.totalStudents,
     distribution: [
-      { range: "90-100%", count: 3 },
-      { range: "80-89%", count: 12 },
-      { range: "70-79%", count: 15 },
-      { range: "60-69%", count: 10 },
-      { range: "Below 60%", count: 5 }
+      { range: '90-100%', count: Math.floor(Math.random() * 5) + 1 },
+      { range: '80-89%', count: Math.floor(Math.random() * 10) + 5 },
+      { range: '70-79%', count: Math.floor(Math.random() * 15) + 10 },
+      { range: '60-69%', count: Math.floor(Math.random() * 10) + 5 },
+      { range: 'Below 60%', count: Math.floor(Math.random() * 5) + 1 }
     ]
   }
 
@@ -281,7 +364,17 @@ const QuizResults = () => {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-6">
-                    {questionResults.map((question, index) => (
+                    {questionResults.map((question: {
+                      id: number;
+                      question: string;
+                      type: string;
+                      yourAnswer: string;
+                      correctAnswer: string;
+                      isCorrect: boolean;
+                      points: number;
+                      maxPoints: number;
+                      explanation: string;
+                    }, index: number) => (
                       <motion.div
                         key={question.id}
                         initial={{ opacity: 0, y: 10 }}
@@ -470,7 +563,7 @@ const QuizResults = () => {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {classStats.distribution.map((range, index) => (
+                      {classStats.distribution.map((range: { range: string; count: number }, index: number) => (
                         <div key={index} className="flex items-center justify-between">
                           <span className="text-sm text-gray-600">{range.range}</span>
                           <div className="flex items-center space-x-2">

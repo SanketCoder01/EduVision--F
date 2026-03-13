@@ -28,22 +28,51 @@ export default function StudentLoginPage() {
     setError("")
 
     try {
-      // Simple database authentication (development mode)
-      const student = await authenticateStudent(email, password)
+      // Use Supabase Auth for authentication
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-      if (!student) throw new Error('Student not found')
+      if (authError) throw authError
 
-      // Store student session
-      localStorage.setItem('studentSession', JSON.stringify(student))
-      localStorage.setItem('currentUser', JSON.stringify({ ...student, userType: 'student' }))
-      localStorage.setItem('userType', 'student')
+      // Search for student across all department-year tables
+      const departments = ['cse', 'cyber', 'aids', 'aiml']
+      const years = ['1st', '2nd', '3rd', '4th']
+      let student = null
+      let foundDept = null
+      let foundYear = null
+
+      for (const dept of departments) {
+        for (const year of years) {
+          const tableName = `students_${dept}_${year}_year`
+          const { data, error } = await supabase
+            .from(tableName)
+            .select('*')
+            .eq('email', email)
+            .maybeSingle()
+
+          if (data && !error) {
+            student = data
+            foundDept = dept
+            foundYear = year
+            break
+          }
+        }
+        if (student) break
+      }
+
+      // Check if profile is complete
+      if (!student || !student.department || !student.year || !student.college_name || !student.prn) {
+        router.push('/student-complete-profile')
+        return
+      }
 
       toast({
         title: "Login Successful",
         description: `Welcome back, ${student.name}!`,
       })
 
-      // Redirect to dashboard (registration check will happen in layout)
       router.push('/student-dashboard')
     } catch (error: any) {
       console.error('Login error:', error)

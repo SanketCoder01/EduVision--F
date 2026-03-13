@@ -1,6 +1,7 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import { 
   Plus, 
@@ -35,6 +36,7 @@ import { toast } from "@/hooks/use-toast"
 import AIQuestionGenerator from "@/components/quiz/AIQuestionGenerator"
 import ImportExportQuestions from "@/components/quiz/ImportExportQuestions"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { supabase } from "@/lib/supabase"
 
 interface Question {
   id: string
@@ -49,6 +51,8 @@ interface Question {
 }
 
 const CreateQuiz = () => {
+  const router = useRouter()
+  const [faculty, setFaculty] = useState<any>(null)
   const [quizData, setQuizData] = useState({
     title: '',
     description: '',
@@ -61,10 +65,10 @@ const CreateQuiz = () => {
     instructions: '',
     startDate: '',
     endDate: '',
-    randomizeQuestions: false,
     showResults: true,
     allowReview: true,
-    proctoring: false
+    proctoring: false,
+    maxAttempts: 1
   })
 
   const [questions, setQuestions] = useState<Question[]>([])
@@ -81,10 +85,34 @@ const CreateQuiz = () => {
 
   const [showAIGenerator, setShowAIGenerator] = useState(false)
   const [showImportExport, setShowImportExport] = useState(false)
+  const [pendingAIQuestions, setPendingAIQuestions] = useState<any[]>([])
 
-  const departments = ['CSE', 'AIDS', 'AIML', 'CYBER']
-  const years = ['1st Year', '2nd Year', '3rd Year', '4th Year']
-  const subjects = ['Data Structures', 'Algorithms', 'Database Systems', 'Computer Networks', 'Operating Systems', 'Software Engineering']
+  const years = ['1st', '2nd', '3rd', '4th']
+
+  // Fetch faculty data on mount
+  useEffect(() => {
+    fetchFacultyData()
+  }, [])
+
+  const fetchFacultyData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: facultyData } = await supabase
+        .from('faculty')
+        .select('*')
+        .eq('email', user.email)
+        .single()
+
+      if (facultyData) {
+        setFaculty(facultyData)
+        setQuizData(prev => ({ ...prev, department: facultyData.department }))
+      }
+    } catch (error) {
+      console.error('Error fetching faculty:', error)
+    }
+  }
 
   const addQuestion = () => {
     if (!currentQuestion.question?.trim()) {
@@ -141,6 +169,43 @@ const CreateQuiz = () => {
         totalMarks: prev.totalMarks - questionToRemove.points
       }))
     }
+  }
+
+  // Handle AI-generated questions - store for preview
+  const handleAIQuestionsGenerated = (aiQuestions: any[]) => {
+    setPendingAIQuestions(aiQuestions)
+    toast({
+      title: "Questions Generated",
+      description: `${aiQuestions.length} questions ready to add. Review and click 'Add All to Quiz' below.`,
+    })
+    setShowAIGenerator(false)
+  }
+
+  // Add pending AI questions to quiz
+  const addPendingQuestionsToQuiz = () => {
+    const formattedQuestions: Question[] = pendingAIQuestions.map(q => ({
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      type: q.type as Question['type'],
+      question: q.question,
+      options: q.options ? Object.values(q.options) : undefined,
+      correctAnswer: q.correctAnswer,
+      points: q.points || 1,
+      difficulty: q.difficulty as Question['difficulty'],
+      tags: [],
+      explanation: q.explanation || ''
+    }))
+
+    setQuestions(prev => [...prev, ...formattedQuestions])
+    setQuizData(prev => ({
+      ...prev,
+      totalMarks: prev.totalMarks + formattedQuestions.reduce((sum, q) => sum + q.points, 0)
+    }))
+
+    toast({
+      title: "Questions Added",
+      description: `${formattedQuestions.length} AI-generated questions added to your quiz`,
+    })
+    setPendingAIQuestions([])
   }
 
   const renderQuestionForm = () => {
@@ -286,7 +351,7 @@ const CreateQuiz = () => {
     }
   }
 
-  const saveQuiz = () => {
+  const saveQuiz = async () => {
     if (!quizData.title.trim()) {
       toast({
         title: "Error",
@@ -305,13 +370,104 @@ const CreateQuiz = () => {
       return
     }
 
-    // Here you would save to your backend
-    console.log('Quiz Data:', { ...quizData, questions })
-    
-    toast({
-      title: "Success",
-      description: "Quiz saved successfully!",
-    })
+    try {
+      // Get faculty data
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast({ title: "Error", description: "Not authenticated", variant: "destructive" })
+        return
+      }
+
+      const { data: facultyData } = await supabase
+        .from('faculty')
+        .select('id, name, department')
+        .eq('email', user.email)
+        .single()
+
+      if (!facultyData) {
+        toast({ title: "Error", description: "Faculty profile not found", variant: "destructive" })
+        return
+      }
+
+      // Calculate total marks from questions
+      const totalMarks = questions.reduce((sum, q) => sum + q.points, 0)
+
+      // Validate passing marks
+      if (!quizData.passingMarks || quizData.passingMarks <= 0) {
+        toast({ 
+          title: "Validation Error", 
+          description: "Please set passing marks for the quiz", 
+          variant: "destructive" 
+        })
+        return
+      }
+
+      // Convert local datetime to ISO string for proper timezone handling
+      const startTimeISO = quizData.startDate ? new Date(quizData.startDate).toISOString() : null
+      const endTimeISO = quizData.endDate ? new Date(quizData.endDate).toISOString() : null
+
+      // Insert quiz
+      const { data: quiz, error: quizError } = await supabase
+        .from('quizzes')
+        .insert({
+          faculty_id: facultyData.id,
+          faculty_name: facultyData.name,
+          title: quizData.title,
+          description: quizData.description,
+          subject: quizData.subject || quizData.title,
+          year: quizData.targetYears.length > 0 ? quizData.targetYears[0] : 'first',
+          department: quizData.department || facultyData.department,
+          target_years: quizData.targetYears,
+          duration_minutes: quizData.duration,
+          total_marks: totalMarks,
+          passing_marks: quizData.passingMarks,
+          start_time: startTimeISO,
+          end_time: endTimeISO,
+          is_published: true,
+          show_results: quizData.showResults,
+          max_attempts: quizData.maxAttempts || 1,
+          difficulty: 'medium',
+          instructions: quizData.instructions,
+          allow_review: quizData.allowReview,
+          proctoring_enabled: quizData.proctoring
+        })
+        .select('id')
+        .single()
+
+      if (quizError) throw quizError
+
+      // Insert questions
+      const questionsData = questions.map((q, index) => ({
+        quiz_id: quiz.id,
+        question_text: q.question,
+        question_type: q.type,
+        options: q.options ? { A: q.options[0], B: q.options[1], C: q.options[2], D: q.options[3] } : null,
+        correct_answer: String(q.correctAnswer || ''),
+        marks: q.points,
+        order_number: index + 1
+      }))
+
+      const { error: questionsError } = await supabase
+        .from('quiz_questions')
+        .insert(questionsData)
+
+      if (questionsError) throw questionsError
+
+      toast({
+        title: "Success",
+        description: `Quiz "${quizData.title}" created successfully!`,
+      })
+
+      // Redirect to quiz dashboard
+      router.push('/dashboard/quiz')
+    } catch (error) {
+      console.error('Error saving quiz:', error)
+      toast({
+        title: "Error",
+        description: "Failed to save quiz. Please try again.",
+        variant: "destructive"
+      })
+    }
   }
 
   return (
@@ -362,29 +518,14 @@ const CreateQuiz = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="title">Quiz Title *</Label>
-                      <Input
-                        id="title"
-                        placeholder="Enter quiz title..."
-                        value={quizData.title}
-                        onChange={(e) => setQuizData({...quizData, title: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="subject">Subject *</Label>
-                      <Select value={quizData.subject} onValueChange={(value) => setQuizData({...quizData, subject: value})}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select subject" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {subjects.map(subject => (
-                            <SelectItem key={subject} value={subject}>{subject}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div>
+                    <Label htmlFor="title">Quiz Title *</Label>
+                    <Input
+                      id="title"
+                      placeholder="Enter quiz title..."
+                      value={quizData.title}
+                      onChange={(e) => setQuizData({...quizData, title: e.target.value})}
+                    />
                   </div>
 
                   <div>
@@ -397,19 +538,26 @@ const CreateQuiz = () => {
                     />
                   </div>
 
+                  <div>
+                    <Label htmlFor="subject">Subject *</Label>
+                    <Input
+                      id="subject"
+                      placeholder="e.g., Data Structures, Operating Systems..."
+                      value={quizData.subject}
+                      onChange={(e) => setQuizData({...quizData, subject: e.target.value})}
+                    />
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="department">Department *</Label>
-                      <Select value={quizData.department} onValueChange={(value) => setQuizData({...quizData, department: value})}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select department" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {departments.map(dept => (
-                            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Label htmlFor="department">Department</Label>
+                      <Input
+                        id="department"
+                        value={quizData.department || faculty?.department || ''}
+                        disabled
+                        className="bg-gray-100"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Department is locked to your profile</p>
                     </div>
                     <div>
                       <Label htmlFor="duration">Duration (minutes) *</Label>
@@ -421,6 +569,42 @@ const CreateQuiz = () => {
                         onChange={(e) => setQuizData({...quizData, duration: parseInt(e.target.value)})}
                       />
                     </div>
+                    <div>
+                      <Label htmlFor="max-attempts">Maximum Attempts *</Label>
+                      <Input
+                        id="max-attempts"
+                        type="number"
+                        min="1"
+                        max="10"
+                        placeholder="1"
+                        value={quizData.maxAttempts}
+                        onChange={(e) => setQuizData({...quizData, maxAttempts: parseInt(e.target.value) || 1})}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">How many times can a student retake this quiz?</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label>Target Years *</Label>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {years.map(year => (
+                        <Button
+                          key={year}
+                          type="button"
+                          variant={quizData.targetYears.includes(year) ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => {
+                            const newYears = quizData.targetYears.includes(year)
+                              ? quizData.targetYears.filter(y => y !== year)
+                              : [...quizData.targetYears, year]
+                            setQuizData({...quizData, targetYears: newYears})
+                          }}
+                        >
+                          {year} Year
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Select which years can take this quiz</p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -528,6 +712,79 @@ const CreateQuiz = () => {
               </Card>
             </motion.div>
 
+            {/* Pending AI Generated Questions Preview */}
+            {pendingAIQuestions.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.35 }}
+              >
+                <Card className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-300 shadow-lg">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2">
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                        Generated Questions ({pendingAIQuestions.length})
+                      </CardTitle>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPendingAIQuestions([])}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Discard All
+                        </Button>
+                        <Button
+                          onClick={addPendingQuestionsToQuiz}
+                          className="bg-green-600 hover:bg-green-700"
+                          size="sm"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add All to Quiz
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {pendingAIQuestions.map((question, index) => (
+                        <div key={index} className="p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Badge variant="outline">Q{index + 1}</Badge>
+                                <Badge className={question.difficulty === 'easy' ? 'bg-green-100 text-green-800' : question.difficulty === 'hard' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}>
+                                  {question.difficulty}
+                                </Badge>
+                                <Badge variant="outline">{question.type?.replace('_', ' ')}</Badge>
+                                <Badge variant="outline">{question.points} pts</Badge>
+                              </div>
+                              <p className="font-medium text-gray-900">{question.question}</p>
+                              {question.options && (
+                                <div className="mt-2 grid grid-cols-2 gap-2">
+                                  {Object.entries(question.options).map(([key, value]) => (
+                                    <div key={key} className={`text-sm p-2 rounded ${key === question.correctAnswer ? 'bg-green-100 text-green-700 font-medium' : 'bg-gray-50 text-gray-600'}`}>
+                                      {key}. {String(value)}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {!question.options && (
+                                <div className="mt-2 text-sm text-gray-600">
+                                  <span className="font-medium">Answer:</span> {question.correctAnswer}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
             {/* Questions List */}
             {questions.length > 0 && (
               <motion.div
@@ -596,15 +853,6 @@ const CreateQuiz = () => {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="randomize">Randomize Questions</Label>
-                    <Switch
-                      id="randomize"
-                      checked={quizData.randomizeQuestions}
-                      onCheckedChange={(checked) => setQuizData({...quizData, randomizeQuestions: checked})}
-                    />
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
                     <Label htmlFor="show-results">Show Results</Label>
                     <Switch
                       id="show-results"
@@ -634,13 +882,16 @@ const CreateQuiz = () => {
                   <Separator />
 
                   <div>
-                    <Label htmlFor="passing-marks">Passing Marks</Label>
+                    <Label htmlFor="passing-marks">Passing Marks *</Label>
                     <Input
                       id="passing-marks"
                       type="number"
                       value={quizData.passingMarks}
-                      onChange={(e) => setQuizData({...quizData, passingMarks: parseInt(e.target.value)})}
+                      onChange={(e) => setQuizData({...quizData, passingMarks: parseInt(e.target.value) || 0})}
+                      required
+                      min={1}
                     />
+                    <p className="text-xs text-gray-500 mt-1">Minimum marks required to pass the quiz</p>
                   </div>
                 </CardContent>
               </Card>
@@ -671,7 +922,10 @@ const CreateQuiz = () => {
                       <DialogHeader>
                         <DialogTitle>AI Question Generator</DialogTitle>
                       </DialogHeader>
-                      <AIQuestionGenerator />
+                      <AIQuestionGenerator 
+                        onQuestionsGenerated={handleAIQuestionsGenerated}
+                        defaultDifficulty="medium"
+                      />
                     </DialogContent>
                   </Dialog>
                   
@@ -744,7 +998,7 @@ const CreateQuiz = () => {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Passing Marks:</span>
-                    <span className="font-semibold">{quizData.passingMarks}</span>
+                    <span className="font-semibold">{quizData.passingMarks || 'Not set'} *</span>
                   </div>
                 </CardContent>
               </Card>

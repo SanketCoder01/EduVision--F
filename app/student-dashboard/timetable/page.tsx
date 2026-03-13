@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Calendar,
@@ -24,10 +24,16 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { realtimeService, RealtimePayload } from "@/lib/realtime-service"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { supabase } from "@/lib/supabase"
+import { useToast } from "@/hooks/use-toast"
 
 export default function StudentTimetablePage() {
+  const { toast } = useToast()
+  const subscriptionsRef = useRef<{ unsubscribe: () => void } | null>(null)
   const [currentWeek, setCurrentWeek] = useState(0)
   const [selectedDay, setSelectedDay] = useState(new Date().getDay())
   const [currentUser, setCurrentUser] = useState<any>(null)
@@ -41,72 +47,122 @@ export default function StudentTimetablePage() {
   const [weekStartDate, setWeekStartDate] = useState(new Date())
 
   useEffect(() => {
-    const studentSession = localStorage.getItem("studentSession")
-    const currentUserData = localStorage.getItem("currentUser")
-
-    if (studentSession) {
-      try {
-        const user = JSON.parse(studentSession)
-        setCurrentUser(user)
-      } catch (error) {
-        console.error("Error parsing student session:", error)
-      }
-    } else if (currentUserData) {
-      try {
-        const user = JSON.parse(currentUserData)
-        setCurrentUser(user)
-      } catch (error) {
-        console.error("Error parsing current user data:", error)
+    fetchStudentData()
+    
+    return () => {
+      if (subscriptionsRef.current) {
+        subscriptionsRef.current.unsubscribe()
       }
     }
+  }, [])
 
-    // Initialize week start date to the beginning of current week
+  useEffect(() => {
+    if (currentUser) {
+      fetchTimetableData()
+      setupRealtimeSubscriptions()
+    }
+  }, [currentUser])
+
+  const fetchStudentData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Try to find student in department tables
+      const departments = ['cse', 'cyber', 'aids', 'aiml']
+      const years = ['1st', '2nd', '3rd', '4th']
+      
+      for (const dept of departments) {
+        for (const year of years) {
+          const { data } = await supabase
+            .from(`students_${dept}_${year}_year`)
+            .select('*')
+            .eq('email', user.email)
+            .single()
+          
+          if (data) {
+            setCurrentUser(data)
+            return
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching student data:', error)
+    }
+  }
+
+  const fetchTimetableData = async () => {
+    if (!currentUser) return
+    
+    try {
+      // Fetch timetable from Supabase
+      const { data, error } = await supabase
+        .from('timetables')
+        .select('*')
+        .eq('department', currentUser.department)
+        .eq('year', currentUser.year)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+
+      if (data && data.length > 0) {
+        // Transform schedule data
+        const schedules = data.map(t => ({
+          ...t.schedule_data,
+          department: t.department,
+          year: t.year
+        })).flat()
+        
+        setExtractedSchedule(schedules)
+      }
+
+      // Fetch academic events
+      const { data: events } = await supabase
+        .from('academic_events')
+        .select('*')
+        .gte('date', new Date().toISOString().split('T')[0])
+        .order('date', { ascending: true })
+      
+      if (events) {
+        setAcademicEvents(events)
+      }
+    } catch (error) {
+      console.error('Error fetching timetable:', error)
+    }
+  }
+
+  const setupRealtimeSubscriptions = () => {
+    if (!currentUser) return
+    
+    // Clean up previous subscriptions
+    if (subscriptionsRef.current) {
+      subscriptionsRef.current.unsubscribe()
+    }
+    
+    // Subscribe to timetable updates with department + year filtering
+    subscriptionsRef.current = realtimeService.subscribeToTimetable(
+      { department: currentUser.department, year: currentUser.year },
+      (payload: RealtimePayload) => {
+        console.log('Timetable update:', payload)
+        fetchTimetableData()
+        
+        if (payload.eventType === 'INSERT') {
+          toast({
+            title: "Timetable Updated",
+            description: "A new timetable has been uploaded for your class.",
+          })
+        }
+      }
+    )
+  }
+
+  // Initialize week start date to the beginning of current week
+  useEffect(() => {
     const today = new Date()
     const startOfWeek = new Date(today)
     startOfWeek.setDate(today.getDate() - today.getDay())
     setWeekStartDate(startOfWeek)
   }, [])
-
-  useEffect(() => {
-    // Load faculty-uploaded timetable data
-    const savedSchedule = localStorage.getItem("extractedSchedule")
-    const savedCalendars = localStorage.getItem("academicCalendars")
-    
-    if (savedSchedule) {
-      try {
-        const schedule = JSON.parse(savedSchedule)
-        // Filter by student's department and year
-        const userDept = currentUser?.department || "Computer Science Engineering"
-        const userYear = currentUser?.year || "First Year"
-        const filteredSchedule = schedule.filter((s: any) => 
-          s.department === userDept && s.year === userYear
-        )
-        setExtractedSchedule(filteredSchedule)
-      } catch (error) {
-        console.error("Error parsing schedule:", error)
-      }
-    }
-    
-    if (savedCalendars) {
-      try {
-        setAcademicCalendars(JSON.parse(savedCalendars))
-      } catch (error) {
-        console.error("Error parsing calendars:", error)
-      }
-    }
-
-    // Load mock academic events
-    const mockEvents = [
-      { date: "2025-01-15", title: "Mid-term Exams Begin", type: "exam", importance: "high" },
-      { date: "2025-01-26", title: "Republic Day Holiday", type: "holiday", importance: "medium" },
-      { date: "2025-02-14", title: "Valentine's Day Event", type: "event", importance: "low" },
-      { date: "2025-02-28", title: "Science Exhibition", type: "event", importance: "high" },
-      { date: "2025-03-08", title: "Women's Day Celebration", type: "event", importance: "medium" },
-      { date: "2025-03-15", title: "Final Exams Begin", type: "exam", importance: "high" },
-      { date: "2025-04-14", title: "Summer Break Begins", type: "holiday", importance: "high" }
-    ]
-    setAcademicEvents(mockEvents)
-  }, [currentUser])
 
   const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
   const timeSlots = [

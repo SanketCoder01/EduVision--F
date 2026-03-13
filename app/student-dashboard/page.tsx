@@ -27,6 +27,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { SupabaseRealtimeService, Student } from "@/lib/supabase-realtime"
 import { supabase } from "@/lib/supabase"
+import { useToast } from "@/hooks/use-toast"
 
 export default function StudentDashboardPage() {
   const router = useRouter()
@@ -48,40 +49,75 @@ export default function StudentDashboardPage() {
   useEffect(() => {
     const loadUserData = async () => {
       try {
-        const studentSession = localStorage.getItem("studentSession")
-        const currentUserData = localStorage.getItem("currentUser")
+        // Get user from Supabase Auth
+        const { data: { user }, error } = await supabase.auth.getUser()
         
-        let user = null
-        if (studentSession) {
-          user = JSON.parse(studentSession)
-        } else if (currentUserData) {
-          user = JSON.parse(currentUserData)
+        if (error || !user) {
+          router.push('/login?type=student')
+          return
         }
         
-        if (user) {
-          // Fetch latest registration status
-          const { data: student } = await supabase
-            .from('students')
-            .select('registration_completed')
-            .eq('email', user.email)
-            .single()
-          
-          if (student) {
-            setRegistrationCompleted(student.registration_completed || false)
+        // Search for student across all department-year tables
+        const departments = ['cse', 'cyber', 'aids', 'aiml']
+        const years = ['1st', '2nd', '3rd', '4th']
+        let student = null
+        
+        for (const dept of departments) {
+          for (const year of years) {
+            const tableName = `students_${dept}_${year}_year`
+            const { data, error: studentError } = await supabase
+              .from(tableName)
+              .select('*')
+              .eq('email', user.email)
+              .maybeSingle()
+            
+            if (data && !studentError) {
+              student = { ...data, department: dept, year }
+              break
+            }
           }
-          
-          setCurrentUser(user)
-          await loadDashboardData(user)
+          if (student) break
+        }
+        
+        if (!student) {
+          router.push('/complete-profile')
+          return
+        }
+        
+        // Check if profile is complete
+        const isComplete = student.department && student.year && student.college_name && student.prn
+        setRegistrationCompleted(isComplete)
+        
+        if (!isComplete) {
+          router.push('/complete-profile')
+          return
+        }
+        
+        setCurrentUser(student)
+        await loadDashboardData(student)
+        
+        // Check if user just completed profile (came from complete-profile)
+        const urlParams = new URLSearchParams(window.location.search)
+        if (urlParams.get('welcome') === 'true') {
+          // Show welcome message for new users
+          setTimeout(() => {
+            toast({
+              title: `Welcome to EduVision, ${student.name || student.full_name}! 🎉`,
+              description: "Your profile has been successfully completed. Explore all the features available to you.",
+              duration: 5000,
+            })
+          }, 1000)
         }
       } catch (error) {
         console.error("Error loading user data:", error)
+        router.push('/login?type=student')
       } finally {
         setIsLoading(false)
       }
     }
 
     loadUserData()
-  }, [])
+  }, [router])
 
   const loadDashboardData = async (user: Student) => {
     try {
@@ -355,7 +391,7 @@ export default function StudentDashboardPage() {
             <span className="font-semibold">PRN:</span> {currentUser?.prn || "Not Set"} • <span className="font-semibold">Year:</span> {currentUser?.year || "N/A"}
           </p>
           <p className="text-white/80 text-lg mt-1">
-            <span className="font-semibold">Department:</span> {currentUser?.department || "N/A"} {currentUser?.division ? `• Division: ${currentUser?.division}` : ""}
+            <span className="font-semibold">Department:</span> {currentUser?.department || "N/A"}
           </p>
           <div className="mt-4 flex items-center gap-2 text-white/80">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>

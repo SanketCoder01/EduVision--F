@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { 
   Users, 
@@ -17,7 +17,9 @@ import {
   Trophy,
   FileText,
   Timer,
-  Target
+  Target,
+  Loader2,
+  Save
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -30,133 +32,315 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
+import { supabase } from "@/lib/supabase"
+import { useParams, useSearchParams } from "next/navigation"
+import { toast } from "@/components/ui/use-toast"
 
-interface Submission {
+interface QuizAttempt {
   id: string
-  studentName: string
-  studentId: string
-  submittedAt: string
-  duration: number
-  score?: number
-  totalMarks: number
-  status: 'submitted' | 'graded' | 'reviewing'
-  autoGraded: number
-  manualGrading: number
-  flagged: boolean
-  proctoring: {
-    violations: number
-    tabSwitches: number
-    suspicious: boolean
-  }
+  quiz_id: string
+  student_id: string
+  student_name: string
+  student_email: string
+  department: string
+  year: string
+  answers: any[]
+  marks_obtained: number
+  total_marks: number
+  time_taken: number
+  tab_switches: number
+  violations: number
+  completed_at: string
+  created_at: string
 }
 
 const QuizSubmissions = () => {
+  const params = useParams()
+  const searchParams = useSearchParams()
+  const quizId = searchParams.get('quizId') || params.quizId as string
+  
+  const [isLoading, setIsLoading] = useState(true)
+  const [faculty, setFaculty] = useState<any>(null)
+  const [quiz, setQuiz] = useState<any>(null)
+  const [allQuizzes, setAllQuizzes] = useState<any[]>([])
+  const [attempts, setAttempts] = useState<QuizAttempt[]>([])
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'graded' | 'flagged'>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
-  const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null)
+  const [selectedYear, setSelectedYear] = useState('all')
+  const [selectedQuizFilter, setSelectedQuizFilter] = useState<string>('all')
+  const [selectedSubmission, setSelectedSubmission] = useState<QuizAttempt | null>(null)
   const [gradingDialogOpen, setGradingDialogOpen] = useState(false)
 
-  const quizInfo = {
-    title: "Data Structures Fundamentals",
-    totalStudents: 45,
-    submitted: 42,
-    graded: 35,
-    pending: 7,
-    averageScore: 78.5,
-    duration: 60
+  useEffect(() => {
+    fetchFacultyAndQuiz()
+  }, [quizId])
+
+  // Real-time subscription for new submissions
+  useEffect(() => {
+    if (!faculty) return
+
+    console.log('Setting up realtime subscription for faculty:', faculty.id)
+
+    // Subscribe to all quiz_attempts for this faculty's quizzes
+    const channel = supabase
+      .channel(`quiz-attempts-faculty-${faculty.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'quiz_attempts'
+      }, async (payload) => {
+        console.log('New submission received:', payload.new)
+        
+        // Check if this attempt belongs to faculty's quiz
+        const attemptQuizId = payload.new.quiz_id
+        const isMyQuiz = allQuizzes.some(q => q.id === attemptQuizId)
+        
+        if (isMyQuiz) {
+          // If viewing specific quiz, only add if matches
+          if (quizId && attemptQuizId !== quizId) return
+          
+          setAttempts(prev => {
+            if (prev.find(a => a.id === payload.new.id)) {
+              return prev
+            }
+            return [payload.new as QuizAttempt, ...prev]
+          })
+          
+          toast({
+            title: "New Submission",
+            description: `${payload.new.student_name} has submitted a quiz.`
+          })
+        }
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'quiz_attempts'
+      }, (payload) => {
+        console.log('Attempt updated:', payload.new)
+        setAttempts(prev => prev.map(a => 
+          a.id === payload.new.id ? payload.new as QuizAttempt : a
+        ))
+      })
+      .subscribe((status) => {
+        console.log('Realtime subscription status:', status)
+      })
+
+    return () => {
+      console.log('Cleaning up realtime subscription')
+      supabase.removeChannel(channel)
+    }
+  }, [faculty, allQuizzes, quizId])
+
+  const fetchFacultyAndQuiz = async () => {
+    try {
+      setIsLoading(true)
+      
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      console.log('Fetching data for user:', user.email)
+
+      // Get faculty data
+      const { data: facultyData, error: facultyError } = await supabase
+        .from('faculty')
+        .select('*')
+        .eq('email', user.email)
+        .single()
+      
+      if (facultyError) {
+        console.error('Error fetching faculty:', facultyError)
+        return
+      }
+      
+      console.log('Faculty data:', facultyData)
+      if (facultyData) {
+        setFaculty(facultyData)
+      }
+
+      // Get all quizzes by this faculty
+      const { data: quizzesData, error: quizzesError } = await supabase
+        .from('quizzes')
+        .select('*')
+        .eq('faculty_id', facultyData?.id)
+        .order('created_at', { ascending: false })
+
+      if (quizzesError) {
+        console.error('Error fetching quizzes:', quizzesError)
+      }
+      
+      console.log('Faculty quizzes:', quizzesData)
+      setAllQuizzes(quizzesData || [])
+
+      // If specific quiz requested, get that quiz
+      if (quizId) {
+        const { data: quizData } = await supabase
+          .from('quizzes')
+          .select('*')
+          .eq('id', quizId)
+          .single()
+        
+        console.log('Specific quiz:', quizData)
+        setQuiz(quizData)
+
+        // Fetch all attempts for this specific quiz
+        const { data: attemptsData, error: attemptsError } = await supabase
+          .from('quiz_attempts')
+          .select('*')
+          .eq('quiz_id', quizId)
+          .not('completed_at', 'is', null)
+          .order('completed_at', { ascending: false })
+
+        if (attemptsError) {
+          console.error('Error fetching attempts:', attemptsError)
+        }
+        
+        console.log('Attempts for quiz:', attemptsData)
+        setAttempts(attemptsData || [])
+      } else {
+        // No specific quiz - fetch all attempts for all faculty's quizzes
+        const quizIds = quizzesData?.map(q => q.id) || []
+        
+        if (quizIds.length > 0) {
+          const { data: attemptsData, error: attemptsError } = await supabase
+            .from('quiz_attempts')
+            .select('*')
+            .in('quiz_id', quizIds)
+            .not('completed_at', 'is', null)
+            .order('completed_at', { ascending: false })
+
+          if (attemptsError) {
+            console.error('Error fetching all attempts:', attemptsError)
+          }
+          
+          console.log('All attempts:', attemptsData)
+          setAttempts(attemptsData || [])
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching data:', error)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const submissions: Submission[] = [
-    {
-      id: '1',
-      studentName: 'Arjun Patel',
-      studentId: 'CSE001',
-      submittedAt: '2024-01-20T15:30:00',
-      duration: 45,
-      score: 42,
-      totalMarks: 50,
-      status: 'graded',
-      autoGraded: 35,
-      manualGrading: 7,
-      flagged: false,
-      proctoring: { violations: 0, tabSwitches: 1, suspicious: false }
-    },
-    {
-      id: '2',
-      studentName: 'Priya Singh',
-      studentId: 'CSE002',
-      submittedAt: '2024-01-20T15:45:00',
-      duration: 52,
-      score: 38,
-      totalMarks: 50,
-      status: 'graded',
-      autoGraded: 30,
-      manualGrading: 8,
-      flagged: false,
-      proctoring: { violations: 1, tabSwitches: 2, suspicious: false }
-    },
-    {
-      id: '3',
-      studentName: 'Rahul Kumar',
-      studentId: 'CSE003',
-      submittedAt: '2024-01-20T16:00:00',
-      duration: 38,
-      totalMarks: 50,
-      status: 'submitted',
-      autoGraded: 28,
-      manualGrading: 0,
-      flagged: false,
-      proctoring: { violations: 0, tabSwitches: 0, suspicious: false }
-    },
-    {
-      id: '4',
-      studentName: 'Sneha Sharma',
-      studentId: 'CSE004',
-      submittedAt: '2024-01-20T15:20:00',
-      duration: 60,
-      totalMarks: 50,
-      status: 'reviewing',
-      autoGraded: 25,
-      manualGrading: 0,
-      flagged: true,
-      proctoring: { violations: 5, tabSwitches: 8, suspicious: true }
-    },
-    {
-      id: '5',
-      studentName: 'Vikram Joshi',
-      studentId: 'CSE005',
-      submittedAt: '2024-01-20T15:55:00',
-      duration: 41,
-      score: 45,
-      totalMarks: 50,
-      status: 'graded',
-      autoGraded: 38,
-      manualGrading: 7,
-      flagged: false,
-      proctoring: { violations: 0, tabSwitches: 1, suspicious: false }
-    }
-  ]
+  // Calculate stats from real data
+  const stats = {
+    totalStudents: attempts.length,
+    submitted: attempts.length,
+    graded: attempts.filter(a => a.marks_obtained !== null).length,
+    pending: attempts.filter(a => a.marks_obtained === null).length,
+    averageScore: attempts.length > 0 
+      ? Math.round(attempts.reduce((sum, a) => sum + (a.marks_obtained || 0), 0) / attempts.length / (attempts[0]?.total_marks || 100) * 100)
+      : 0
+  }
 
-  const filteredSubmissions = submissions.filter(submission => {
-    const matchesSearch = submission.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         submission.studentId.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = filterStatus === 'all' || submission.status === filterStatus
-    const matchesTab = activeTab === 'all' || 
-                      (activeTab === 'pending' && submission.status === 'submitted') ||
-                      (activeTab === 'graded' && submission.status === 'graded') ||
-                      (activeTab === 'flagged' && submission.flagged)
+  // View submission dialog
+  const [viewDialogOpen, setViewDialogOpen] = useState(false)
+  const [selectedAttempt, setSelectedAttempt] = useState<QuizAttempt | null>(null)
+  const [attemptQuestions, setAttemptQuestions] = useState<any[]>([])
+  const [editedScore, setEditedScore] = useState<number>(0)
+  const [isSaving, setIsSaving] = useState(false)
+
+  const handleViewSubmission = async (attempt: QuizAttempt) => {
+    setSelectedAttempt(attempt)
+    setEditedScore(attempt.marks_obtained || 0)
     
-    return matchesSearch && matchesStatus && matchesTab
+    // Fetch quiz questions for this attempt
+    const { data: questionsData } = await supabase
+      .from('quiz_questions')
+      .select('*')
+      .eq('quiz_id', attempt.quiz_id)
+      .order('order_number', { ascending: true })
+    
+    setAttemptQuestions(questionsData || [])
+    setViewDialogOpen(true)
+  }
+
+  const handleUpdateScore = async () => {
+    if (!selectedAttempt) return
+    
+    setIsSaving(true)
+    try {
+      const { error } = await supabase
+        .from('quiz_attempts')
+        .update({ marks_obtained: editedScore })
+        .eq('id', selectedAttempt.id)
+      
+      if (error) throw error
+      
+      // Update local state
+      setAttempts(prev => prev.map(a => 
+        a.id === selectedAttempt.id ? { ...a, marks_obtained: editedScore } : a
+      ))
+      
+      toast({
+        title: "Score Updated",
+        description: `Score updated to ${editedScore} for ${selectedAttempt.student_name}`
+      })
+    } catch (error) {
+      console.error('Error updating score:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update score",
+        variant: "destructive"
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handlePublishResult = async () => {
+    if (!selectedAttempt) return
+    
+    setIsSaving(true)
+    try {
+      // Update the quiz to mark results as published
+      const { error } = await supabase
+        .from('quizzes')
+        .update({ results_published: true })
+        .eq('id', selectedAttempt.quiz_id)
+      
+      if (error) throw error
+      
+      toast({
+        title: "Results Published",
+        description: "Students can now view their results"
+      })
+      
+      setViewDialogOpen(false)
+    } catch (error) {
+      console.error('Error publishing results:', error)
+      toast({
+        title: "Error",
+        description: "Failed to publish results",
+        variant: "destructive"
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Filter by year and quiz
+  const years = ['all', 'first', 'second', 'third', 'fourth']
+  
+  const filteredAttempts = attempts.filter(attempt => {
+    const matchesSearch = attempt.student_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         attempt.student_email.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesYear = selectedYear === 'all' || attempt.year === selectedYear
+    const matchesQuiz = selectedQuizFilter === 'all' || attempt.quiz_id === selectedQuizFilter
+    const matchesTab = activeTab === 'all' || 
+                      (activeTab === 'pending' && attempt.marks_obtained === null) ||
+                      (activeTab === 'graded' && attempt.marks_obtained !== null) ||
+                      (activeTab === 'flagged' && (attempt.violations > 0 || attempt.tab_switches > 2))
+    
+    return matchesSearch && matchesYear && matchesQuiz && matchesTab
   })
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'graded': return 'bg-green-100 text-green-800'
-      case 'submitted': return 'bg-blue-100 text-blue-800'
-      case 'reviewing': return 'bg-yellow-100 text-yellow-800'
-      default: return 'bg-gray-100 text-gray-800'
-    }
+  const getStatusColor = (attempt: QuizAttempt) => {
+    if (attempt.marks_obtained !== null) return 'bg-green-100 text-green-800'
+    return 'bg-blue-100 text-blue-800'
   }
 
   const formatDate = (dateString: string) => {
@@ -168,9 +352,43 @@ const QuizSubmissions = () => {
     })
   }
 
-  const handleGradeSubmission = (submission: Submission) => {
-    setSelectedSubmission(submission)
-    setGradingDialogOpen(true)
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    return `${mins}m`
+  }
+
+  const handleExportResults = async () => {
+    // Export to CSV
+    const csv = [
+      ['Student Name', 'Email', 'Department', 'Year', 'Score', 'Total Marks', 'Time Taken', 'Violations', 'Tab Switches', 'Submitted At'].join(','),
+      ...filteredAttempts.map(a => [
+        a.student_name,
+        a.student_email,
+        a.department,
+        a.year,
+        a.marks_obtained || 'N/A',
+        a.total_marks,
+        formatDuration(a.time_taken),
+        a.violations,
+        a.tab_switches,
+        formatDate(a.completed_at)
+      ].join(','))
+    ].join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `quiz-${quizId}-results.csv`
+    a.click()
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    )
   }
 
   return (
@@ -188,20 +406,14 @@ const QuizSubmissions = () => {
                 Quiz Submissions
               </h1>
               <p className="mt-2 text-gray-600">
-                {quizInfo.title} - Review and grade student submissions
+                {quiz?.title || 'Quiz'} - Review student submissions
               </p>
             </div>
             <div className="flex space-x-3 mt-4 sm:mt-0">
-              <Button variant="outline">
+              <Button variant="outline" onClick={handleExportResults}>
                 <Download className="w-4 h-4 mr-2" />
                 Export Results
               </Button>
-              <Link href="/dashboard/quiz/analytics">
-                <Button className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white">
-                  <BarChart3 className="w-4 h-4 mr-2" />
-                  View Analytics
-                </Button>
-              </Link>
             </div>
           </div>
         </motion.div>
@@ -211,47 +423,41 @@ const QuizSubmissions = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4 mb-8"
+          className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4 mb-8"
         >
           <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-blue-600">{quizInfo.totalStudents}</div>
-              <div className="text-sm text-gray-600">Total Students</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-green-600">{quizInfo.submitted}</div>
+              <div className="text-2xl font-bold text-blue-600">{stats.submitted}</div>
               <div className="text-sm text-gray-600">Submitted</div>
             </CardContent>
           </Card>
           <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-purple-600">{quizInfo.graded}</div>
+              <div className="text-2xl font-bold text-green-600">{stats.graded}</div>
               <div className="text-sm text-gray-600">Graded</div>
             </CardContent>
           </Card>
           <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-yellow-600">{quizInfo.pending}</div>
+              <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
               <div className="text-sm text-gray-600">Pending</div>
             </CardContent>
           </Card>
           <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-red-600">{quizInfo.averageScore}%</div>
+              <div className="text-2xl font-bold text-purple-600">{stats.averageScore}%</div>
               <div className="text-sm text-gray-600">Avg Score</div>
             </CardContent>
           </Card>
           <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-orange-600">{Math.round((quizInfo.submitted / quizInfo.totalStudents) * 100)}%</div>
-              <div className="text-sm text-gray-600">Completion</div>
+              <div className="text-2xl font-bold text-red-600">{attempts.filter(a => a.violations > 0).length}</div>
+              <div className="text-sm text-gray-600">Violations</div>
             </CardContent>
           </Card>
         </motion.div>
 
-        {/* Filters and Search */}
+        {/* Filters */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -263,22 +469,36 @@ const QuizSubmissions = () => {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
-                  placeholder="Search by student name or ID..."
+                  placeholder="Search by student name or email..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
                 />
               </div>
             </div>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-full sm:w-48">
-                <SelectValue placeholder="Filter by status" />
+            {!quizId && allQuizzes.length > 0 && (
+              <Select value={selectedQuizFilter} onValueChange={setSelectedQuizFilter}>
+                <SelectTrigger className="w-full sm:w-48">
+                  <SelectValue placeholder="Filter by quiz" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Quizzes</SelectItem>
+                  {allQuizzes.map(q => (
+                    <SelectItem key={q.id} value={q.id}>{q.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Select value={selectedYear} onValueChange={setSelectedYear}>
+              <SelectTrigger className="w-full sm:w-40">
+                <SelectValue placeholder="Filter by year" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="submitted">Submitted</SelectItem>
-                <SelectItem value="graded">Graded</SelectItem>
-                <SelectItem value="reviewing">Reviewing</SelectItem>
+                <SelectItem value="all">All Years</SelectItem>
+                <SelectItem value="first">1st Year</SelectItem>
+                <SelectItem value="second">2nd Year</SelectItem>
+                <SelectItem value="third">3rd Year</SelectItem>
+                <SelectItem value="fourth">4th Year</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -293,10 +513,10 @@ const QuizSubmissions = () => {
         >
           <div className="flex space-x-1 bg-white/80 backdrop-blur-sm p-1 rounded-lg shadow-lg">
             {[
-              { id: 'all', label: 'All Submissions', count: submissions.length },
-              { id: 'pending', label: 'Pending Review', count: submissions.filter(s => s.status === 'submitted').length },
-              { id: 'graded', label: 'Graded', count: submissions.filter(s => s.status === 'graded').length },
-              { id: 'flagged', label: 'Flagged', count: submissions.filter(s => s.flagged).length }
+              { id: 'all', label: 'All', count: attempts.length },
+              { id: 'pending', label: 'Pending', count: attempts.filter(a => a.marks_obtained === null).length },
+              { id: 'graded', label: 'Graded', count: attempts.filter(a => a.marks_obtained !== null).length },
+              { id: 'flagged', label: 'Flagged', count: attempts.filter(a => a.violations > 0 || a.tab_switches > 2).length }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -308,9 +528,7 @@ const QuizSubmissions = () => {
                 }`}
               >
                 {tab.label}
-                <Badge variant="secondary" className="ml-2">
-                  {tab.count}
-                </Badge>
+                <Badge variant="secondary" className="ml-2">{tab.count}</Badge>
               </button>
             ))}
           </div>
@@ -324,189 +542,241 @@ const QuizSubmissions = () => {
         >
           <Card className="bg-white/90 backdrop-blur-sm border-0 shadow-lg">
             <CardHeader>
-              <CardTitle>
-                Submissions ({filteredSubmissions.length})
-              </CardTitle>
+              <CardTitle>Submissions ({filteredAttempts.length})</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {filteredSubmissions.map((submission, index) => (
-                  <motion.div
-                    key={submission.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    className={`p-6 border rounded-lg transition-all duration-200 hover:shadow-md ${
-                      submission.flagged ? 'border-red-300 bg-red-50' : 'border-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
-                        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-                          <Users className="w-6 h-6 text-white" />
-                        </div>
-                        
-                        <div>
-                          <h3 className="font-semibold text-gray-900">{submission.studentName}</h3>
-                          <p className="text-sm text-gray-600">ID: {submission.studentId}</p>
-                          <div className="flex items-center space-x-4 mt-1">
-                            <span className="text-xs text-gray-500">
-                              <Clock className="w-3 h-3 inline mr-1" />
-                              {formatDate(submission.submittedAt)}
-                            </span>
-                            <span className="text-xs text-gray-500">
-                              <Timer className="w-3 h-3 inline mr-1" />
-                              {submission.duration}m
-                            </span>
+              {filteredAttempts.length === 0 ? (
+                <div className="text-center py-12">
+                  <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No submissions yet</h3>
+                  <p className="text-gray-500">Submissions will appear here in real-time</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredAttempts.map((attempt, index) => (
+                    <motion.div
+                      key={attempt.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      className={`p-6 border rounded-lg transition-all duration-200 hover:shadow-md ${
+                        attempt.violations > 0 ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-4">
+                          <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
+                            <Users className="w-6 h-6 text-white" />
+                          </div>
+                          
+                          <div>
+                            <h3 className="font-semibold text-gray-900">{attempt.student_name}</h3>
+                            <p className="text-sm text-gray-600">{attempt.student_email}</p>
+                            <div className="flex items-center space-x-4 mt-1">
+                              <Badge variant="outline">{attempt.year} Year</Badge>
+                              <span className="text-xs text-gray-500">
+                                <Clock className="w-3 h-3 inline mr-1" />
+                                {formatDate(attempt.completed_at)}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                <Timer className="w-3 h-3 inline mr-1" />
+                                {formatDuration(attempt.time_taken)}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="flex items-center space-x-6">
-                        {/* Score Display */}
-                        <div className="text-center">
-                          {submission.score !== undefined ? (
-                            <>
-                              <div className="text-2xl font-bold text-blue-600">
-                                {Math.round((submission.score / submission.totalMarks) * 100)}%
-                              </div>
-                              <div className="text-sm text-gray-500">
-                                {submission.score}/{submission.totalMarks}
-                              </div>
-                            </>
-                          ) : (
-                            <>
+                        <div className="flex items-center space-x-6">
+                          {/* Score */}
+                          <div className="text-center">
+                            {attempt.marks_obtained !== null ? (
+                              <>
+                                <div className="text-2xl font-bold text-blue-600">
+                                  {Math.round((attempt.marks_obtained / attempt.total_marks) * 100)}%
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  {attempt.marks_obtained}/{attempt.total_marks}
+                                </div>
+                              </>
+                            ) : (
                               <div className="text-lg font-bold text-gray-400">--</div>
-                              <div className="text-sm text-gray-500">Not graded</div>
-                            </>
-                          )}
-                        </div>
+                            )}
+                          </div>
 
-                        {/* Auto/Manual Grading */}
-                        <div className="text-center">
-                          <div className="text-sm text-gray-600">Auto: {submission.autoGraded}</div>
-                          <div className="text-sm text-gray-600">Manual: {submission.manualGrading}</div>
-                        </div>
-
-                        {/* Status and Flags */}
-                        <div className="flex flex-col items-end space-y-2">
-                          <Badge className={getStatusColor(submission.status)}>
-                            {submission.status.charAt(0).toUpperCase() + submission.status.slice(1)}
+                          {/* Status */}
+                          <Badge className={getStatusColor(attempt)}>
+                            {attempt.marks_obtained !== null ? 'Graded' : 'Submitted'}
                           </Badge>
-                          
-                          {submission.flagged && (
-                            <Badge className="bg-red-100 text-red-800">
-                              <AlertTriangle className="w-3 h-3 mr-1" />
-                              Flagged
-                            </Badge>
-                          )}
-                          
-                          {submission.proctoring.suspicious && (
-                            <Badge className="bg-orange-100 text-orange-800">
-                              Suspicious Activity
-                            </Badge>
-                          )}
-                        </div>
 
-                        {/* Action Buttons */}
-                        <div className="flex flex-col space-y-2">
-                          <Link href={`/dashboard/quiz/submissions/${submission.id}`}>
-                            <Button variant="outline" size="sm">
-                              <Eye className="w-4 h-4 mr-2" />
-                              View
-                            </Button>
-                          </Link>
-                          
-                          {submission.status !== 'graded' && (
-                            <Button 
-                              size="sm"
-                              onClick={() => handleGradeSubmission(submission)}
-                              className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white"
-                            >
-                              <Edit3 className="w-4 h-4 mr-2" />
-                              Grade
-                            </Button>
+                          {/* Violations */}
+                          {(attempt.violations > 0 || attempt.tab_switches > 0) && (
+                            <div className="text-sm">
+                              <span className="text-red-600">Violations: {attempt.violations}</span>
+                              <br />
+                              <span className="text-orange-600">Tabs: {attempt.tab_switches}</span>
+                            </div>
                           )}
+
+                          <Button variant="outline" size="sm" onClick={() => handleViewSubmission(attempt)}>
+                            <Eye className="w-4 h-4 mr-2" />
+                            View
+                          </Button>
                         </div>
                       </div>
-                    </div>
-
-                    {/* Proctoring Info */}
-                    {(submission.proctoring.violations > 0 || submission.proctoring.tabSwitches > 0) && (
-                      <div className="mt-4 pt-4 border-t border-gray-200">
-                        <div className="flex items-center space-x-6 text-sm">
-                          <span className="text-red-600">
-                            Violations: {submission.proctoring.violations}
-                          </span>
-                          <span className="text-orange-600">
-                            Tab Switches: {submission.proctoring.tabSwitches}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </motion.div>
-                ))}
-
-                {filteredSubmissions.length === 0 && (
-                  <div className="text-center py-12">
-                    <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No submissions found</h3>
-                    <p className="text-gray-500">Try adjusting your search or filter criteria</p>
-                  </div>
-                )}
-              </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </motion.div>
       </div>
 
-      {/* Grading Dialog */}
-      <Dialog open={gradingDialogOpen} onOpenChange={setGradingDialogOpen}>
-        <DialogContent className="max-w-2xl">
+      {/* View Submission Dialog */}
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Grade Submission - {selectedSubmission?.studentName}</DialogTitle>
+            <DialogTitle>Submission Details</DialogTitle>
           </DialogHeader>
-          {selectedSubmission && (
+          
+          {selectedAttempt && (
             <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Student</Label>
-                  <div className="font-medium">{selectedSubmission.studentName}</div>
-                  <div className="text-sm text-gray-500">ID: {selectedSubmission.studentId}</div>
+              {/* Student Info */}
+              <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-4 border">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-xl font-bold">
+                      {selectedAttempt.student_name?.charAt(0)?.toUpperCase() || 'S'}
+                    </span>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">{selectedAttempt.student_name}</h3>
+                    <p className="text-sm text-gray-600">{selectedAttempt.student_email}</p>
+                  </div>
                 </div>
-                <div>
-                  <Label>Auto-graded Score</Label>
-                  <div className="font-medium">{selectedSubmission.autoGraded}/{selectedSubmission.totalMarks}</div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-xs text-gray-500">Department</p>
+                    <p className="font-medium text-gray-900">{selectedAttempt.department}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Year</p>
+                    <p className="font-medium text-gray-900">{selectedAttempt.year} Year</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Submitted At</p>
+                    <p className="font-medium text-gray-900">{formatDate(selectedAttempt.completed_at)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Time Taken</p>
+                    <p className="font-medium text-gray-900">{formatDuration(selectedAttempt.time_taken)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Violations</p>
+                    <p className="font-medium text-red-600">{selectedAttempt.violations} violations</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Tab Switches</p>
+                    <p className="font-medium text-orange-600">{selectedAttempt.tab_switches}</p>
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <Label htmlFor="manual-score">Manual Grading Points</Label>
-                <Input
-                  id="manual-score"
-                  type="number"
-                  placeholder="Enter additional points..."
-                  className="mt-1"
-                />
+              {/* Score Editor */}
+              <div className="p-4 bg-blue-50 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-sm text-blue-700">Score</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input
+                        type="number"
+                        value={editedScore}
+                        onChange={(e) => setEditedScore(parseInt(e.target.value) || 0)}
+                        className="w-24"
+                        min={0}
+                        max={selectedAttempt.total_marks}
+                      />
+                      <span className="text-lg font-medium">/ {selectedAttempt.total_marks}</span>
+                      <span className="text-lg font-bold text-blue-600 ml-2">
+                        ({Math.round((editedScore / selectedAttempt.total_marks) * 100)}%)
+                      </span>
+                    </div>
+                  </div>
+                  <Button onClick={handleUpdateScore} disabled={isSaving}>
+                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                    Update Score
+                  </Button>
+                </div>
               </div>
 
+              {/* Question Answers */}
               <div>
-                <Label htmlFor="feedback">Feedback</Label>
-                <Textarea
-                  id="feedback"
-                  placeholder="Provide feedback for the student..."
-                  className="mt-1"
-                  rows={4}
-                />
+                <h3 className="text-lg font-semibold mb-4">Question-wise Answers</h3>
+                <div className="space-y-4">
+                  {(selectedAttempt.answers || []).map((answer: any, index: number) => {
+                    const question = attemptQuestions.find(q => q.id === answer.question_id) || attemptQuestions[index]
+                    const isCorrect = answer.correct
+                    
+                    return (
+                      <div key={index} className={`p-4 border rounded-lg ${isCorrect ? 'border-green-300 bg-green-50' : 'border-red-300 bg-red-50'}`}>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Badge variant="outline">{question?.question_type || 'MCQ'}</Badge>
+                              <span className="text-sm text-gray-500">{question?.marks || 1} points</span>
+                            </div>
+                            <p className="font-medium text-gray-900 mb-2">
+                              Q{index + 1}. {question?.question_text || `Question ${index + 1}`}
+                            </p>
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                              <div>
+                                <p className="text-gray-600">Student's Answer:</p>
+                                <p className={`font-medium ${isCorrect ? 'text-green-700' : 'text-red-700'}`}>
+                                  {answer.answer || 'Not answered'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-gray-600">Correct Answer:</p>
+                                <p className="font-medium text-green-700">
+                                  {question?.correct_answer || 'N/A'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="ml-4">
+                            {isCorrect ? (
+                              <CheckCircle className="w-6 h-6 text-green-600" />
+                            ) : (
+                              <XCircle className="w-6 h-6 text-red-600" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
 
-              <div className="flex justify-end space-x-3">
-                <Button variant="outline" onClick={() => setGradingDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white">
-                  Save Grade
-                </Button>
+              {/* Publish Actions */}
+              <div className="flex justify-between items-center pt-4 border-t">
+                <div className="text-sm text-gray-600">
+                  {quiz?.results_published ? (
+                    <span className="text-green-600 font-medium">✓ Results have been published to students</span>
+                  ) : (
+                    <span className="text-orange-600">Results are not yet visible to students</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setViewDialogOpen(false)}>
+                    Close
+                  </Button>
+                  {!quiz?.results_published && (
+                    <Button onClick={handlePublishResult} disabled={isSaving} className="bg-green-600 hover:bg-green-700">
+                      {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                      Publish Results to Students
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           )}

@@ -28,20 +28,21 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Badge } from "@/components/ui/badge"
 
 // Department and year configurations
 const departments = [
-  { id: "cse", name: "Computer Science (CSE)", count: 400 },
-  { id: "aids", name: "AI & Data Science (AIDS)", count: 350 },
-  { id: "aiml", name: "AI & Machine Learning (AIML)", count: 300 },
-  { id: "cyber", name: "Cyber Security", count: 250 },
+  { id: "cse", name: "Computer Science (CSE)" },
+  { id: "aids", name: "AI & Data Science (AIDS)" },
+  { id: "aiml", name: "AI & Machine Learning (AIML)" },
+  { id: "cyber", name: "Cyber Security" },
 ]
 
 const years = [
-  { id: "first", name: "1st Year", count: 100 },
-  { id: "second", name: "2nd Year", count: 90 },
-  { id: "third", name: "3rd Year", count: 85 },
-  { id: "fourth", name: "4th Year", count: 80 },
+  { id: "first", name: "1st Year" },
+  { id: "second", name: "2nd Year" },
+  { id: "third", name: "3rd Year" },
+  { id: "fourth", name: "4th Year" },
 ]
 
 export default function AnnouncementsPage() {
@@ -76,59 +77,54 @@ export default function AnnouncementsPage() {
   const [selectedDepartment, setSelectedDepartment] = useState("")
   const [selectedYears, setSelectedYears] = useState<string[]>([])
 
-  // Mock data backup
-  const oldMockAnnouncements = [
-    {
-      id: 1,
-      title: "Mid-Semester Examination Schedule",
-      description:
-        "The mid-semester examinations for all courses will begin next week. Please check the detailed schedule.",
-      date: "2023-10-15",
-      time: "10:00",
-      venue: "Examination Hall",
-      poster: "/placeholder.svg?height=200&width=400",
-      targetType: "class",
-      target: "FY CSE",
-      totalStudents: 120,
-      readCount: 85,
-      registeredCount: 110,
-    },
-    {
-      id: 2,
-      title: "Annual Technical Symposium",
-      description: "Join us for the annual technical symposium featuring workshops, talks, and competitions.",
-      date: "2023-11-05",
-      time: "09:00",
-      venue: "Main Auditorium",
-      poster: "/placeholder.svg?height=200&width=400",
-      targetType: "department",
-      target: "Computer Science",
-      totalStudents: 335,
-      readCount: 210,
-      registeredCount: 180,
-    },
-    {
-      id: 3,
-      title: "University Foundation Day Celebration",
-      description:
-        "Celebrating the 25th foundation day of our university with cultural programs and distinguished speakers.",
-      date: "2023-12-10",
-      time: "18:00",
-      venue: "University Ground",
-      poster: "/placeholder.svg?height=200&width=400",
-      targetType: "university",
-      target: "All Students",
-      totalStudents: 2500,
-      readCount: 1200,
-      registeredCount: 800,
-    },
-  ]
+  // Real student counts from Supabase
+  const [departmentCounts, setDepartmentCounts] = useState<Record<string, number>>({})
+  const [yearCounts, setYearCounts] = useState<Record<string, number>>({})
 
   // Fetch faculty info and announcements on mount
   useEffect(() => {
     fetchFacultyInfo()
     fetchAnnouncements()
+    fetchStudentCounts()
   }, [])
+
+  const fetchStudentCounts = async () => {
+    try {
+      // Fetch department counts
+      const { data: deptData } = await supabase
+        .from('students')
+        .select('department')
+      
+      const deptCounts: Record<string, number> = {}
+      if (deptData) {
+        deptData.forEach(student => {
+          const dept = student.department?.toLowerCase()
+          if (dept) {
+            deptCounts[dept] = (deptCounts[dept] || 0) + 1
+          }
+        })
+      }
+      setDepartmentCounts(deptCounts)
+
+      // Fetch year counts
+      const { data: yearData } = await supabase
+        .from('students')
+        .select('year')
+      
+      const yearCounts: Record<string, number> = {}
+      if (yearData) {
+        yearData.forEach(student => {
+          const year = student.year?.toLowerCase()
+          if (year) {
+            yearCounts[year] = (yearCounts[year] || 0) + 1
+          }
+        })
+      }
+      setYearCounts(yearCounts)
+    } catch (error) {
+      console.error('Error fetching student counts:', error)
+    }
+  }
 
   const fetchFacultyInfo = async () => {
     try {
@@ -194,37 +190,49 @@ export default function AnnouncementsPage() {
       return
     }
 
+    // Show local preview immediately
+    const localPreview = URL.createObjectURL(file)
+    setPoster(localPreview)
     setIsUploadingPoster(true)
 
     try {
       const formData = new FormData()
       formData.append('file', file)
 
+      console.log('Uploading poster to API...')
+      
       // Call API route directly
       const response = await fetch('/api/announcements/upload-poster', {
         method: 'POST',
         body: formData,
       })
 
+      console.log('Response status:', response.status)
       const result = await response.json()
+      console.log('Upload result:', result)
 
-      if (result.success && result.url && result.path) {
+      if (result.success && result.url) {
+        // Revoke local preview and use server URL
+        URL.revokeObjectURL(localPreview)
         setPoster(result.url)
-        setPosterPath(result.path)
+        setPosterPath(result.path || null)
         toast({
           title: "Poster Uploaded",
           description: "Announcement poster has been uploaded successfully.",
         })
       } else {
-        throw new Error(result.error || 'Upload failed')
+        // Keep local preview but show error
+        setPosterPath(null)
+        throw new Error(result.error || 'Upload failed - using local preview')
       }
     } catch (error) {
       console.error('Upload error:', error)
       toast({
-        title: "Upload Failed",
-        description: error instanceof Error ? error.message : "Failed to upload poster",
-        variant: "destructive",
+        title: "Upload Warning",
+        description: error instanceof Error ? error.message : "Using local preview - save to persist",
+        variant: "default",
       })
+      // Keep local preview visible even if upload fails
     } finally {
       setIsUploadingPoster(false)
     }
@@ -279,22 +287,30 @@ export default function AnnouncementsPage() {
       let dept = null
       let target_years: string[] = []
 
+      // Year mapping for normalization
+      const yearMapping: { [key: string]: string } = {
+        '1': 'first', '2': 'second', '3': 'third', '4': 'fourth',
+        '1st': 'first', '2nd': 'second', '3rd': 'third', '4th': 'fourth'
+      }
+
       if (targetType === "class") {
         // Specific classes: department + specific years
-        dept = selectedDepartment
-        target_years = selectedYears
+        dept = selectedDepartment.toLowerCase().trim()
+        target_years = selectedYears.map(y => yearMapping[y.toLowerCase()] || y.toLowerCase())
       } else if (targetType === "department") {
         // Specific department: all years
-        dept = selectedTarget
-        target_years = [] // Empty means all years
+        dept = selectedTarget.toLowerCase().trim()
+        target_years = ['first', 'second', 'third', 'fourth'] // All years
       } else if (targetType === "university") {
         // University-wide
         dept = null // null means all departments
-        target_years = []
+        target_years = ['first', 'second', 'third', 'fourth']
       }
 
-      // Call API route directly
-      const response = await fetch('/api/announcements/create', {
+      console.log('DEBUG: Creating announcement with dept:', dept, 'target_years:', target_years)
+
+      // Call API route - use /api/announcements which has service role client
+      const response = await fetch('/api/announcements', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -427,11 +443,11 @@ export default function AnnouncementsPage() {
                           <Button
                             key={dept.id}
                             variant={selectedDepartment === dept.id ? "default" : "outline"}
-                            className="justify-start"
+                            className="justify-between"
                             onClick={() => setSelectedDepartment(dept.id)}
                           >
-                            <Building className="h-4 w-4 mr-2" />
-                            {dept.name}
+                            <span>{dept.name}</span>
+                            <Badge variant="secondary">{departmentCounts[dept.id] || 0}</Badge>
                           </Button>
                         ))}
                       </div>
@@ -482,7 +498,6 @@ export default function AnnouncementsPage() {
                         >
                           <Building className="h-4 w-4 mr-2" />
                           {dept.name}
-                          <span className="ml-auto text-xs text-gray-500">{dept.count}</span>
                         </Button>
                       ))}
                     </div>
@@ -790,88 +805,75 @@ export default function AnnouncementsPage() {
           <Button onClick={() => setActiveTab("create")}>Create Announcement</Button>
         </div>
       ) : (
-        <div>
-          {announcements.map((announcement) => (
-            <Card key={announcement.id} className="mb-6">
-              <CardContent className="p-0">
-                <div className="md:flex">
-                  {announcement.poster_url && (
-                    <div className="md:w-1/3">
-                      <img
-                        src={announcement.poster_url}
-                        alt={announcement.title}
-                        className="w-full h-48 md:h-full object-cover rounded-l-lg"
-                      />
-                    </div>
-                  )}
-                  <div className={`p-6 ${announcement.poster_url ? 'md:w-2/3' : 'w-full'}`}>
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h3 className="text-xl font-bold mb-1">{announcement.title}</h3>
-                        <div className="flex flex-wrap gap-2 text-sm text-gray-500">
+        <div className="grid gap-6">
+          {announcements.map((announcement) => {
+            // Determine target display
+            let targetDisplay = "All University"
+            if (announcement.department && announcement.target_years?.length > 0) {
+              targetDisplay = `${announcement.department.toUpperCase()} - ${announcement.target_years.map((y: string) => y.charAt(0).toUpperCase() + y.slice(1) + ' Year').join(', ')}`
+            } else if (announcement.department) {
+              targetDisplay = `${announcement.department.toUpperCase()} (All Years)`
+            }
+            
+            return (
+              <Card key={announcement.id} className="overflow-hidden">
+                <CardContent className="p-0">
+                  <div className="md:flex">
+                    {announcement.poster_url && (
+                      <div className="md:w-1/3 flex-shrink-0">
+                        <img
+                          src={announcement.poster_url}
+                          alt={announcement.title}
+                          className="w-full h-48 md:h-full object-cover"
+                        />
+                      </div>
+                    )}
+                    <div className={`p-6 ${announcement.poster_url ? 'md:w-2/3' : 'w-full'}`}>
+                      <div className="mb-4">
+                        <h3 className="text-xl font-bold text-gray-900 mb-2">{announcement.title}</h3>
+                        <p className="text-gray-600 mb-3">{announcement.content}</p>
+                        
+                        <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-3">
                           {announcement.date && (
-                            <div className="flex items-center">
-                              <Calendar className="h-4 w-4 mr-1" />
-                              {announcement.date}
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-4 w-4" />
+                              <span>{announcement.date}</span>
                             </div>
                           )}
                           {announcement.time && (
-                            <div className="flex items-center">
-                              <Clock className="h-4 w-4 mr-1" />
-                              {announcement.time}
+                            <div className="flex items-center gap-1">
+                              <Clock className="h-4 w-4" />
+                              <span>{announcement.time}</span>
                             </div>
                           )}
                           {announcement.venue && (
-                            <div className="flex items-center">
-                              <MapPin className="h-4 w-4 mr-1" />
-                              {announcement.venue}
+                            <div className="flex items-center gap-1">
+                              <MapPin className="h-4 w-4" />
+                              <span>{announcement.venue}</span>
                             </div>
                           )}
                         </div>
-                      </div>
-                    </div>
-
-                    <p className="text-gray-600 mb-4 line-clamp-2">{announcement.content || announcement.description}</p>
-
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-                      <div className="bg-purple-50 p-3 rounded-lg">
-                        <div className="text-sm text-gray-500">Target</div>
-                        <div className="text-lg font-bold">{announcement.target}</div>
-                      </div>
-                      <div className="bg-blue-50 p-3 rounded-lg">
-                        <div className="text-sm text-gray-500">Read</div>
-                        <div className="text-lg font-bold flex items-center">
-                          {announcement.readCount}
-                          <span className="text-xs text-gray-500 ml-1">/ {announcement.totalStudents}</span>
-                          <span className="text-xs text-gray-500 ml-1">
-                            ({Math.round((announcement.readCount / announcement.totalStudents) * 100)}%)
+                        
+                        <div className="flex items-center gap-2 text-sm">
+                          <Badge variant="secondary">{targetDisplay}</Badge>
+                          <span className="text-gray-400">•</span>
+                          <span className="text-gray-500">
+                            {new Date(announcement.created_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
                           </span>
                         </div>
                       </div>
-                      <div className="bg-green-50 p-3 rounded-lg">
-                        <div className="text-sm text-gray-500">Registered</div>
-                        <div className="text-lg font-bold flex items-center">
-                          {announcement.registeredCount}
-                          <span className="text-xs text-gray-500 ml-1">/ {announcement.totalStudents}</span>
-                          <span className="text-xs text-gray-500 ml-1">
-                            ({Math.round((announcement.registeredCount / announcement.totalStudents) * 100)}%)
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center text-sm text-gray-500">
-                      <Eye className="h-4 w-4 mr-1" />
-                      <span>
-                        {announcement.totalStudents - announcement.readCount} students haven't read this announcement
-                        yet
-                      </span>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
       )}
     </div>

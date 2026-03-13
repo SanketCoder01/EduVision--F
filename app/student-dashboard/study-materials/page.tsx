@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   BookOpen,
@@ -27,10 +27,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { useToast } from "@/components/ui/use-toast"
+import { realtimeService, RealtimePayload } from "@/lib/realtime-service"
+import { useToast } from "@/hooks/use-toast"
+import { supabase } from "@/lib/supabase"
 
 export default function StudentStudyMaterialsPage() {
   const { toast } = useToast()
+  const subscriptionsRef = useRef<{ unsubscribe: () => void } | null>(null)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [studyMaterials, setStudyMaterials] = useState<any[]>([])
   const [searchTerm, setSearchTerm] = useState("")
@@ -40,139 +43,92 @@ export default function StudentStudyMaterialsPage() {
   const [currentSubject, setCurrentSubject] = useState<string>("")
 
   useEffect(() => {
-    const studentSession = localStorage.getItem("studentSession")
-    const currentUserData = localStorage.getItem("currentUser")
-
-    let user = null
-    if (studentSession) {
-      try {
-        user = JSON.parse(studentSession)
-        setCurrentUser(user)
-      } catch (error) {
-        console.error("Error parsing student session:", error)
+    fetchStudentData()
+    
+    return () => {
+      if (subscriptionsRef.current) {
+        subscriptionsRef.current.unsubscribe()
       }
-    } else if (currentUserData) {
-      try {
-        user = JSON.parse(currentUserData)
-        setCurrentUser(user)
-      } catch (error) {
-        console.error("Error parsing current user data:", error)
-      }
-    }
-
-    // Load study materials from localStorage
-    const savedMaterials = localStorage.getItem("studyMaterials")
-    if (savedMaterials) {
-      try {
-        const materials = JSON.parse(savedMaterials)
-        // Filter materials for current user's department and year
-        const userMaterials = materials.filter((material: any) => 
-          material.department === user?.department &&
-          material.year === user?.year
-        )
-        setStudyMaterials(userMaterials)
-      } catch (error) {
-        console.error("Error parsing study materials:", error)
-      }
-    } else {
-      // Enhanced sample data with more subjects
-      const sampleMaterials = [
-        {
-          id: "1",
-          title: "Data Structures - Lecture Notes",
-          subject: "Data Structures",
-          type: "PDF",
-          description: "Complete lecture notes covering arrays, linked lists, stacks, and queues",
-          uploadedBy: "Dr. Smith",
-          uploadedAt: "2024-01-15",
-          size: 2500000,
-          department: user?.department || "Computer Science Engineering",
-          year: user?.year || "first",
-          fileUrl: "/sample-files/data-structures-notes.pdf"
-        },
-        {
-          id: "2", 
-          title: "Database Design Tutorial",
-          subject: "Database Management",
-          type: "Video",
-          description: "Step-by-step tutorial on database design principles",
-          uploadedBy: "Prof. Johnson",
-          uploadedAt: "2024-01-10",
-          size: 15000000,
-          department: user?.department || "Computer Science Engineering",
-          year: user?.year || "first",
-          fileUrl: "/sample-files/database-tutorial.mp4"
-        },
-        {
-          id: "3",
-          title: "Programming Exercises",
-          subject: "Java Programming",
-          type: "Document",
-          description: "Practice problems and solutions for Java programming",
-          uploadedBy: "Dr. Brown",
-          uploadedAt: "2024-01-08",
-          size: 1200000,
-          department: user?.department || "Computer Science Engineering", 
-          year: user?.year || "first",
-          fileUrl: "/sample-files/java-exercises.docx"
-        },
-        {
-          id: "4",
-          title: "Network Protocols Guide",
-          subject: "Computer Networks",
-          type: "PDF",
-          description: "Comprehensive guide to TCP/IP, HTTP, and other network protocols",
-          uploadedBy: "Prof. Wilson",
-          uploadedAt: "2024-01-12",
-          size: 3200000,
-          department: user?.department || "Computer Science Engineering",
-          year: user?.year || "first",
-          fileUrl: "/sample-files/network-protocols.pdf"
-        },
-        {
-          id: "5",
-          title: "Python Basics Tutorial",
-          subject: "Python Programming",
-          type: "Video",
-          description: "Introduction to Python programming with examples",
-          uploadedBy: "Dr. Davis",
-          uploadedAt: "2024-01-09",
-          size: 12000000,
-          department: user?.department || "Computer Science Engineering",
-          year: user?.year || "first",
-          fileUrl: "/sample-files/python-basics.mp4"
-        },
-        {
-          id: "6",
-          title: "Operating System Concepts",
-          subject: "Operating Systems",
-          type: "PDF",
-          description: "Process management, memory management, and file systems",
-          uploadedBy: "Prof. Miller",
-          uploadedAt: "2024-01-11",
-          size: 4100000,
-          department: user?.department || "Computer Science Engineering",
-          year: user?.year || "first",
-          fileUrl: "/sample-files/os-concepts.pdf"
-        },
-        {
-          id: "7",
-          title: "Web Development Lab Manual",
-          subject: "Web Development",
-          type: "Document",
-          description: "HTML, CSS, JavaScript lab exercises and projects",
-          uploadedBy: "Dr. Taylor",
-          uploadedAt: "2024-01-13",
-          size: 2800000,
-          department: user?.department || "Computer Science Engineering",
-          year: user?.year || "first",
-          fileUrl: "/sample-files/web-dev-manual.docx"
-        }
-      ]
-      setStudyMaterials(sampleMaterials)
-      localStorage.setItem("studyMaterials", JSON.stringify(sampleMaterials))
     }
   }, [])
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchStudyMaterials()
+      setupRealtimeSubscriptions()
+    }
+  }, [currentUser])
+
+  const fetchStudentData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Try to find student in department tables
+      const departments = ['cse', 'cyber', 'aids', 'aiml']
+      const years = ['1st', '2nd', '3rd', '4th']
+      
+      for (const dept of departments) {
+        for (const year of years) {
+          const { data } = await supabase
+            .from(`students_${dept}_${year}_year`)
+            .select('*')
+            .eq('email', user.email)
+            .single()
+          
+          if (data) {
+            setCurrentUser(data)
+            return
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching student data:', error)
+    }
+  }
+
+  const fetchStudyMaterials = async () => {
+    if (!currentUser) return
+    
+    try {
+      const { data, error } = await supabase
+        .from('study_materials')
+        .select('*')
+        .eq('department', currentUser.department)
+        .eq('year', currentUser.year)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setStudyMaterials(data || [])
+    } catch (error) {
+      console.error('Error fetching study materials:', error)
+    }
+  }
+
+  const setupRealtimeSubscriptions = () => {
+    if (!currentUser) return
+    
+    // Clean up previous subscriptions
+    if (subscriptionsRef.current) {
+      subscriptionsRef.current.unsubscribe()
+    }
+    
+    // Subscribe to study materials with department + year filtering
+    subscriptionsRef.current = realtimeService.subscribeToStudyMaterials(
+      { department: currentUser.department, year: currentUser.year },
+      (payload: RealtimePayload) => {
+        console.log('Study materials update:', payload)
+        fetchStudyMaterials()
+        
+        if (payload.eventType === 'INSERT') {
+          toast({
+            title: "New Study Material",
+            description: `Material "${payload.new.title}" has been uploaded.`,
+          })
+        }
+      }
+    )
+  }
 
   const getFileIcon = (type: string) => {
     switch (type.toLowerCase()) {

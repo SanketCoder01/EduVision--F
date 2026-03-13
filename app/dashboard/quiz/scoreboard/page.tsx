@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { 
   BarChart3, 
@@ -14,7 +14,8 @@ import {
   Filter,
   Calendar,
   Eye,
-  RefreshCw
+  RefreshCw,
+  Loader2
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -22,83 +23,171 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { supabase } from "@/lib/supabase"
 
 const QuizScoreboard = () => {
   const [selectedTimeframe, setSelectedTimeframe] = useState('all')
   const [selectedQuiz, setSelectedQuiz] = useState('all')
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [isLoading, setIsLoading] = useState(true)
+  const [faculty, setFaculty] = useState<any>(null)
+  const [quizzes, setQuizzes] = useState<any[]>([])
+  const [attempts, setAttempts] = useState<any[]>([])
+  const [students, setStudents] = useState<any[]>([])
 
-  const overallStats = {
-    totalQuizzes: 15,
-    totalStudents: 156,
-    averageScore: 78.5,
-    completionRate: 91.2,
-    topScore: 95.8,
-    participationRate: 94.2
+  useEffect(() => {
+    fetchData()
+    if (autoRefresh) {
+      const interval = setInterval(fetchData, 30000) // Auto refresh every 30 seconds
+      return () => clearInterval(interval)
+    }
+  }, [autoRefresh])
+
+  const fetchData = async () => {
+    try {
+      setIsLoading(true)
+      
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Get faculty data
+      const { data: facultyData } = await supabase
+        .from('faculty')
+        .select('*')
+        .eq('email', user.email)
+        .single()
+      
+      if (facultyData) {
+        setFaculty(facultyData)
+      }
+
+      // Get all quizzes by this faculty
+      const { data: quizzesData } = await supabase
+        .from('quizzes')
+        .select('*')
+        .eq('faculty_id', facultyData?.id)
+        .order('created_at', { ascending: false })
+
+      setQuizzes(quizzesData || [])
+
+      // Get all attempts for these quizzes
+      const quizIds = quizzesData?.map(q => q.id) || []
+      if (quizIds.length > 0) {
+        const { data: attemptsData } = await supabase
+          .from('quiz_attempts')
+          .select('*')
+          .in('quiz_id', quizIds)
+
+        setAttempts(attemptsData || [])
+      }
+
+      // Get all students
+      const { data: studentsData } = await supabase
+        .from('students')
+        .select('*')
+
+      setStudents(studentsData || [])
+    } catch (error) {
+      console.error('Error fetching data:', error)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const quizPerformance = [
-    {
-      id: '1',
-      title: 'Data Structures Fundamentals',
-      participants: 45,
-      averageScore: 84.2,
-      highestScore: 95,
-      lowestScore: 62,
-      completionRate: 95.7,
-      difficulty: 'medium',
-      date: '2024-01-20'
-    },
-    {
-      id: '2',
-      title: 'Algorithm Analysis',
-      participants: 38,
-      averageScore: 76.8,
-      highestScore: 92,
-      lowestScore: 45,
-      completionRate: 84.4,
-      difficulty: 'hard',
-      date: '2024-01-18'
-    },
-    {
-      id: '3',
-      title: 'Database Systems',
-      participants: 52,
-      averageScore: 81.5,
-      highestScore: 98,
-      lowestScore: 58,
-      completionRate: 98.1,
-      difficulty: 'easy',
-      date: '2024-01-15'
+  // Calculate real stats from data
+  const overallStats = {
+    totalQuizzes: quizzes.length,
+    totalStudents: new Set(attempts.map(a => a.student_id)).size,
+    averageScore: attempts.length > 0 
+      ? Math.round(attempts.reduce((sum, a) => sum + (a.marks_obtained || 0), 0) / attempts.length)
+      : 0,
+    completionRate: attempts.length > 0 
+      ? Math.round((attempts.filter(a => a.completed_at).length / attempts.length) * 100)
+      : 0,
+    topScore: attempts.length > 0 
+      ? Math.max(...attempts.map(a => a.marks_obtained || 0))
+      : 0,
+    participationRate: students.length > 0 
+      ? Math.round((new Set(attempts.map(a => a.student_id)).size / students.length) * 100)
+      : 0
+  }
+
+  const quizPerformance = quizzes.map(quiz => {
+    const quizAttempts = attempts.filter(a => a.quiz_id === quiz.id)
+    const scores = quizAttempts.map(a => a.marks_obtained || 0)
+    
+    return {
+      id: quiz.id,
+      title: quiz.title,
+      participants: quizAttempts.length,
+      averageScore: scores.length > 0 ? Math.round(scores.reduce((sum, s) => sum + s, 0) / scores.length) : 0,
+      highestScore: scores.length > 0 ? Math.max(...scores) : 0,
+      lowestScore: scores.length > 0 ? Math.min(...scores) : 0,
+      completionRate: quizAttempts.length > 0 
+        ? Math.round((quizAttempts.filter(a => a.completed_at).length / quizAttempts.length) * 100)
+        : 0,
+      difficulty: quiz.difficulty || 'medium',
+      date: quiz.created_at
     }
-  ]
+  })
 
   const departmentStats = [
-    { department: 'CSE', students: 65, averageScore: 82.3, participation: 96.9 },
-    { department: 'AIDS', students: 42, averageScore: 79.1, participation: 92.8 },
-    { department: 'AIML', students: 38, averageScore: 85.7, participation: 97.4 },
-    { department: 'CYBER', students: 11, averageScore: 77.8, participation: 90.9 }
-  ]
+    { department: 'CSE', students: students.filter(s => s.department === 'cse').length, averageScore: 0, participation: 0 },
+    { department: 'AIDS', students: students.filter(s => s.department === 'aids').length, averageScore: 0, participation: 0 },
+    { department: 'AIML', students: students.filter(s => s.department === 'aiml').length, averageScore: 0, participation: 0 },
+    { department: 'CYBER', students: students.filter(s => s.department === 'cyber').length, averageScore: 0, participation: 0 }
+  ].map(dept => {
+    const deptAttempts = attempts.filter(a => a.department === dept.department.toLowerCase())
+    const deptStudents = students.filter(s => s.department === dept.department.toLowerCase())
+    
+    return {
+      ...dept,
+      students: deptStudents.length,
+      averageScore: deptAttempts.length > 0 
+        ? Math.round(deptAttempts.reduce((sum, a) => sum + (a.marks_obtained || 0), 0) / deptAttempts.length)
+        : 0,
+      participation: deptStudents.length > 0 
+        ? Math.round((new Set(deptAttempts.map(a => a.student_id)).size / deptStudents.length) * 100)
+        : 0
+    }
+  })
 
   const timeAnalytics = {
-    averageTimeSpent: 42,
-    fastestCompletion: 28,
-    slowestCompletion: 58,
-    timeEfficiency: 78.5
+    averageTimeSpent: attempts.length > 0 
+      ? Math.round(attempts.reduce((sum, a) => sum + (a.time_taken || 0), 0) / attempts.length / 60)
+      : 0,
+    fastestCompletion: attempts.length > 0 
+      ? Math.round(Math.min(...attempts.map(a => a.time_taken || Infinity)) / 60)
+      : 0,
+    slowestCompletion: attempts.length > 0 
+      ? Math.round(Math.max(...attempts.map(a => a.time_taken || 0)) / 60)
+      : 0,
+    timeEfficiency: 0
   }
 
   const difficultyAnalysis = [
-    { level: 'Easy', count: 5, averageScore: 87.2, color: 'bg-green-500' },
-    { level: 'Medium', count: 7, averageScore: 76.8, color: 'bg-yellow-500' },
-    { level: 'Hard', count: 3, averageScore: 68.4, color: 'bg-red-500' }
+    { level: 'Easy', count: quizzes.filter(q => q.difficulty === 'easy').length, averageScore: 0, color: 'bg-green-500' },
+    { level: 'Medium', count: quizzes.filter(q => q.difficulty === 'medium').length, averageScore: 0, color: 'bg-yellow-500' },
+    { level: 'Hard', count: quizzes.filter(q => q.difficulty === 'hard').length, averageScore: 0, color: 'bg-red-500' }
   ]
 
-  const recentActivity = [
-    { student: 'Arjun Patel', quiz: 'Data Structures', score: 92, time: '2 hours ago' },
-    { student: 'Priya Singh', quiz: 'Algorithms', score: 88, time: '3 hours ago' },
-    { student: 'Rahul Kumar', quiz: 'Database', score: 85, time: '5 hours ago' },
-    { student: 'Sneha Sharma', quiz: 'Data Structures', score: 79, time: '6 hours ago' }
-  ]
+  // Calculate top performers from real data
+  const topPerformers = attempts
+    .filter(a => a.marks_obtained !== null && a.total_marks > 0)
+    .map(a => ({
+      name: a.student_name,
+      score: Math.round((a.marks_obtained / a.total_marks) * 100),
+      quiz: quizzes.find(q => q.id === a.quiz_id)?.title || ''
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+
+  const recentActivity = attempts.slice(0, 5).map(a => ({
+    student: a.student_name,
+    quiz: quizzes.find(q => q.id === a.quiz_id)?.title || 'Unknown',
+    score: a.marks_obtained || 0,
+    time: new Date(a.completed_at).toLocaleString()
+  }))
 
   const getDifficultyColor = (difficulty: string) => {
     switch (difficulty) {
@@ -107,6 +196,14 @@ const QuizScoreboard = () => {
       case 'hard': return 'bg-red-100 text-red-800'
       default: return 'bg-gray-100 text-gray-800'
     }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    )
   }
 
   return (
@@ -410,19 +507,31 @@ const QuizScoreboard = () => {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {['Arjun Patel', 'Priya Singh', 'Rahul Kumar', 'Sneha Sharma', 'Vikram Joshi'].map((name, index) => (
-                        <div key={name} className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white ${
-                              index === 0 ? 'bg-yellow-500' : index === 1 ? 'bg-gray-400' : index === 2 ? 'bg-orange-500' : 'bg-blue-500'
-                            }`}>
-                              {index + 1}
+                      {topPerformers.length > 0 ? (
+                        topPerformers.map((performer, index) => (
+                          <div key={index} className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white ${
+                                index === 0 ? 'bg-yellow-500' : index === 1 ? 'bg-gray-400' : index === 2 ? 'bg-orange-500' : 'bg-blue-500'
+                              }`}>
+                                {index + 1}
+                              </div>
+                              <div>
+                                <span className="text-sm font-medium">{performer.name}</span>
+                                {performer.quiz && (
+                                  <p className="text-xs text-gray-500">{performer.quiz}</p>
+                                )}
+                              </div>
                             </div>
-                            <span className="text-sm font-medium">{name}</span>
+                            <span className="text-sm font-bold text-green-600">{performer.score}%</span>
                           </div>
-                          <span className="text-sm text-gray-600">{95 - index * 2}%</span>
+                        ))
+                      ) : (
+                        <div className="text-center py-4 text-gray-500">
+                          <Award className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                          <p className="text-sm">No quiz attempts yet</p>
                         </div>
-                      ))}
+                      )}
                     </div>
                   </CardContent>
                 </Card>

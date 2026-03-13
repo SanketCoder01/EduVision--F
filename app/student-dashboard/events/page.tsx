@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Calendar, MapPin, Users, Search, Bell, CheckCircle } from "lucide-react"
+import { realtimeService, RealtimePayload } from "@/lib/realtime-service"
 import { supabase } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
 
@@ -44,14 +45,22 @@ export default function StudentEventsPage() {
   const [student, setStudent] = useState<any>(null)
   const { toast } = useToast()
 
+  const subscriptionsRef = useRef<{ unsubscribe: () => void } | null>(null)
+
   useEffect(() => {
     fetchStudentData()
+    
+    return () => {
+      if (subscriptionsRef.current) {
+        subscriptionsRef.current.unsubscribe()
+      }
+    }
   }, [])
 
   useEffect(() => {
     if (student) {
       fetchEvents()
-      subscribeToEvents()
+      setupRealtimeSubscriptions(student)
     }
   }, [student])
 
@@ -103,28 +112,27 @@ export default function StudentEventsPage() {
     }
   }
 
-  const subscribeToEvents = () => {
-    const channel = supabase
-      .channel('student_events_changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'dean_events' },
-        (payload) => {
-          console.log('Event change detected:', payload)
-          fetchEvents()
-          
-          if (payload.eventType === 'INSERT') {
-            toast({
-              title: "New Event Added!",
-              description: `Check out: ${(payload.new as any).title}`,
-            })
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
+  const setupRealtimeSubscriptions = (studentData: any) => {
+    // Clean up previous subscriptions
+    if (subscriptionsRef.current) {
+      subscriptionsRef.current.unsubscribe()
     }
+    
+    // Use centralized realtime service with department + year filtering
+    subscriptionsRef.current = realtimeService.subscribeToEvents(
+      { department: studentData.department, year: studentData.year },
+      (payload: RealtimePayload) => {
+        console.log('Event change detected:', payload)
+        fetchEvents()
+        
+        if (payload.eventType === 'INSERT') {
+          toast({
+            title: "New Event Added!",
+            description: `Check out: ${payload.new.title}`,
+          })
+        }
+      }
+    )
   }
 
   const filterEvents = () => {

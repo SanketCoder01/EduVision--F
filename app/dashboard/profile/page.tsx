@@ -41,41 +41,49 @@ export default function ProfilePage() {
   const [showImageCropper, setShowImageCropper] = useState(false)
 
   useEffect(() => {
-    // Get user data from localStorage
-    const facultySession = localStorage.getItem("facultySession")
-    if (facultySession) {
-      try {
-        const user = JSON.parse(facultySession)
-        console.log('Faculty session data:', user)
-        
-        // Check if profile data exists from complete-profile flow
-        if (user.profile) {
-          console.log('Using profile data from session:', user.profile)
-          setProfile({
-            name: user.profile.name || user.name || "",
-            email: user.profile.email || user.email || "",
-            department: user.profile.department || "",
-            designation: user.profile.designation || "",
-            phone: user.profile.phone || "",
-            address: user.profile.address || "",
-            experience_years: user.profile.experience_years || "",
-            face_image: user.profile.face_image || "",
-            photoUrl: user.profile.photoUrl || ""
-          })
-        } else {
-          console.log('No profile data found, using fallback')
-          // Try to load from user_profiles table
-          loadProfileFromDatabase(user.id)
-        }
-      } catch (error) {
-        console.error("Failed to parse user data from localStorage", error)
+    // Get user data from Supabase Auth
+    const loadProfile = async () => {
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      
+      if (authError || !user) {
+        toast({
+          title: "Error",
+          description: "Please log in to access your profile.",
+          variant: "destructive",
+        })
+        return
+      }
+      
+      // Fetch faculty profile from database
+      const { data: facultyData, error } = await supabase
+        .from('faculty')
+        .select('*')
+        .eq('email', user.email)
+        .maybeSingle()
+      
+      if (error || !facultyData) {
+        console.error("Failed to fetch faculty profile", error)
         toast({
           title: "Error",
           description: "Failed to load profile data. Please try logging in again.",
           variant: "destructive",
         })
+        return
       }
+      
+      setProfile({
+        name: facultyData.name || "",
+        email: facultyData.email || "",
+        department: facultyData.department || "",
+        designation: facultyData.designation || "",
+        phone: facultyData.phone || "",
+        address: facultyData.address || "",
+        experience_years: facultyData.experience_years || "",
+        face_image: facultyData.face_image || "",
+        photoUrl: facultyData.photo_url || facultyData.photoUrl || ""
+      })
     }
+    loadProfile()
   }, [])
 
   const loadProfileFromDatabase = async (userId: string) => {

@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { motion } from "framer-motion"
-import { BookOpen, Calendar, Clock, CheckCircle, AlertTriangle, FileText, Download, Upload, Search } from "lucide-react"
+import { BookOpen, Calendar, Clock, CheckCircle, AlertTriangle, FileText, Download, Upload, Search, Bell } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "@/hooks/use-toast"
 import { getStudentSession } from "@/lib/student-auth"
 import { SupabaseAssignmentService } from "@/lib/supabase-assignments"
-import { supabase } from "@/lib/supabase"
+import { realtimeService, RealtimePayload } from "@/lib/realtime-service"
 
 interface Assignment {
   id: string
@@ -91,44 +91,47 @@ export default function StudentAssignmentsPage() {
     
     // Cleanup subscription on unmount
     return () => {
-      supabase.removeAllChannels()
+      if (subscriptionRef.current) {
+        subscriptionRef.current.unsubscribe()
+      }
     }
   }, [])
 
+  const subscriptionRef = useRef<{ unsubscribe: () => void } | null>(null)
+  
   const setupRealtimeSubscription = (user: any) => {
-    console.log('DEBUG: Setting up real-time subscription for assignments...')
+    console.log('DEBUG: Setting up real-time subscription for assignments with year filtering...')
     
-    // Subscribe to assignments table changes
-    const assignmentsChannel = supabase
-      .channel('assignments-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'assignments',
-          filter: `department=eq.${user.department}`
-        },
-        (payload) => {
-          console.log('DEBUG: Real-time assignment update:', payload)
-          
-          // Reload assignments when there's a change
-          if (currentUser) {
-            loadAssignments(currentUser)
-            
-            // Show toast notification for new assignments
-            if (payload.eventType === 'INSERT') {
-              toast({
-                title: "New Assignment Available",
-                description: `${payload.new.title} has been published`,
-              })
-            }
-          }
+    // Clean up previous subscription
+    if (subscriptionRef.current) {
+      subscriptionRef.current.unsubscribe()
+    }
+    
+    // Use centralized realtime service with department + year filtering
+    subscriptionRef.current = realtimeService.subscribeToAssignments(
+      { department: user.department, year: user.year },
+      (payload: RealtimePayload) => {
+        console.log('DEBUG: Real-time assignment update:', payload)
+        
+        // Reload assignments when there's a change
+        loadAssignments(user)
+        
+        // Show toast notification for new assignments
+        if (payload.eventType === 'INSERT') {
+          toast({
+            title: "New Assignment Available",
+            description: `${payload.new.title} has been published for ${user.department} ${user.year} year`,
+          })
+        } else if (payload.eventType === 'UPDATE') {
+          toast({
+            title: "Assignment Updated",
+            description: `${payload.new.title} has been updated`,
+          })
         }
-      )
-      .subscribe()
+      }
+    )
 
-    console.log('DEBUG: Real-time subscription established')
+    console.log('DEBUG: Real-time subscription established with year filtering')
   }
 
   const loadAssignments = async (user: any) => {
@@ -201,17 +204,7 @@ export default function StudentAssignmentsPage() {
       console.log('DEBUG: Final processed assignments:', assignmentsWithSubmissions)
       setAssignments(assignmentsWithSubmissions)
 
-      // Set up real-time subscription
-      console.log('DEBUG: Setting up real-time subscription...')
-      const subscription = SupabaseAssignmentService.subscribeToAssignments((payload) => {
-        console.log('DEBUG: Real-time update received:', payload)
-        loadAssignments(user)
-      })
-
-      return () => {
-        console.log('DEBUG: Cleaning up subscription...')
-        subscription.unsubscribe()
-      }
+      // Real-time subscription is set up in useEffect above, not here
 
     } catch (error) {
       console.error('DEBUG: Error in loadAssignments:', error)

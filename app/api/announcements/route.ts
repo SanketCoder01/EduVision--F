@@ -93,6 +93,10 @@ export async function POST(request: NextRequest) {
         target_years,
         priority,
         target_audience,
+        poster_url: body.poster_url || null,
+        date: body.date || null,
+        time: body.time || null,
+        venue: body.venue || null,
         created_at: new Date().toISOString()
       })
       .select()

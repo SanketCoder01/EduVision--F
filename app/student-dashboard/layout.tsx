@@ -65,7 +65,7 @@ export default function StudentDashboardLayout({ children }: { children: React.R
   const [user, setUser] = useState<any>(null)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [notifications, setNotifications] = useState(0)
-  const [registrationCompleted, setRegistrationCompleted] = useState<boolean | null>(null)
+  const [registrationCompleted, setRegistrationCompleted] = useState<boolean | null>(true)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -82,75 +82,64 @@ export default function StudentDashboardLayout({ children }: { children: React.R
 
   const checkRegistrationStatus = async () => {
     try {
-      // Check for student login
-      const studentSession = localStorage.getItem("studentSession")
-      const currentUser = localStorage.getItem("currentUser")
-
-      let studentData = null
-
-      if (studentSession) {
-        try {
-          studentData = JSON.parse(studentSession)
-        } catch (error) {
-          console.error("Error parsing student session:", error)
-          router.push("/login?type=student")
-          return
-        }
-      } else if (currentUser) {
-        try {
-          const userData = JSON.parse(currentUser)
-          if (userData.userType === "student") {
-            studentData = userData
-          } else {
-            router.push("/login?type=student")
-            return
-          }
-        } catch (error) {
-          console.error("Error parsing user data:", error)
-          router.push("/login?type=student")
-          return
-        }
-      } else {
+      // Get authenticated user from Supabase Auth
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      
+      if (authError || !user) {
+        console.error('Auth error:', authError)
         router.push("/login?type=student")
         return
       }
 
-      if (studentData) {
-        // Fetch latest student data from Supabase
-        const { data: student, error } = await supabase
-          .from('students')
-          .select('*')
-          .eq('email', studentData.email)
-          .single()
+      // Search for student across all department-year tables
+      const departments = ['cse', 'cyber', 'aids', 'aiml']
+      const years = ['1st', '2nd', '3rd', '4th']
+      let student = null
 
-        if (error) {
-          console.error('Error fetching student:', error)
-          setUser(studentData)
-          setRegistrationCompleted(true) // Default to true if error
-        } else {
-          setUser(student)
-          setRegistrationCompleted(student.registration_completed || false)
-          
-          // Update local storage with latest data
-          localStorage.setItem('studentSession', JSON.stringify(student))
-          
-          // Redirect to registration if not completed and not already on registration page
-          if (!student.registration_completed && pathname !== '/student-dashboard/complete-registration') {
-            router.push('/student-dashboard/complete-registration')
+      for (const dept of departments) {
+        for (const year of years) {
+          const tableName = `students_${dept}_${year}_year`
+          const { data, error } = await supabase
+            .from(tableName)
+            .select('*')
+            .eq('email', user.email)
+            .maybeSingle()
+
+          if (data && !error) {
+            student = { ...data, department: dept, year }
+            break
           }
         }
+        if (student) break
+      }
+
+      if (!student) {
+        // No student record, redirect to complete profile
+        router.push('/student-complete-profile')
+        return
+      }
+
+      setUser(student)
+      
+      // Check if profile has required fields (department, year, college_name, prn are mandatory)
+      const hasRequiredFields = student.department && student.year && student.college_name && student.prn
+      setRegistrationCompleted(hasRequiredFields)
+      
+      if (!hasRequiredFields) {
+        // Redirect to complete profile page
+        router.push('/student-complete-profile')
+        return
       }
     } catch (error) {
       console.error('Error checking registration:', error)
+      router.push("/login?type=student")
     } finally {
       setLoading(false)
     }
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem("studentSession")
-    localStorage.removeItem("currentUser")
-    localStorage.removeItem("userType")
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
     toast({
       title: "Logged out successfully",
       description: "You have been logged out of your account.",
@@ -291,7 +280,10 @@ export default function StudentDashboardLayout({ children }: { children: React.R
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{user?.name || user?.full_name || "Student"}</p>
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {user?.name || user?.full_name || "Student"}
+                  <Badge className="bg-blue-600 text-white text-xs ml-2">Student</Badge>
+                </p>
                 <p className="text-xs text-gray-500 truncate">{user?.email}</p>
                 {user?.prn && <p className="text-xs text-emerald-600 truncate">PRN: {user.prn}</p>}
               </div>
@@ -352,7 +344,10 @@ export default function StudentDashboardLayout({ children }: { children: React.R
           <DropdownMenuContent align="end" className="w-56">
             <div className="flex items-center justify-start gap-2 p-2">
               <div className="flex flex-col space-y-1 leading-none">
-                <p className="font-medium">{user?.name || user?.full_name || "Student"}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium">{user?.name || user?.full_name || "Student"}</p>
+                  <Badge className="bg-blue-600 text-white text-xs">Student</Badge>
+                </div>
                 <p className="w-[200px] truncate text-sm text-muted-foreground">{user?.email}</p>
                 {user?.prn && <p className="text-xs text-emerald-600">PRN: {user.prn}</p>}
               </div>

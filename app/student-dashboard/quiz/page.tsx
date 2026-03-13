@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { 
   Play, 
@@ -22,8 +22,11 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { realtimeService, RealtimePayload } from "@/lib/realtime-service"
 import { Progress } from "@/components/ui/progress"
 import Link from "next/link"
+import { supabase } from "@/lib/supabase"
+import { useToast } from "@/hooks/use-toast"
 
 interface Quiz {
   id: string
@@ -46,76 +49,281 @@ interface Quiz {
 
 const StudentQuizDashboard = () => {
   const [activeTab, setActiveTab] = useState<'available' | 'completed' | 'leaderboard'>('available')
+  const [quizzes, setQuizzes] = useState<Quiz[]>([])
+  const [student, setStudent] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const { toast } = useToast()
+  const subscriptionsRef = useRef<{ unsubscribe: () => void } | null>(null)
 
-  const quizzes: Quiz[] = [
-    {
-      id: '1',
-      title: 'Data Structures Fundamentals',
-      subject: 'Data Structures',
-      faculty: 'Dr. Amruta Pankade',
-      duration: 60,
-      totalQuestions: 25,
-      totalMarks: 50,
-      difficulty: 'medium',
-      startDate: '2024-01-20T09:00:00',
-      endDate: '2024-01-20T18:00:00',
-      status: 'active',
-      attempts: 0,
-      maxAttempts: 2,
-      description: 'Test your knowledge on arrays, linked lists, stacks, and queues'
-    },
-    {
-      id: '2',
-      title: 'Algorithm Analysis',
-      subject: 'Algorithms',
-      faculty: 'Prof. Rajesh Kumar',
-      duration: 45,
-      totalQuestions: 20,
-      totalMarks: 40,
-      difficulty: 'hard',
-      startDate: '2024-01-22T10:00:00',
-      endDate: '2024-01-22T16:00:00',
-      status: 'upcoming',
-      attempts: 0,
-      maxAttempts: 1,
-      description: 'Time complexity, space complexity, and algorithm optimization'
-    },
-    {
-      id: '3',
-      title: 'Database Basics',
-      subject: 'Database Systems',
-      faculty: 'Dr. Priya Sharma',
-      duration: 30,
-      totalQuestions: 15,
-      totalMarks: 30,
-      difficulty: 'easy',
-      startDate: '2024-01-15T14:00:00',
-      endDate: '2024-01-15T17:00:00',
-      status: 'completed',
-      attempts: 1,
-      maxAttempts: 1,
-      bestScore: 85,
-      averageScore: 72,
-      description: 'SQL queries, normalization, and ER diagrams'
+  useEffect(() => {
+    fetchStudentData()
+    
+    return () => {
+      if (subscriptionsRef.current) {
+        subscriptionsRef.current.unsubscribe()
+      }
     }
-  ]
+  }, [])
 
-  const studentStats = {
-    totalQuizzes: 15,
-    completedQuizzes: 8,
-    averageScore: 78.5,
-    rank: 12,
-    totalStudents: 156,
-    streakDays: 5
+  useEffect(() => {
+    if (student) {
+      fetchQuizzes()
+      setupRealtimeSubscriptions()
+    }
+  }, [student])
+
+  const fetchStudentData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setIsLoading(false)
+        return
+      }
+
+      const { data: studentData } = await supabase
+        .from('students')
+        .select('*')
+        .eq('email', user.email)
+        .single()
+
+      if (studentData) {
+        setStudent(studentData)
+      }
+    } catch (error) {
+      console.error('Error fetching student data:', error)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const leaderboard = [
-    { rank: 1, name: 'Arjun Patel', score: 92.5, quizzes: 12 },
-    { rank: 2, name: 'Priya Singh', score: 89.2, quizzes: 11 },
-    { rank: 3, name: 'Rahul Kumar', score: 87.8, quizzes: 10 },
-    { rank: 4, name: 'Sneha Sharma', score: 85.6, quizzes: 9 },
-    { rank: 5, name: 'Vikram Joshi', score: 83.4, quizzes: 8 }
-  ]
+  const fetchQuizzes = async () => {
+    if (!student) return
+    
+    try {
+      // Fetch published quizzes for student's department
+      const { data, error } = await supabase
+        .from('quizzes')
+        .select('*')
+        .eq('department', student.department)
+        .eq('is_published', true)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+
+      // Filter by target_years containing student's year
+      const filteredData = (data || []).filter(q => {
+        if (!q.target_years || q.target_years.length === 0) return true
+        return q.target_years.includes(student.year)
+      })
+
+      // Get student's quiz attempts with count per quiz
+      const { data: attempts } = await supabase
+        .from('quiz_attempts')
+        .select('quiz_id, marks_obtained, total_marks, completed_at')
+        .eq('student_id', student.id)
+
+      // Count attempts per quiz
+      const attemptCountMap = new Map<string, number>()
+      const attemptDataMap = new Map<string, { marks: number | null, total: number, completed: boolean }>()
+      
+      attempts?.forEach(a => {
+        // Count only completed attempts
+        if (a.completed_at) {
+          const count = attemptCountMap.get(a.quiz_id) || 0
+          attemptCountMap.set(a.quiz_id, count + 1)
+          
+          // Store best score data
+          if (!attemptDataMap.has(a.quiz_id) || (a.marks_obtained && attemptDataMap.get(a.quiz_id)?.marks && a.marks_obtained > attemptDataMap.get(a.quiz_id)!.marks!)) {
+            attemptDataMap.set(a.quiz_id, { marks: a.marks_obtained, total: a.total_marks, completed: true })
+          }
+        }
+      })
+
+      console.log('Attempt counts:', Object.fromEntries(attemptCountMap))
+      console.log('Attempt data:', Object.fromEntries(attemptDataMap))
+
+      // Transform data to match Quiz interface
+      const transformedQuizzes: Quiz[] = filteredData.map(q => {
+        const attemptCount = attemptCountMap.get(q.id) || 0
+        const maxAttempts = q.max_attempts || 1
+        const attemptData = attemptDataMap.get(q.id)
+        const timeStatus = getQuizStatus(q.start_time, q.end_time)
+        const isCompleted = attemptData?.completed || false
+        const noAttemptsLeft = attemptCount >= maxAttempts
+        
+        return {
+          id: q.id,
+          title: q.title,
+          subject: q.subject,
+          faculty: q.faculty_name,
+          duration: q.duration_minutes,
+          totalQuestions: q.total_questions || 0,
+          totalMarks: q.total_marks,
+          difficulty: q.difficulty,
+          startDate: q.start_time,
+          endDate: q.end_time,
+          status: isCompleted || noAttemptsLeft ? 'completed' : timeStatus,
+          attempts: attemptCount,
+          maxAttempts: maxAttempts,
+          bestScore: attemptData?.marks || undefined,
+          averageScore: attemptData && attemptData.marks ? Math.round((attemptData.marks / attemptData.total) * 100) : undefined,
+          description: q.description || ''
+        }
+      })
+
+      setQuizzes(transformedQuizzes)
+    } catch (error) {
+      console.error('Error fetching quizzes:', error)
+    }
+  }
+
+  const getQuizStatus = (startDate: string | null, endDate: string | null): 'upcoming' | 'active' | 'completed' | 'missed' => {
+    const now = new Date()
+    
+    // If no dates, quiz is always active
+    if (!startDate && !endDate) return 'active'
+    
+    const start = startDate ? new Date(startDate) : null
+    const end = endDate ? new Date(endDate) : null
+    
+    // Handle timezone - dates from Supabase are in UTC, convert to local for comparison
+    if (start && now < start) return 'upcoming'
+    if (start && end && now >= start && now <= end) return 'active'
+    if (end && now > end) return 'completed'
+    if (start && now > start && !end) return 'active'
+    
+    return 'active'
+  }
+
+  const setupRealtimeSubscriptions = () => {
+    if (!student) return
+    
+    // Clean up previous subscriptions
+    if (subscriptionsRef.current) {
+      subscriptionsRef.current.unsubscribe()
+    }
+    
+    // Subscribe to quizzes with department + year filtering
+    subscriptionsRef.current = realtimeService.subscribeToQuizzes(
+      { department: student.department, year: student.year },
+      (payload: RealtimePayload) => {
+        console.log('Quiz update:', payload)
+        fetchQuizzes()
+        
+        if (payload.eventType === 'INSERT') {
+          toast({
+            title: "New Quiz Available",
+            description: `Quiz "${payload.new.title}" has been published.`,
+          })
+        } else if (payload.eventType === 'UPDATE') {
+          toast({
+            title: "Quiz Updated",
+            description: `Quiz "${payload.new.title}" has been modified.`,
+          })
+        }
+      }
+    )
+
+    // Also subscribe to own quiz_attempts to update attempt count in real-time
+    const attemptsChannel = supabase
+      .channel(`student-attempts-${student.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'quiz_attempts',
+        filter: `student_id=eq.${student.id}`
+      }, (payload) => {
+        console.log('New attempt recorded:', payload.new)
+        // Refresh quizzes to update attempt count
+        fetchQuizzes()
+        
+        toast({
+          title: "Quiz Submitted",
+          description: "Your quiz has been submitted successfully!",
+        })
+      })
+      .subscribe()
+  }
+
+  const [leaderboard, setLeaderboard] = useState<any[]>([])
+  const [studentStats, setStudentStats] = useState({
+    totalQuizzes: 0,
+    completedQuizzes: 0,
+    averageScore: 0,
+    rank: 0,
+    totalStudents: 0,
+    streakDays: 0
+  })
+
+  // Fetch real leaderboard data
+  const fetchLeaderboard = async () => {
+    if (!student) return
+    
+    try {
+      const { data, error } = await supabase
+        .from('quiz_leaderboard')
+        .select('*')
+        .eq('department', student.department)
+        .eq('year', student.year)
+        .order('department_rank', { ascending: true })
+        .limit(10)
+
+      if (error) throw error
+      setLeaderboard(data || [])
+    } catch (error) {
+      console.error('Error fetching leaderboard:', error)
+    }
+  }
+
+  // Fetch real student stats
+  const fetchStudentStats = async () => {
+    if (!student) return
+
+    try {
+      // Get student's quiz attempts
+      const { data: attempts } = await supabase
+        .from('quiz_attempts')
+        .select('marks_obtained, total_marks, quiz_id')
+        .eq('student_id', student.id)
+
+      const completedQuizzes = attempts?.length || 0
+      const totalMarksObtained = attempts?.reduce((sum, a) => sum + (a.marks_obtained || 0), 0) || 0
+      const totalMaxMarks = attempts?.reduce((sum, a) => sum + (a.total_marks || 0), 0) || 0
+      const avgScore = totalMaxMarks > 0 ? Math.round((totalMarksObtained / totalMaxMarks) * 100) : 0
+
+      // Get rank from leaderboard view
+      const { data: rankData } = await supabase
+        .from('quiz_leaderboard')
+        .select('department_rank')
+        .eq('student_id', student.id)
+        .single()
+
+      // Get total students in same dept/year
+      const { count } = await supabase
+        .from('students')
+        .select('*', { count: 'exact', head: true })
+        .eq('department', student.department)
+        .eq('year', student.year)
+
+      setStudentStats({
+        totalQuizzes: quizzes.length,
+        completedQuizzes,
+        averageScore: avgScore,
+        rank: rankData?.department_rank || 0,
+        totalStudents: count || 0,
+        streakDays: 0
+      })
+    } catch (error) {
+      console.error('Error fetching student stats:', error)
+    }
+  }
+
+  useEffect(() => {
+    if (student && quizzes.length > 0) {
+      fetchLeaderboard()
+      fetchStudentStats()
+    }
+  }, [student, quizzes])
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -136,12 +344,18 @@ const StudentQuizDashboard = () => {
     }
   }
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return 'Always Available'
+    
+    // Parse the date and convert to local timezone for display
+    const date = new Date(dateString)
+    
+    return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      hour12: true
     })
   }
 
@@ -380,48 +594,55 @@ const StudentQuizDashboard = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {leaderboard.map((student, index) => (
-                <motion.div
-                  key={student.rank}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.1 * index }}
-                  className={`flex items-center justify-between p-4 rounded-lg ${
-                    student.rank <= 3 ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200' : 'bg-gray-50'
-                  }`}
-                >
-                  <div className="flex items-center space-x-4">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
-                      student.rank === 1 ? 'bg-yellow-500 text-white' :
-                      student.rank === 2 ? 'bg-gray-400 text-white' :
-                      student.rank === 3 ? 'bg-orange-500 text-white' :
-                      'bg-gray-200 text-gray-700'
-                    }`}>
-                      {student.rank}
+            {leaderboard.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Trophy className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                <p>No quiz attempts yet. Be the first to complete a quiz!</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {leaderboard.map((entry, index) => (
+                  <motion.div
+                    key={entry.student_id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.1 * index }}
+                    className={`flex items-center justify-between p-4 rounded-lg ${
+                      entry.department_rank <= 3 ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200' : 'bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-4">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
+                        entry.department_rank === 1 ? 'bg-yellow-500 text-white' :
+                        entry.department_rank === 2 ? 'bg-gray-400 text-white' :
+                        entry.department_rank === 3 ? 'bg-orange-500 text-white' :
+                        'bg-gray-200 text-gray-700'
+                      }`}>
+                        {entry.department_rank}
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-gray-900">{entry.student_name}</h3>
+                        <p className="text-sm text-gray-600">{entry.total_quizzes_completed || 0} quizzes completed</p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{student.name}</h3>
-                      <p className="text-sm text-gray-600">{student.quizzes} quizzes completed</p>
+                    
+                    <div className="flex items-center space-x-4">
+                      <div className="text-right">
+                        <div className="text-xl font-bold text-blue-600">{entry.average_score || 0}%</div>
+                        <div className="text-sm text-gray-500">Average Score</div>
+                      </div>
+                      {entry.department_rank <= 3 && (
+                        <Award className={`w-6 h-6 ${
+                          entry.department_rank === 1 ? 'text-yellow-500' :
+                          entry.department_rank === 2 ? 'text-gray-400' :
+                          'text-orange-500'
+                        }`} />
+                      )}
                     </div>
-                  </div>
-                  
-                  <div className="flex items-center space-x-4">
-                    <div className="text-right">
-                      <div className="text-xl font-bold text-blue-600">{student.score}%</div>
-                      <div className="text-sm text-gray-500">Average Score</div>
-                    </div>
-                    {student.rank <= 3 && (
-                      <Award className={`w-6 h-6 ${
-                        student.rank === 1 ? 'text-yellow-500' :
-                        student.rank === 2 ? 'text-gray-400' :
-                        'text-orange-500'
-                      }`} />
-                    )}
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+                  </motion.div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

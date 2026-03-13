@@ -136,7 +136,29 @@ export default function AssignmentDetailPage() {
             .single()
             
           if (submissionData) {
-            setSubmission(submissionData)
+            // Fetch submitted files from submission_files table
+            const { data: filesData, error: filesError } = await supabase
+              .from('submission_files')
+              .select('*')
+              .eq('submission_id', submissionData.id)
+            
+            if (filesError) {
+              console.log('DEBUG: Error fetching files:', filesError)
+            }
+            
+            // Map the database column names to match our UI expectations
+            const mappedFiles = (filesData || []).map((f: any) => ({
+              ...f,
+              file_name: f.name || f.file_name,
+              file_url: f.file_url,
+              file_size: f.file_size,
+              file_type: f.file_type
+            }))
+            
+            setSubmission({
+              ...submissionData,
+              files: mappedFiles
+            })
             setSubmissionText(submissionData.submission_text || "")
           }
         } else {
@@ -191,6 +213,30 @@ export default function AssignmentDetailPage() {
       return
     }
 
+    // Check if assignment is past due date and late submission is not allowed
+    const now = new Date()
+    const dueDate = new Date(assignment.due_date)
+    const isLate = now > dueDate
+    
+    if (isLate && !assignment.allow_late_submission) {
+      toast({
+        title: "Submission Closed",
+        description: "The due date has passed and late submissions are not allowed for this assignment.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    // Check if student has already submitted and resubmission is not allowed
+    if (submission && !assignment.allow_resubmission) {
+      toast({
+        title: "Resubmission Not Allowed",
+        description: "You have already submitted this assignment and resubmission is not allowed.",
+        variant: "destructive"
+      })
+      return
+    }
+
     // Validate file types if assignment has restrictions
     if (submissionFiles.length > 0 && assignment.allowed_file_types && assignment.allowed_file_types.length > 0) {
       const invalidFiles = submissionFiles.filter(file => {
@@ -221,7 +267,7 @@ export default function AssignmentDetailPage() {
         submission_text: submissionText,
         submitted_at: new Date().toISOString(),
         status: 'submitted',
-        is_late: new Date() > new Date(assignment.due_date)
+        is_late: isLate
       }
 
       let submissionResult
@@ -249,27 +295,54 @@ export default function AssignmentDetailPage() {
       }
 
       // Upload files if any
+      const uploadedFiles: { url: string; name: string; size: number; type: string }[] = []
+      
+      console.log('DEBUG: Starting file upload, files count:', submissionFiles.length)
+      
       if (submissionFiles.length > 0) {
         for (const file of submissionFiles) {
           try {
+            console.log('DEBUG: Uploading file:', file.name, file.type, file.size)
+            
             const filePath = `submissions/${submissionResult.id}/${Date.now()}_${file.name}`
             const { error: uploadError } = await supabase.storage
               .from('assignment-files')
               .upload(filePath, file)
               
-            if (uploadError) throw uploadError
+            if (uploadError) {
+              console.error('DEBUG: Storage upload error:', uploadError)
+              throw uploadError
+            }
             
             const { data: { publicUrl } } = supabase.storage
               .from('assignment-files')
               .getPublicUrl(filePath)
 
-            await supabase.from('submission_files').insert([{
+            console.log('DEBUG: File uploaded, public URL:', publicUrl)
+
+            // Save to submission_files table (new approach)
+            const { error: fileInsertError } = await supabase.from('submission_files').insert([{
               submission_id: submissionResult.id,
               file_name: file.name,
               file_url: publicUrl,
               file_size: file.size,
               file_type: file.type
             }])
+            
+            if (fileInsertError) {
+              console.error('DEBUG: submission_files insert error:', fileInsertError)
+              // Continue anyway - will try legacy columns
+            } else {
+              console.log('DEBUG: File saved to submission_files table')
+            }
+            
+            // Track for legacy update
+            uploadedFiles.push({
+              url: publicUrl,
+              name: file.name,
+              size: file.size,
+              type: file.type
+            })
           } catch (error) {
             console.error(`Error uploading file ${file.name}:`, error)
             toast({
@@ -279,6 +352,26 @@ export default function AssignmentDetailPage() {
             })
           }
         }
+        
+        // Also save to legacy file_urls/file_names columns for backward compatibility
+        if (uploadedFiles.length > 0) {
+          console.log('DEBUG: Updating legacy columns with', uploadedFiles.length, 'files')
+          const { error: legacyError } = await supabase
+            .from('assignment_submissions')
+            .update({
+              file_urls: uploadedFiles.map(f => f.url),
+              file_names: uploadedFiles.map(f => f.name)
+            })
+            .eq('id', submissionResult.id)
+          
+          if (legacyError) {
+            console.error('DEBUG: Legacy update error:', legacyError)
+          } else {
+            console.log('DEBUG: Legacy columns updated successfully')
+          }
+        }
+      } else {
+        console.log('DEBUG: No files to upload')
       }
 
       // Run plagiarism check if enabled
@@ -378,6 +471,128 @@ export default function AssignmentDetailPage() {
     
     if (days > 0) return `${days} days, ${hours} hours remaining`
     return `${hours} hours remaining`
+  }
+
+  const downloadStudentReport = () => {
+    if (!submission || !assignment) return
+
+    const reportContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>My Assignment Report - ${assignment.title}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+          .header { text-align: center; border-bottom: 2px solid #10B981; padding-bottom: 20px; margin-bottom: 30px; }
+          .header h1 { color: #10B981; margin: 0; }
+          .header p { color: #666; margin: 5px 0 0 0; }
+          .section { margin-bottom: 25px; }
+          .section-title { font-weight: bold; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-bottom: 10px; }
+          .info-grid { display: grid; grid-template-columns: 150px 1fr; gap: 8px; }
+          .label { color: #666; }
+          .value { font-weight: 500; }
+          .grade-box { background: linear-gradient(135deg, #10B981 0%, #059669 100%); color: white; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0; }
+          .grade-box .score { font-size: 48px; font-weight: bold; }
+          .feedback-box { background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #10B981; }
+          .files-list { list-style: none; padding: 0; }
+          .files-list li { padding: 8px 0; border-bottom: 1px solid #eee; }
+          .footer { margin-top: 40px; text-align: center; color: #999; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>My Assignment Report</h1>
+          <p>${assignment.title}</p>
+          <p>${assignment.department?.toUpperCase() || ''} Department</p>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Assignment Information</div>
+          <div class="info-grid">
+            <span class="label">Title:</span>
+            <span class="value">${assignment.title}</span>
+            <span class="label">Instructor:</span>
+            <span class="value">${assignment.faculty?.name || 'N/A'}</span>
+            <span class="label">Max Marks:</span>
+            <span class="value">${assignment.max_marks}</span>
+            <span class="label">Due Date:</span>
+            <span class="value">${formatDate(assignment.due_date)}</span>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Submission Details</div>
+          <div class="info-grid">
+            <span class="label">Submitted On:</span>
+            <span class="value">${formatDate(submission.submitted_at)}</span>
+            <span class="label">Status:</span>
+            <span class="value">${submission.status?.toUpperCase() || 'SUBMITTED'}</span>
+            ${submission.is_late ? '<span class="label">Late Submission:</span><span class="value" style="color: red;">Yes</span>' : ''}
+          </div>
+        </div>
+
+        ${submission.files && submission.files.length > 0 ? `
+        <div class="section">
+          <div class="section-title">Submitted Files</div>
+          <ul class="files-list">
+            ${submission.files.map((f: any) => `<li>📄 ${f.file_name} (${(f.file_size / 1024).toFixed(1)} KB)</li>`).join('')}
+          </ul>
+        </div>
+        ` : ''}
+
+        ${submission.submission_text ? `
+        <div class="section">
+          <div class="section-title">My Submission</div>
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; white-space: pre-wrap;">${submission.submission_text}</div>
+        </div>
+        ` : ''}
+
+        ${submission.grade !== undefined && submission.grade !== null ? `
+        <div class="grade-box">
+          <div class="score">${submission.grade}/${assignment.max_marks}</div>
+          <div>Grade (${((submission.grade / assignment.max_marks) * 100).toFixed(1)}%)</div>
+        </div>
+        ` : ''}
+
+        ${submission.feedback ? `
+        <div class="section">
+          <div class="section-title">Faculty Feedback</div>
+          <div class="feedback-box">${submission.feedback}</div>
+        </div>
+        ` : ''}
+
+        ${submission.graded_at ? `
+        <div class="section">
+          <div class="section-title">Grading Information</div>
+          <div class="info-grid">
+            <span class="label">Graded On:</span>
+            <span class="value">${formatDate(submission.graded_at)}</span>
+          </div>
+        </div>
+        ` : ''}
+
+        <div class="footer">
+          <p>Generated by EduVision Learning Management System</p>
+          <p>${new Date().toLocaleString()}</p>
+        </div>
+      </body>
+      </html>
+    `
+
+    const blob = new Blob([reportContent], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `My_Report_${assignment.title?.replace(/\s+/g, '_')}.html`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    toast({
+      title: "Report Downloaded",
+      description: "Your assignment report has been downloaded successfully.",
+    })
   }
 
   if (isLoading) {
@@ -799,14 +1014,17 @@ export default function AssignmentDetailPage() {
                       <div className="p-4 bg-white rounded-lg border border-green-200">
                         <h4 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
                           <Upload className="w-4 h-4" />
-                          Uploaded Files
+                          Uploaded Files ({submission.files.length})
                         </h4>
                         <div className="space-y-2">
                           {submission.files.map((file: any, index: number) => (
                             <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded border">
                               <div className="flex items-center gap-2">
                                 <FileText className="w-4 h-4 text-blue-600" />
-                                <span className="text-sm font-medium">{file.file_name}</span>
+                                <div>
+                                  <span className="text-sm font-medium">{file.file_name}</span>
+                                  <span className="text-xs text-gray-500 ml-2">({(file.file_size / 1024).toFixed(1)} KB)</span>
+                                </div>
                               </div>
                               <Button 
                                 variant="outline" 
@@ -820,6 +1038,59 @@ export default function AssignmentDetailPage() {
                           ))}
                         </div>
                       </div>
+                    )}
+
+                    {/* Grade Display */}
+                    {submission.grade !== undefined && submission.grade !== null && (
+                      <div className="p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-purple-200">
+                        <h4 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
+                          <Award className="w-4 h-4 text-purple-600" />
+                          Your Grade
+                        </h4>
+                        <div className="flex items-center gap-4">
+                          <div className="text-4xl font-bold text-purple-600">
+                            {submission.grade}/{assignment.max_marks}
+                          </div>
+                          <div className="flex-1">
+                            <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gradient-to-r from-purple-500 to-indigo-500"
+                                style={{ width: `${(submission.grade / assignment.max_marks) * 100}%` }}
+                              />
+                            </div>
+                            <p className="text-sm text-gray-600 mt-1">
+                              {((submission.grade / assignment.max_marks) * 100).toFixed(1)}%
+                            </p>
+                          </div>
+                        </div>
+                        {submission.graded_at && (
+                          <p className="text-xs text-gray-500 mt-2">
+                            Graded on {formatDate(submission.graded_at)}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Feedback Display */}
+                    {submission.feedback && (
+                      <div className="p-4 bg-white rounded-lg border border-blue-200">
+                        <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
+                          <MessageSquare className="w-4 h-4 text-blue-600" />
+                          Faculty Feedback
+                        </h4>
+                        <p className="text-gray-700 whitespace-pre-wrap">{submission.feedback}</p>
+                      </div>
+                    )}
+
+                    {/* Download Report Button */}
+                    {submission.grade !== undefined && submission.grade !== null && (
+                      <Button 
+                        onClick={() => downloadStudentReport()}
+                        className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Download Report
+                      </Button>
                     )}
                   </CardContent>
                 </Card>

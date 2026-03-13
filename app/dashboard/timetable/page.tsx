@@ -46,6 +46,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
+import { supabase } from "@/lib/supabase"
 
 export default function FacultyTimetablePage() {
   const { toast } = useToast()
@@ -72,73 +73,51 @@ export default function FacultyTimetablePage() {
   const academicFileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    const facultySession = localStorage.getItem("facultySession")
-    const currentUserData = localStorage.getItem("currentUser")
-
-    if (facultySession) {
+    const loadData = async () => {
       try {
-        const user = JSON.parse(facultySession)
-        setCurrentUser(user)
-        setSelectedDepartment(user.department || "")
+        // Get user from Supabase Auth
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
+        if (authError || !user) { return }
+        
+        // Get faculty profile
+        const { data: faculty } = await supabase
+          .from('faculty')
+          .select('*')
+          .eq('email', user.email)
+          .maybeSingle()
+        
+        if (faculty) {
+          setCurrentUser(faculty)
+          setSelectedDepartment(faculty.department || "")
+        }
+        
+        // Load timetables from Supabase
+        const { data: timetables } = await supabase
+          .from('timetables')
+          .select('*')
+          .eq('faculty_id', user.id)
+          .order('uploaded_at', { ascending: false })
+        
+        if (timetables) {
+          setUploadedTimetables(timetables)
+        }
+        
+        // Load academic events from Supabase
+        const { data: events } = await supabase
+          .from('academic_events')
+          .select('*')
+          .eq('faculty_id', user.id)
+          .order('date', { ascending: true })
+        
+        if (events) {
+          setAcademicEvents(events)
+        }
       } catch (error) {
-        console.error("Error parsing faculty session:", error)
-      }
-    } else if (currentUserData) {
-      try {
-        const user = JSON.parse(currentUserData)
-        setCurrentUser(user)
-        setSelectedDepartment(user.department || "")
-      } catch (error) {
-        console.error("Error parsing current user data:", error)
-      }
-    }
-
-    // Load data from localStorage
-    const savedTimetables = localStorage.getItem("uploadedTimetables")
-    const savedCalendars = localStorage.getItem("academicCalendars")
-    const savedSchedule = localStorage.getItem("extractedSchedule")
-    const savedAssignments = localStorage.getItem("assignments")
-    const savedEvents = localStorage.getItem("academicEvents")
-    
-    if (savedTimetables) {
-      try {
-        setUploadedTimetables(JSON.parse(savedTimetables))
-      } catch (error) {
-        console.error("Error parsing timetables:", error)
-      }
-    }
-    
-    if (savedCalendars) {
-      try {
-        setAcademicCalendars(JSON.parse(savedCalendars))
-      } catch (error) {
-        console.error("Error parsing calendars:", error)
-      }
-    }
-    
-    if (savedSchedule) {
-      try {
-        setExtractedSchedule(JSON.parse(savedSchedule))
-      } catch (error) {
-        console.error("Error parsing schedule:", error)
+        console.error("Error loading data:", error)
       }
     }
     
-    if (savedAssignments) {
-      try {
-        setAssignments(JSON.parse(savedAssignments))
-      } catch (error) {
-        console.error("Error parsing assignments:", error)
-      }
-    }
-    
-    if (savedEvents) {
-      try {
-        setAcademicEvents(JSON.parse(savedEvents))
-      } catch (error) {
-        console.error("Error parsing events:", error)
-      }
-    }
+    loadData()
   }, [])
 
   const departments = [

@@ -39,15 +39,30 @@ function LoginContent() {
     setError("")
 
     try {
-      // Simple database authentication (development mode)
-      const faculty = await authenticateFaculty(email, password)
+      // Use Supabase Auth for authentication
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-      if (!faculty) throw new Error('Faculty not found')
+      if (authError) throw authError
 
-      // Store faculty session
-      localStorage.setItem('facultySession', JSON.stringify(faculty))
-      localStorage.setItem('currentUser', JSON.stringify({ ...faculty, userType: 'faculty' }))
-      localStorage.setItem('userType', 'faculty')
+      // Fetch faculty profile from database
+      const { data: faculty, error: facultyError } = await supabase
+        .from('faculty')
+        .select('*')
+        .eq('email', email)
+        .single()
+
+      if (facultyError && facultyError.code !== 'PGRST116') {
+        throw new Error('Failed to fetch faculty profile')
+      }
+
+      // Check if profile is complete
+      if (!faculty || !faculty.department || !faculty.college_name) {
+        router.push('/faculty-complete-profile')
+        return
+      }
 
       toast({
         title: "Login Successful",

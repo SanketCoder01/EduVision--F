@@ -315,12 +315,21 @@ export default function CreateAttendancePage() {
 
       const className = `${formData.department} ${formData.year}`
 
+      // Normalize department to lowercase and year to word format for consistent matching
+      const yearMapping: { [key: string]: string } = {
+        '1': 'first', '2': 'second', '3': 'third', '4': 'fourth',
+        '1st': 'first', '2nd': 'second', '3rd': 'third', '4th': 'fourth'
+      }
+      const normalizedDept = formData.department.toLowerCase().trim()
+      const normalizedYear = yearMapping[formData.year.toLowerCase()] || formData.year.toLowerCase()
+
       const sessionData = {
         faculty_id: facultyData.id,
         faculty_email: currentUser.email,
         faculty_name: currentUser.name,
-        department: formData.department,
-        year: formData.year,
+        department: normalizedDept,
+        year: normalizedYear,
+        target_years: [normalizedYear], // Add target_years for filtering
         class_name: className,
         subject: formData.subject,
         session_date: formData.sessionDate,

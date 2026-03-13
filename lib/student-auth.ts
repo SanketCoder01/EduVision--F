@@ -87,7 +87,12 @@ export const findStudentByEmail = async (email: string): Promise<any> => {
       
       if (student && !error) {
         console.log('DEBUG: Student found in', tableName, ':', student)
-        return student
+        // Return with normalized department (lowercase) and year
+        return {
+          ...student,
+          department: extracted.department.toLowerCase(),
+          year: extracted.year
+        }
       }
     } catch (error) {
       console.log('DEBUG: Error querying', tableName, ':', error)
@@ -113,7 +118,12 @@ export const findStudentByEmail = async (email: string): Promise<any> => {
         
         if (student && !error) {
           console.log('DEBUG: Student found in fallback search:', tableName, student)
-          return student
+          // Return with normalized department (lowercase) and year
+          return {
+            ...student,
+            department: dept.toLowerCase(),
+            year: year
+          }
         }
       } catch (error) {
         // Continue searching other tables
@@ -130,56 +140,22 @@ export const findStudentByEmail = async (email: string): Promise<any> => {
 export const getStudentSession = async (): Promise<any> => {
   console.log('DEBUG: Getting student session...')
   
-  // Check Supabase auth session first
-  const { data: { session } } = await supabase.auth.getSession()
+  // Get user from Supabase Auth
+  const { data: { user }, error } = await supabase.auth.getUser()
   
-  if (session?.user?.email) {
-    console.log('DEBUG: Found Supabase session for:', session.user.email)
-    const student = await findStudentByEmail(session.user.email)
-    
-    if (student) {
-      return student
-    }
+  if (error || !user) {
+    console.log('DEBUG: No authenticated user found')
+    return null
   }
   
-  // Fallback to localStorage
-  console.log('DEBUG: Checking localStorage for student session...')
+  console.log('DEBUG: Found Supabase auth user:', user.email)
+  const student = await findStudentByEmail(user.email!)
   
-  const sessionKeys = ['studentSession', 'user_session', 'currentUser']
-  
-  for (const key of sessionKeys) {
-    const stored = localStorage.getItem(key)
-    if (stored) {
-      try {
-        const user = JSON.parse(stored)
-        console.log(`DEBUG: Found ${key}:`, user)
-        
-        if (user.email) {
-          // Verify student still exists in database
-          const student = await findStudentByEmail(user.email)
-          if (student) {
-            return student
-          }
-        }
-        
-        // If no email but has department/year, use as-is for demo
-        if (user.department && user.year) {
-          return user
-        }
-      } catch (error) {
-        console.log(`DEBUG: Error parsing ${key}:`, error)
-      }
-    }
+  if (student) {
+    console.log('DEBUG: Student found:', student)
+    return student
   }
   
-  // Demo student fallback
-  console.log('DEBUG: Using demo student fallback')
-  return {
-    id: 'demo-student',
-    name: 'Demo Student',
-    email: 'demo@sanjivani.edu.in',
-    department: 'CSE',
-    year: '2',
-    prn: 'DEMO123'
-  }
+  console.log('DEBUG: Student not found in any table')
+  return null
 }
