@@ -308,6 +308,8 @@ export default function AnnouncementsPage() {
       }
 
       console.log('DEBUG: Creating announcement with dept:', dept, 'target_years:', target_years)
+      console.log('DEBUG: Poster URL being sent:', poster)
+      console.log('DEBUG: Poster path:', posterPath)
 
       // Call API route - use /api/announcements which has service role client
       const response = await fetch('/api/announcements', {
@@ -323,14 +325,16 @@ export default function AnnouncementsPage() {
           faculty_id: facultyId,
           priority: 'normal',
           target_audience: 'students',
-          poster_url: poster || undefined,
-          date: date || undefined,
-          time: time || undefined,
-          venue: venue || undefined,
+          poster_url: poster || null,
+          date: date || null,
+          time: time || null,
+          venue: venue || null,
         }),
       })
 
       const result = await response.json()
+      console.log('DEBUG: API response:', result)
+      console.log('DEBUG: Saved announcement poster_url:', result.data?.poster_url)
 
       if (!response.ok || !result.success) {
         throw new Error(result.error || 'Failed to create announcement')
