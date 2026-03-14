@@ -45,6 +45,7 @@ export default function StudentTimetablePage() {
   const [academicEvents, setAcademicEvents] = useState<any[]>([])
   const [viewMode, setViewMode] = useState("month")
   const [weekStartDate, setWeekStartDate] = useState(new Date())
+  const [uploadedTimetables, setUploadedTimetables] = useState<any[]>([])
 
   useEffect(() => {
     fetchStudentData()
@@ -95,31 +96,96 @@ export default function StudentTimetablePage() {
     if (!currentUser) return
     
     try {
-      // Fetch timetable from Supabase
-      const { data, error } = await supabase
-        .from('timetables')
-        .select('*')
-        .eq('department', currentUser.department)
-        .eq('year', currentUser.year)
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-
-      if (data && data.length > 0) {
-        // Transform schedule data
-        const schedules = data.map(t => ({
-          ...t.schedule_data,
-          department: t.department,
-          year: t.year
-        })).flat()
+      // Map year format (e.g., 'first' -> '1st', 'second' -> '2nd')
+      const yearMap: Record<string, string> = {
+        'first': '1st',
+        'second': '2nd', 
+        'third': '3rd',
+        'fourth': '4th'
+      }
+      const studentYear = yearMap[currentUser.year] || currentUser.year
+      
+      console.log('Fetching timetable for:', {
+        department: currentUser.department,
+        year: studentYear,
+        rawYear: currentUser.year
+      })
+      
+      // Fetch timetable from Supabase filtered by department and year
+      // Try multiple department name variations
+      const deptVariations = [
+        currentUser.department,
+        currentUser.department?.toLowerCase(),
+        currentUser.department?.toUpperCase(),
+        currentUser.department?.replace(' ', ''),
+        currentUser.department?.split(' ')[0] // First word only (e.g., "Computer" from "Computer Science")
+      ].filter(Boolean)
+      
+      let data = null
+      let error = null
+      
+      for (const dept of deptVariations) {
+        const result = await supabase
+          .from('timetables')
+          .select('*')
+          .ilike('department', dept)
+          .eq('year', studentYear)
+          .order('uploaded_at', { ascending: false })
         
-        setExtractedSchedule(schedules)
+        if (result.data && result.data.length > 0) {
+          data = result.data
+          error = null
+          console.log('Found timetable with department:', dept)
+          break
+        }
+      }
+      
+      if (!data) {
+        // Final fallback - try without department filter
+        const result = await supabase
+          .from('timetables')
+          .select('*')
+          .eq('year', studentYear)
+          .order('uploaded_at', { ascending: false })
+        
+        data = result.data
+        error = result.error
+        
+        if (data && data.length > 0) {
+          console.log('Found timetable without department filter, data:', data)
+        }
       }
 
-      // Fetch academic events
+      if (error) {
+        console.error('Error fetching timetable:', error)
+        return
+      }
+
+      if (data && data.length > 0) {
+        console.log('Raw timetable data:', data)
+        setUploadedTimetables(data)
+        
+        // Process schedule data - it's an array of day objects with lectures
+        // schedule_data = [{day: "Monday", lectures: [...]}, {day: "Tuesday", lectures: [...]}]
+        const allSchedules = data.flatMap(t => {
+          const scheduleData = t.schedule_data || []
+          console.log('Processing schedule_data:', scheduleData)
+          return scheduleData
+        })
+        
+        setExtractedSchedule(allSchedules)
+        console.log('Loaded schedules:', allSchedules)
+      } else {
+        console.log('No timetable data found')
+        setUploadedTimetables([])
+        setExtractedSchedule([])
+      }
+
+      // Fetch academic events filtered by student's department and year
       const { data: events } = await supabase
         .from('academic_events')
         .select('*')
+        .or(`department.eq.${currentUser.department},department.eq.All`)
         .gte('date', new Date().toISOString().split('T')[0])
         .order('date', { ascending: true })
       
@@ -139,9 +205,18 @@ export default function StudentTimetablePage() {
       subscriptionsRef.current.unsubscribe()
     }
     
+    // Map year format (e.g., 'first' -> '1st', 'second' -> '2nd')
+    const yearMap: Record<string, string> = {
+      'first': '1st',
+      'second': '2nd', 
+      'third': '3rd',
+      'fourth': '4th'
+    }
+    const studentYear = yearMap[currentUser.year] || currentUser.year
+    
     // Subscribe to timetable updates with department + year filtering
     subscriptionsRef.current = realtimeService.subscribeToTimetable(
-      { department: currentUser.department, year: currentUser.year },
+      { department: currentUser.department, year: studentYear },
       (payload: RealtimePayload) => {
         console.log('Timetable update:', payload)
         fetchTimetableData()
@@ -156,57 +231,49 @@ export default function StudentTimetablePage() {
     )
   }
 
-  // Initialize week start date to the beginning of current week
+  // Initialize week start date to the beginning of current week (Monday)
   useEffect(() => {
     const today = new Date()
+    const dayOfWeek = today.getDay() // 0 = Sunday, 1 = Monday, etc.
+    // Calculate Monday as start of week
     const startOfWeek = new Date(today)
-    startOfWeek.setDate(today.getDate() - today.getDay())
+    const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek // If Sunday, go back 6 days, otherwise calculate Monday
+    startOfWeek.setDate(today.getDate() + diff)
     setWeekStartDate(startOfWeek)
+    // Set selected day to today's index (0-6 where 0=Monday in our display)
+    const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1 // Convert Sunday=0 to index 6, Monday=1 to index 0
+    setSelectedDay(adjustedDay)
   }, [])
 
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+  // Days array starting from Monday (index 0) to Saturday (index 5), Sunday (index 6)
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
   const timeSlots = [
     "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", 
     "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM"
   ]
 
-  // Sample timetable data - in real app, this would come from API
-  const timetableData = {
-    Monday: [
-      { time: "9:00 AM", subject: "Data Structures", faculty: "Dr. Smith", room: "CS-101", type: "Lecture" },
-      { time: "11:00 AM", subject: "Database Management", faculty: "Prof. Johnson", room: "CS-102", type: "Practical" },
-      { time: "2:00 PM", subject: "Computer Networks", faculty: "Dr. Brown", room: "CS-103", type: "Lecture" },
-    ],
-    Tuesday: [
-      { time: "10:00 AM", subject: "Operating Systems", faculty: "Dr. Wilson", room: "CS-104", type: "Lecture" },
-      { time: "1:00 PM", subject: "Software Engineering", faculty: "Prof. Davis", room: "CS-105", type: "Practical" },
-      { time: "3:00 PM", subject: "Machine Learning", faculty: "Dr. Miller", room: "CS-106", type: "Lecture" },
-    ],
-    Wednesday: [
-      { time: "9:00 AM", subject: "Data Structures", faculty: "Dr. Smith", room: "CS-101", type: "Practical" },
-      { time: "11:00 AM", subject: "Web Development", faculty: "Prof. Taylor", room: "CS-107", type: "Practical" },
-      { time: "2:00 PM", subject: "Algorithms", faculty: "Dr. Anderson", room: "CS-108", type: "Lecture" },
-    ],
-    Thursday: [
-      { time: "10:00 AM", subject: "Database Management", faculty: "Prof. Johnson", room: "CS-102", type: "Lecture" },
-      { time: "12:00 PM", subject: "Computer Networks", faculty: "Dr. Brown", room: "CS-103", type: "Practical" },
-      { time: "3:00 PM", subject: "Project Work", faculty: "Multiple", room: "CS-109", type: "Project" },
-    ],
-    Friday: [
-      { time: "9:00 AM", subject: "Operating Systems", faculty: "Dr. Wilson", room: "CS-104", type: "Practical" },
-      { time: "11:00 AM", subject: "Machine Learning", faculty: "Dr. Miller", room: "CS-106", type: "Practical" },
-      { time: "2:00 PM", subject: "Seminar", faculty: "Guest Speaker", room: "Auditorium", type: "Seminar" },
-    ],
-    Saturday: [],
-    Sunday: []
+  // Get lectures for selected day from extracted schedule (real data from Supabase)
+  const getLecturesForDay = (dayName: string) => {
+    // Case-insensitive day matching
+    const daySchedule = extractedSchedule.find(s => 
+      s.day?.toLowerCase().trim() === dayName.toLowerCase().trim()
+    )
+    const lectures = daySchedule?.lectures || []
+    console.log(`getLecturesForDay(${dayName}):`, lectures.length, 'lectures from', extractedSchedule.length, 'days')
+    return lectures
   }
 
+  const todayClasses = getLecturesForDay(days[selectedDay])
+
   const getTypeColor = (type: string) => {
-    switch (type) {
-      case "Lecture": return "bg-blue-100 text-blue-800"
-      case "Practical": return "bg-green-100 text-green-800"
-      case "Project": return "bg-purple-100 text-purple-800"
-      case "Seminar": return "bg-orange-100 text-orange-800"
+    switch (type?.toLowerCase()) {
+      case "lecture": return "bg-blue-100 text-blue-800"
+      case "practical":
+      case "lab": return "bg-green-100 text-green-800"
+      case "project": return "bg-purple-100 text-purple-800"
+      case "seminar": return "bg-orange-100 text-orange-800"
+      case "tutorial": return "bg-cyan-100 text-cyan-800"
+      case "break": return "bg-gray-100 text-gray-600"
       default: return "bg-gray-100 text-gray-800"
     }
   }
@@ -245,7 +312,11 @@ export default function StudentTimetablePage() {
 
   const getLecturesForDate = (date: Date) => {
     const dayName = date.toLocaleDateString('en-US', { weekday: 'long' })
-    const daySchedule = extractedSchedule.find(s => s.day === dayName)
+    // Case-insensitive day matching
+    const daySchedule = extractedSchedule.find(s => 
+      s.day?.toLowerCase().trim() === dayName.toLowerCase().trim()
+    )
+    console.log(`getLecturesForDate(${dayName}):`, daySchedule?.lectures?.length || 0, 'lectures')
     return daySchedule?.lectures || []
   }
 
@@ -300,8 +371,6 @@ export default function StudentTimetablePage() {
     }
   }
 
-  const todayClasses = timetableData[days[selectedDay] as keyof typeof timetableData] || []
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -329,6 +398,64 @@ export default function StudentTimetablePage() {
           </div>
         </div>
       </motion.div>
+
+      {/* Uploaded Timetable Images */}
+      {uploadedTimetables.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarDays className="h-5 w-5" />
+              Uploaded Timetables ({uploadedTimetables.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {uploadedTimetables.map((tt, index) => (
+                <motion.div
+                  key={tt.id}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: index * 0.1 }}
+                >
+                  <Card className="overflow-hidden">
+                    <div className="relative aspect-[4/3] bg-gray-100">
+                      {tt.file_type?.startsWith('image/') ? (
+                        <img 
+                          src={tt.file_url} 
+                          alt={tt.file_name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-full">
+                          <CalendarDays className="h-12 w-12 text-gray-400" />
+                        </div>
+                      )}
+                    </div>
+                    <CardContent className="p-3">
+                      <p className="text-sm font-medium truncate">{tt.file_name}</p>
+                      <p className="text-xs text-gray-500">
+                        Uploaded: {new Date(tt.uploaded_at).toLocaleDateString()}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {tt.department} - {tt.year} Year
+                      </p>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="w-full mt-2"
+                        onClick={() => window.open(tt.file_url, '_blank')}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        View Full
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs Navigation */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -393,10 +520,13 @@ export default function StudentTimetablePage() {
                   <div className="text-center py-8 text-gray-500">
                     <Calendar className="h-12 w-12 mx-auto mb-4 text-gray-300" />
                     <p>No classes scheduled for {days[selectedDay]}</p>
+                    {uploadedTimetables.length === 0 && (
+                      <p className="text-sm mt-2">Your faculty has not uploaded a timetable yet.</p>
+                    )}
                   </div>
                 ) : (
                   <div className="grid gap-4">
-                    {todayClasses.map((classItem, index) => (
+                    {todayClasses.map((lecture: any, index: number) => (
                       <motion.div
                         key={index}
                         initial={{ opacity: 0, x: -20 }}
@@ -408,25 +538,25 @@ export default function StudentTimetablePage() {
                             <div className="flex items-center justify-between">
                               <div className="flex-1">
                                 <div className="flex items-center gap-3 mb-2">
-                                  <Badge className={getTypeColor(classItem.type)}>
-                                    {classItem.type}
+                                  <Badge className={getTypeColor(lecture.type || 'Lecture')}>
+                                    {lecture.type || 'Lecture'}
                                   </Badge>
                                   <span className="text-sm text-gray-500 flex items-center gap-1">
                                     <Clock className="h-4 w-4" />
-                                    {classItem.time}
+                                    {lecture.time}
                                   </span>
                                 </div>
                                 <h4 className="text-lg font-semibold text-gray-900 mb-1">
-                                  {classItem.subject}
+                                  {lecture.subject}
                                 </h4>
                                 <div className="flex items-center gap-4 text-sm text-gray-600">
                                   <span className="flex items-center gap-1">
                                     <User className="h-4 w-4" />
-                                    {classItem.faculty}
+                                    {lecture.faculty || 'TBA'}
                                   </span>
                                   <span className="flex items-center gap-1">
                                     <MapPin className="h-4 w-4" />
-                                    {classItem.room}
+                                    {lecture.room || 'TBA'}
                                   </span>
                                 </div>
                               </div>
@@ -447,12 +577,12 @@ export default function StudentTimetablePage() {
             </CardContent>
           </Card>
 
-          {/* Quick Stats */}
+          {/* Quick Stats - Real data */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card>
               <CardContent className="p-6 text-center">
                 <div className="text-2xl font-bold text-blue-600 mb-2">
-                  {Object.values(timetableData).flat().length}
+                  {extractedSchedule.reduce((acc, s) => acc + (s.lectures?.length || 0), 0)}
                 </div>
                 <p className="text-sm text-gray-600">Total Classes This Week</p>
               </CardContent>
@@ -461,16 +591,20 @@ export default function StudentTimetablePage() {
             <Card>
               <CardContent className="p-6 text-center">
                 <div className="text-2xl font-bold text-green-600 mb-2">
-                  {Object.values(timetableData).flat().filter(c => c.type === "Practical").length}
+                  {extractedSchedule.reduce((acc, s) => 
+                    acc + (s.lectures?.filter((l: any) => 
+                      l.type?.toLowerCase() === 'practical' || l.type?.toLowerCase() === 'lab'
+                    ).length || 0), 0
+                  )}
                 </div>
-                <p className="text-sm text-gray-600">Practical Sessions</p>
+                <p className="text-sm text-gray-600">Practical/Lab Sessions</p>
               </CardContent>
             </Card>
             
             <Card>
               <CardContent className="p-6 text-center">
                 <div className="text-2xl font-bold text-purple-600 mb-2">
-                  {new Set(Object.values(timetableData).flat().map(c => c.subject)).size}
+                  {new Set(extractedSchedule.flatMap(s => s.lectures?.map((l: any) => l.subject) || [])).size}
                 </div>
                 <p className="text-sm text-gray-600">Different Subjects</p>
               </CardContent>
@@ -539,7 +673,7 @@ export default function StudentTimetablePage() {
                       key={date.toISOString()}
                       whileHover={{ scale: 1.02 }}
                       className={`
-                        p-2 h-24 border rounded cursor-pointer transition-colors
+                        p-2 h-24 border rounded cursor-pointer transition-colors overflow-hidden
                         ${isToday ? 'bg-blue-100 border-blue-300' : 'border-gray-200'}
                         ${isSelected ? 'bg-blue-200 border-blue-400' : ''}
                         hover:bg-gray-50
@@ -547,10 +681,10 @@ export default function StudentTimetablePage() {
                       onClick={() => setSelectedCalendarDate(date)}
                     >
                       <div className="text-sm font-medium mb-1">{date.getDate()}</div>
-                      <div className="space-y-1">
-                        {lectures.slice(0, 2).map((lecture: any, idx: number) => (
-                          <div key={idx} className="text-xs bg-blue-100 text-blue-800 px-1 rounded truncate">
-                            {lecture.subject}
+                      <div className="space-y-1 overflow-hidden">
+                        {lectures.slice(0, 3).map((lecture: any, idx: number) => (
+                          <div key={idx} className="text-xs bg-blue-100 text-blue-800 px-1 rounded truncate" title={`${lecture.subject} - ${lecture.time}`}>
+                            <span className="font-medium">{lecture.time?.split('-')[0] || ''}</span> {lecture.subject}
                           </div>
                         ))}
                         {events.slice(0, 1).map((event: any, idx: number) => (
@@ -558,8 +692,8 @@ export default function StudentTimetablePage() {
                             {event.title}
                           </div>
                         ))}
-                        {(lectures.length > 2 || events.length > 1) && (
-                          <div className="text-xs text-gray-500">+{lectures.length + events.length - 3} more</div>
+                        {(lectures.length > 3 || events.length > 1) && (
+                          <div className="text-xs text-gray-500">+{lectures.length + events.length - 4} more</div>
                         )}
                       </div>
                     </motion.div>

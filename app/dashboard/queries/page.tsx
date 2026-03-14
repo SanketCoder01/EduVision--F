@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion } from "framer-motion"
 import {
   MessageCircle,
   Search,
@@ -9,679 +9,542 @@ import {
   Check,
   Clock,
   BookOpen,
-  HelpCircle,
-  FileText,
-  MoreHorizontal,
   User,
   X,
-  Filter,
-  ChevronLeft,
+  CheckCircle,
+  AlertCircle,
+  Plus,
+  ArrowLeft,
+  CheckCheck,
+  Smile,
+  Paperclip,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { useToast } from "@/components/ui/use-toast"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useToast } from "@/hooks/use-toast"
 import { Badge } from "@/components/ui/badge"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { supabase } from "@/lib/supabase"
 
-// Mock data for classes
-const classes = [
-  { id: "fy-cse", name: "FY CSE", icon: <BookOpen className="h-5 w-5" />, unread: 5 },
-  { id: "sy-cse", name: "SY CSE", icon: <BookOpen className="h-5 w-5" />, unread: 2 },
-  { id: "ty-cse", name: "TY CSE", icon: <BookOpen className="h-5 w-5" />, unread: 0 },
-  { id: "fy-it", name: "FY IT", icon: <BookOpen className="h-5 w-5" />, unread: 3 },
-  { id: "sy-it", name: "SY IT", icon: <BookOpen className="h-5 w-5" />, unread: 1 },
-  { id: "ty-it", name: "TY IT", icon: <BookOpen className="h-5 w-5" />, unread: 0 },
-]
+interface Student {
+  id: string
+  name: string
+  email: string
+  department: string
+  year: string
+  prn?: string
+}
 
-// Mock data for students
-const students = [
-  { id: 1, name: "Rahul Sharma", prn: "PRN2023001", class: "FY CSE", avatar: null },
-  { id: 2, name: "Priya Patel", prn: "PRN2023002", class: "FY CSE", avatar: null },
-  { id: 3, name: "Amit Kumar", prn: "PRN2023003", class: "SY CSE", avatar: null },
-  { id: 4, name: "Sneha Gupta", prn: "PRN2023004", class: "SY CSE", avatar: null },
-  { id: 5, name: "Vikram Singh", prn: "PRN2023005", class: "TY CSE", avatar: null },
-  { id: 6, name: "Neha Verma", prn: "PRN2023006", class: "FY IT", avatar: null },
-  { id: 7, name: "Raj Malhotra", prn: "PRN2023007", class: "SY IT", avatar: null },
-  { id: 8, name: "Ananya Desai", prn: "PRN2023008", class: "TY IT", avatar: null },
-]
+interface QueryItem {
+  id: string
+  student_id: string
+  student_name: string
+  student_department: string
+  student_year: string
+  faculty_id: string
+  subject: string
+  title: string
+  status: string
+  priority: string
+  created_at: string
+  updated_at: string
+}
 
-// Mock data for queries
-const initialQueries = [
-  {
-    id: 1,
-    studentId: 1,
-    type: "study",
-    subject: "Data Structures",
-    title: "Confusion about Binary Trees",
-    message:
-      "I'm having trouble understanding the concept of balanced binary trees. Could you explain the difference between AVL trees and Red-Black trees?",
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-    status: "unread",
-    class: "FY CSE",
-    messages: [
-      {
-        id: 1,
-        senderId: 1,
-        text: "I'm having trouble understanding the concept of balanced binary trees. Could you explain the difference between AVL trees and Red-Black trees?",
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2),
-        read: false,
-      },
-    ],
-  },
-  {
-    id: 2,
-    studentId: 2,
-    type: "assignment",
-    subject: "Database Management",
-    title: "Clarification on Assignment 3",
-    message:
-      "For the third assignment, do we need to implement all the SQL queries or just design the database schema?",
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5), // 5 hours ago
-    status: "unread",
-    class: "FY CSE",
-    messages: [
-      {
-        id: 1,
-        senderId: 2,
-        text: "For the third assignment, do we need to implement all the SQL queries or just design the database schema?",
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5),
-        read: false,
-      },
-    ],
-  },
-  {
-    id: 3,
-    studentId: 3,
-    type: "other",
-    subject: "Project Submission",
-    title: "Extension Request",
-    message:
-      "Due to some technical issues, I couldn't complete my project on time. Is it possible to get a two-day extension?",
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-    status: "read",
-    class: "SY CSE",
-    messages: [
-      {
-        id: 1,
-        senderId: 3,
-        text: "Due to some technical issues, I couldn't complete my project on time. Is it possible to get a two-day extension?",
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24),
-        read: true,
-      },
-      {
-        id: 2,
-        senderId: "faculty",
-        text: "Can you please explain what technical issues you're facing? I'll need more details before I can approve an extension.",
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 23),
-        read: true,
-      },
-      {
-        id: 3,
-        senderId: 3,
-        text: "My laptop crashed and I lost some of my work. I've been trying to recover the files but it's taking longer than expected.",
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 22),
-        read: true,
-      },
-    ],
-  },
-  {
-    id: 4,
-    studentId: 6,
-    type: "study",
-    subject: "Programming Fundamentals",
-    title: "Help with Recursion",
-    message:
-      "I'm struggling with the concept of recursion. Could you provide some simple examples to help me understand?",
-    timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
-    status: "unread",
-    class: "FY IT",
-    messages: [
-      {
-        id: 1,
-        senderId: 6,
-        text: "I'm struggling with the concept of recursion. Could you provide some simple examples to help me understand?",
-        timestamp: new Date(Date.now() - 1000 * 60 * 30),
-        read: false,
-      },
-    ],
-  },
-]
+interface MessageItem {
+  id: string
+  query_id: string
+  sender_id: string
+  sender_type: string
+  sender_name: string
+  message: string
+  created_at: string
+}
 
-export default function QueriesPage() {
+const yearLabels: Record<string, string> = {
+  first: "1st Year",
+  second: "2nd Year",
+  third: "3rd Year",
+  fourth: "4th Year",
+}
+
+export default function FacultyQueriesPage() {
   const { toast } = useToast()
-  const [activeTab, setActiveTab] = useState("classes")
-  const [selectedClass, setSelectedClass] = useState(null)
-  const [selectedQuery, setSelectedQuery] = useState(null)
-  const [queries, setQueries] = useState(initialQueries)
-  const [message, setMessage] = useState("")
-  const [searchQuery, setSearchQuery] = useState("")
-  const [filterType, setFilterType] = useState("all")
-  const [showFilterMenu, setShowFilterMenu] = useState(false)
-  const messagesEndRef = useRef(null)
+  const [faculty, setFaculty] = useState<any>(null)
+  const [students, setStudents] = useState<Student[]>([])
+  const [studentsByYear, setStudentsByYear] = useState<Record<string, Student[]>>({})
+  const [queries, setQueries] = useState<QueryItem[]>([])
+  const [messages, setMessages] = useState<MessageItem[]>([])
+  const [selectedYear, setSelectedYear] = useState<string | null>(null)
+  const [selectedQuery, setSelectedQuery] = useState<QueryItem | null>(null)
+  const [newMessage, setNewMessage] = useState("")
+  const [searchTerm, setSearchTerm] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [isMobileView, setIsMobileView] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const subscriptionRef = useRef<any>(null)
 
-  // Scroll to bottom of messages when a new message is added
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" })
+    fetchFacultyData()
+    
+    const handleResize = () => {
+      setIsMobileView(window.innerWidth < 768)
+    }
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    
+    return () => {
+      if (subscriptionRef.current) {
+        subscriptionRef.current.unsubscribe()
+      }
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (faculty) {
+      fetchAllStudents()
+      fetchQueries()
+      setupRealtimeSubscription()
+    }
+  }, [faculty])
+
+  useEffect(() => {
+    if (selectedQuery) {
+      fetchMessages(selectedQuery.id)
     }
   }, [selectedQuery])
 
-  const handleSendMessage = () => {
-    if (!message.trim() || !selectedQuery) return
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
 
-    const newMessage = {
-      id: selectedQuery.messages.length + 1,
-      senderId: "faculty",
-      text: message,
-      timestamp: new Date(),
-      read: true,
-    }
+  const fetchFacultyData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
-    const updatedQueries = queries.map((query) => {
-      if (query.id === selectedQuery.id) {
-        return {
-          ...query,
-          status: "read",
-          messages: [...query.messages, newMessage],
-        }
+      const { data: facultyData } = await supabase
+        .from("faculty")
+        .select("*")
+        .eq("id", user.id)
+        .single()
+
+      if (facultyData) {
+        setFaculty(facultyData)
+      } else {
+        setFaculty({
+          id: user.id,
+          email: user.email,
+          name: user.user_metadata?.name || "Faculty",
+          department: user.user_metadata?.department || "CSE"
+        })
       }
-      return query
-    })
-
-    setQueries(updatedQueries)
-    setSelectedQuery({
-      ...selectedQuery,
-      status: "read",
-      messages: [...selectedQuery.messages, newMessage],
-    })
-    setMessage("")
-
-    toast({
-      title: "Message Sent",
-      description: "Your response has been sent to the student.",
-    })
+    } catch (error) {
+      console.error("Error fetching faculty:", error)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const markAsRead = (queryId) => {
-    const updatedQueries = queries.map((query) => {
-      if (query.id === queryId) {
-        const updatedMessages = query.messages.map((msg) => ({
-          ...msg,
-          read: true,
-        }))
-        return {
-          ...query,
-          status: "read",
-          messages: updatedMessages,
-        }
+  const fetchAllStudents = async () => {
+    try {
+      // Fetch students from faculty's department only
+      const { data, error } = await supabase
+        .from("students")
+        .select("id, name, email, department, year, prn")
+        .eq("department", faculty.department)
+        .order("name", { ascending: true })
+
+      if (error) throw error
+      
+      setStudents(data || [])
+      
+      const grouped: Record<string, Student[]> = {
+        first: [],
+        second: [],
+        third: [],
+        fourth: []
       }
-      return query
-    })
-
-    setQueries(updatedQueries)
-
-    if (selectedQuery && selectedQuery.id === queryId) {
-      setSelectedQuery({
-        ...selectedQuery,
-        status: "read",
-        messages: selectedQuery.messages.map((msg) => ({
-          ...msg,
-          read: true,
-        })),
+      
+      data?.forEach(student => {
+        const year = student.year || "first"
+        if (!grouped[year]) grouped[year] = []
+        grouped[year].push(student)
       })
+      
+      setStudentsByYear(grouped)
+    } catch (error) {
+      console.error("Error fetching students:", error)
     }
   }
 
-  const getFilteredQueries = () => {
-    let filtered = [...queries]
+  const fetchQueries = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("queries")
+        .select("*")
+        .eq("faculty_id", faculty.id)
+        .order("updated_at", { ascending: false })
 
-    // Filter by class
-    if (selectedClass) {
-      filtered = filtered.filter((query) => query.class === selectedClass)
+      if (error) throw error
+      setQueries(data || [])
+    } catch (error) {
+      console.error("Error fetching queries:", error)
     }
+  }
 
-    // Filter by search query
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      filtered = filtered.filter(
-        (q) =>
-          q.title.toLowerCase().includes(query) ||
-          q.message.toLowerCase().includes(query) ||
-          students
-            .find((s) => s.id === q.studentId)
-            ?.name.toLowerCase()
-            .includes(query),
+  const fetchMessages = async (queryId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("query_messages")
+        .select("*")
+        .eq("query_id", queryId)
+        .order("created_at", { ascending: true })
+
+      if (error) throw error
+      setMessages(data || [])
+    } catch (error) {
+      console.error("Error fetching messages:", error)
+    }
+  }
+
+  const setupRealtimeSubscription = () => {
+    subscriptionRef.current = supabase
+      .channel("query-messages-faculty")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "query_messages"
+        },
+        (payload) => {
+          const newMsg = payload.new as MessageItem
+          if (selectedQuery?.id === newMsg.query_id) {
+            setMessages(prev => [...prev, newMsg])
+            if (newMsg.sender_type === "student") {
+              toast({ title: "New Message", description: `${newMsg.sender_name}: ${newMsg.message.substring(0, 50)}...` })
+            }
+          }
+        }
       )
-    }
-
-    // Filter by type
-    if (filterType !== "all") {
-      filtered = filtered.filter((q) => q.type === filterType)
-    }
-
-    return filtered
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "queries" },
+        () => fetchQueries()
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "queries" },
+        () => fetchQueries()
+      )
+      .subscribe()
   }
 
-  const getUnreadCount = (classId) => {
-    return queries.filter((q) => q.class === classId && q.status === "unread").length
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !selectedQuery) return
+
+    try {
+      await supabase
+        .from("query_messages")
+        .insert({
+          query_id: selectedQuery.id,
+          sender_id: faculty.id,
+          sender_type: "faculty",
+          sender_name: faculty.name || faculty.full_name,
+          message: newMessage
+        })
+
+      await supabase
+        .from("queries")
+        .update({ status: "in_progress", updated_at: new Date().toISOString() })
+        .eq("id", selectedQuery.id)
+
+      setNewMessage("")
+    } catch (error) {
+      console.error("Error sending message:", error)
+      toast({ title: "Error", description: "Failed to send message", variant: "destructive" })
+    }
   }
 
-  const renderClassesTab = () => (
-    <div className="space-y-4">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <Input placeholder="Search classes..." className="pl-10" />
-      </div>
+  const handleResolveQuery = async () => {
+    if (!selectedQuery) return
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {classes.map((cls) => (
-          <motion.div
-            key={cls.id}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            transition={{ type: "spring", stiffness: 400, damping: 10 }}
-          >
-            <Card
-              className={`cursor-pointer hover:shadow-md transition-shadow ${
-                selectedClass === cls.name ? "border-2 border-purple-500" : ""
-              }`}
-              onClick={() => {
-                setSelectedClass(cls.name)
-                setActiveTab("queries")
-              }}
-            >
-              <CardContent className="p-4 flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center mr-3">
-                    {cls.icon}
-                  </div>
-                  <div>
-                    <h3 className="font-medium">{cls.name}</h3>
-                    <p className="text-sm text-gray-500">{getUnreadCount(cls.name)} unread queries</p>
-                  </div>
-                </div>
-                {getUnreadCount(cls.name) > 0 && (
-                  <Badge variant="destructive" className="ml-auto">
-                    {getUnreadCount(cls.name)}
-                  </Badge>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
-    </div>
-  )
+    try {
+      await supabase
+        .from("queries")
+        .update({ status: "resolved", resolved_at: new Date().toISOString() })
+        .eq("id", selectedQuery.id)
 
-  const renderQueriesTab = () => (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between mb-4">
-        {selectedClass && (
-          <div className="flex items-center">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mr-2"
-              onClick={() => {
-                setSelectedClass(null)
-                setActiveTab("classes")
-              }}
-            >
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              Back
+      toast({ title: "Query Resolved", description: "The query has been marked as resolved." })
+      setSelectedQuery(null)
+      fetchQueries()
+    } catch (error) {
+      console.error("Error resolving query:", error)
+      toast({ title: "Error", description: "Failed to resolve query", variant: "destructive" })
+    }
+  }
+
+  const formatTime = (timestamp: string) => {
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diff = now.getTime() - date.getTime()
+    const minutes = Math.floor(diff / 60000)
+    const hours = Math.floor(diff / 3600000)
+    const days = Math.floor(diff / 86400000)
+    if (minutes < 1) return "Just now"
+    if (minutes < 60) return `${minutes}m ago`
+    if (hours < 24) return `${hours}h ago`
+    if (days < 7) return `${days}d ago`
+    return date.toLocaleDateString()
+  }
+
+  const formatChatTime = (timestamp: string) => {
+    const date = new Date(timestamp)
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
+  const filteredQueries = queries.filter(q => {
+    const matchesYear = !selectedYear || q.student_year === selectedYear
+    const matchesSearch = !searchTerm || 
+      q.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      q.student_name.toLowerCase().includes(searchTerm.toLowerCase())
+    return matchesYear && matchesSearch
+  })
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-100">
+        <div className="w-8 h-8 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  // WhatsApp-like layout
+  return (
+    <div className="h-screen flex flex-col bg-gray-100">
+      {/* Header */}
+      <div className="bg-purple-600 text-white px-4 py-3 flex items-center justify-between shadow-md">
+        <div className="flex items-center gap-3">
+          {isMobileView && selectedQuery && (
+            <Button variant="ghost" size="icon" className="text-white hover:bg-purple-700" onClick={() => setSelectedQuery(null)}>
+              <ArrowLeft className="h-5 w-5" />
             </Button>
-            <h2 className="text-lg font-medium">{selectedClass} Queries</h2>
+          )}
+          <MessageCircle className="h-6 w-6" />
+          <div>
+            <h1 className="text-lg font-semibold">Student Queries</h1>
+            <p className="text-xs text-purple-100">{students.length} students • {faculty?.department}</p>
+          </div>
+        </div>
+        {selectedQuery && (
+          <div className="flex items-center gap-2">
+            {selectedQuery.status !== "resolved" && (
+              <Button variant="ghost" className="text-white hover:bg-purple-700" onClick={handleResolveQuery}>
+                <Check className="h-4 w-4 mr-1" />
+                Resolve
+              </Button>
+            )}
           </div>
         )}
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 h-[calc(100vh-220px)]">
-        <Card className="md:w-1/3 flex flex-col">
-          <CardContent className="p-4 flex-1 flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search queries..."
-                  className="pl-10"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Sidebar - Students by Year / Queries List */}
+        <div className={`${isMobileView && selectedQuery ? 'hidden' : 'w-full md:w-80 lg:w-96'} bg-white border-r flex flex-col`}>
+          {/* Year Tabs */}
+          <div className="flex border-b overflow-x-auto">
+            <button
+              onClick={() => setSelectedYear(null)}
+              className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${!selectedYear ? "bg-purple-50 text-purple-700 border-b-2 border-purple-600" : "text-gray-600"}`}
+            >
+              All ({queries.length})
+            </button>
+            {Object.entries(studentsByYear).map(([year, yearStudents]) => (
+              <button
+                key={year}
+                onClick={() => setSelectedYear(selectedYear === year ? null : year)}
+                className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${selectedYear === year ? "bg-purple-50 text-purple-700 border-b-2 border-purple-600" : "text-gray-600"}`}
+              >
+                {yearLabels[year]} ({yearStudents.length})
+              </button>
+            ))}
+          </div>
+
+          {/* Search */}
+          <div className="p-3 bg-gray-50">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input 
+                placeholder="Search queries..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9 bg-white rounded-full" 
+              />
+            </div>
+          </div>
+
+          {/* Queries List */}
+          <div className="flex-1 overflow-y-auto">
+            {filteredQueries.length === 0 ? (
+              <div className="p-8 text-center text-gray-500">
+                <MessageCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                <p className="font-medium">No queries found</p>
+                <p className="text-sm">Queries will appear here when students ask questions</p>
               </div>
-              <div className="relative ml-2">
-                <Button variant="outline" size="icon" onClick={() => setShowFilterMenu(!showFilterMenu)}>
-                  <Filter className="h-4 w-4" />
-                </Button>
-                {showFilterMenu && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border">
-                    <div className="py-1">
-                      <button
-                        className={`w-full text-left px-4 py-2 text-sm ${filterType === "all" ? "bg-purple-50 text-purple-700" : "text-gray-700"} hover:bg-purple-50 hover:text-purple-700`}
-                        onClick={() => {
-                          setFilterType("all")
-                          setShowFilterMenu(false)
-                        }}
-                      >
-                        All Types
-                      </button>
-                      <button
-                        className={`w-full text-left px-4 py-2 text-sm ${filterType === "study" ? "bg-purple-50 text-purple-700" : "text-gray-700"} hover:bg-purple-50 hover:text-purple-700`}
-                        onClick={() => {
-                          setFilterType("study")
-                          setShowFilterMenu(false)
-                        }}
-                      >
-                        <HelpCircle className="h-4 w-4 inline mr-2" />
-                        Study Related
-                      </button>
-                      <button
-                        className={`w-full text-left px-4 py-2 text-sm ${filterType === "assignment" ? "bg-purple-50 text-purple-700" : "text-gray-700"} hover:bg-purple-50 hover:text-purple-700`}
-                        onClick={() => {
-                          setFilterType("assignment")
-                          setShowFilterMenu(false)
-                        }}
-                      >
-                        <FileText className="h-4 w-4 inline mr-2" />
-                        Assignment Related
-                      </button>
-                      <button
-                        className={`w-full text-left px-4 py-2 text-sm ${filterType === "other" ? "bg-purple-50 text-purple-700" : "text-gray-700"} hover:bg-purple-50 hover:text-purple-700`}
-                        onClick={() => {
-                          setFilterType("other")
-                          setShowFilterMenu(false)
-                        }}
-                      >
-                        <MessageCircle className="h-4 w-4 inline mr-2" />
-                        Other
-                      </button>
+            ) : (
+              filteredQueries.map((query) => (
+                <div
+                  key={query.id}
+                  className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50 border-b ${
+                    selectedQuery?.id === query.id ? "bg-purple-50" : ""
+                  }`}
+                  onClick={() => setSelectedQuery(query)}
+                >
+                  <Avatar className="h-12 w-12">
+                    <AvatarFallback className="bg-purple-100 text-purple-600 text-lg font-medium">
+                      {query.student_name?.charAt(0) || "S"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-medium text-sm truncate">{query.student_name}</h3>
+                      <span className="text-xs text-gray-400">{formatTime(query.updated_at)}</span>
+                    </div>
+                    <p className="text-sm text-gray-600 truncate">{query.title}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      {query.status === "open" && <Clock className="h-3 w-3 text-yellow-500" />}
+                      {query.status === "in_progress" && <Clock className="h-3 w-3 text-blue-500" />}
+                      {query.status === "resolved" && <CheckCircle className="h-3 w-3 text-green-500" />}
+                      <span className="text-xs text-gray-400">{query.subject}</span>
+                      <span className="text-xs text-gray-400">• {yearLabels[query.student_year] || query.student_year}</span>
                     </div>
                   </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Right Side - Chat Area */}
+        <div className={`${isMobileView && !selectedQuery ? 'hidden' : 'flex-1'} flex flex-col bg-gray-50`}>
+          {selectedQuery ? (
+            <>
+              {/* Chat Header */}
+              <div className="bg-white px-4 py-3 flex items-center gap-3 border-b shadow-sm">
+                {isMobileView && (
+                  <Button variant="ghost" size="icon" onClick={() => setSelectedQuery(null)}>
+                    <ArrowLeft className="h-5 w-5" />
+                  </Button>
                 )}
+                <Avatar className="h-10 w-10">
+                  <AvatarFallback className="bg-purple-100 text-purple-600">
+                    {selectedQuery.student_name?.charAt(0) || "S"}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1">
+                  <h3 className="font-medium">{selectedQuery.student_name}</h3>
+                  <p className="text-xs text-gray-500">{selectedQuery.subject} • {yearLabels[selectedQuery.student_year] || selectedQuery.student_year}</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  {selectedQuery.status === "resolved" ? (
+                    <Badge className="bg-green-100 text-green-700">
+                      <CheckCircle className="h-3 w-3 mr-1" />Resolved
+                    </Badge>
+                  ) : selectedQuery.status === "in_progress" ? (
+                    <Badge className="bg-blue-100 text-blue-700">
+                      <Clock className="h-3 w-3 mr-1" />In Progress
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-yellow-100 text-yellow-700">
+                      <AlertCircle className="h-3 w-3 mr-1" />Open
+                    </Badge>
+                  )}
+                </div>
               </div>
-            </div>
 
-            <div className="flex-1 overflow-y-auto space-y-2">
-              <AnimatePresence>
-                {getFilteredQueries().length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">No queries found</div>
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-50">
+                {messages.length === 0 ? (
+                  <div className="text-center text-gray-500 py-8">
+                    <MessageCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                    <p>No messages yet</p>
+                    <p className="text-sm">Start the conversation</p>
+                  </div>
                 ) : (
-                  getFilteredQueries().map((query, index) => {
-                    const student = students.find((s) => s.id === query.studentId)
-                    return (
-                      <motion.div
-                        key={query.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.2, delay: index * 0.05 }}
+                  messages.map((message) => (
+                    <div 
+                      key={message.id} 
+                      className={`flex ${message.sender_type === "faculty" ? "justify-end" : "justify-start"}`}
+                    >
+                      <div 
+                        className={`max-w-[70%] px-3 py-2 rounded-lg shadow-sm ${
+                          message.sender_type === "faculty" 
+                            ? "bg-purple-600 text-white rounded-br-none" 
+                            : "bg-white text-gray-800 rounded-bl-none"
+                        }`}
                       >
-                        <div
-                          className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                            selectedQuery?.id === query.id
-                              ? "bg-purple-100"
-                              : query.status === "unread"
-                                ? "bg-blue-50 hover:bg-blue-100"
-                                : "hover:bg-gray-100"
-                          }`}
-                          onClick={() => {
-                            setSelectedQuery(query)
-                            if (query.status === "unread") {
-                              markAsRead(query.id)
-                            }
-                          }}
-                        >
-                          <div className="flex justify-between items-start mb-1">
-                            <div className="font-medium line-clamp-1">{query.title}</div>
-                            {query.status === "unread" && (
-                              <Badge variant="default" className="ml-2 bg-blue-500">
-                                New
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="text-sm text-gray-500 flex items-center mb-1">
-                            <User className="h-3 w-3 mr-1" />
-                            {student?.name}
-                          </div>
-                          <div className="text-sm text-gray-500 flex items-center justify-between">
-                            <div className="flex items-center">
-                              {query.type === "study" && <HelpCircle className="h-3 w-3 mr-1 text-purple-500" />}
-                              {query.type === "assignment" && <FileText className="h-3 w-3 mr-1 text-green-500" />}
-                              {query.type === "other" && <MessageCircle className="h-3 w-3 mr-1 text-orange-500" />}
-                              {query.subject}
-                            </div>
-                            <div className="flex items-center">
-                              <Clock className="h-3 w-3 mr-1" />
-                              {formatTime(query.timestamp)}
-                            </div>
-                          </div>
+                        <p className="text-sm whitespace-pre-wrap">{message.message}</p>
+                        <div className={`flex items-center justify-end gap-1 mt-1 ${message.sender_type === "faculty" ? "text-purple-100" : "text-gray-400"}`}>
+                          <span className="text-xs">{formatChatTime(message.created_at)}</span>
+                          {message.sender_type === "faculty" && (
+                            <CheckCheck className="h-3 w-3" />
+                          )}
                         </div>
-                      </motion.div>
-                    )
-                  })
-                )}
-              </AnimatePresence>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="md:w-2/3 flex flex-col">
-          <CardContent className="p-0 flex-1 flex flex-col h-full">
-            {selectedQuery ? (
-              <>
-                <div className="p-4 border-b">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-medium text-lg">{selectedQuery.title}</h3>
-                      <div className="text-sm text-gray-500 flex items-center">
-                        <User className="h-4 w-4 mr-1" />
-                        {students.find((s) => s.id === selectedQuery.studentId)?.name} • {selectedQuery.class}
                       </div>
                     </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => markAsRead(selectedQuery.id)}>
-                          <Check className="h-4 w-4 mr-2" />
-                          Mark as Read
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <X className="h-4 w-4 mr-2" />
-                          Close Query
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  <div className="mt-2 flex">
-                    <Badge
-                      className={`
-                      ${
-                        selectedQuery.type === "study"
-                          ? "bg-purple-500"
-                          : selectedQuery.type === "assignment"
-                            ? "bg-green-500"
-                            : "bg-orange-500"
-                      }
-                    `}
-                    >
-                      {selectedQuery.type === "study" && <HelpCircle className="h-3 w-3 mr-1" />}
-                      {selectedQuery.type === "assignment" && <FileText className="h-3 w-3 mr-1" />}
-                      {selectedQuery.type === "other" && <MessageCircle className="h-3 w-3 mr-1" />}
-                      {selectedQuery.type.charAt(0).toUpperCase() + selectedQuery.type.slice(1)}
-                    </Badge>
-                    <Badge variant="outline" className="ml-2">
-                      {selectedQuery.subject}
-                    </Badge>
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                  {selectedQuery.messages.map((msg, index) => {
-                    const isStudent = msg.senderId !== "faculty"
-                    const student = isStudent ? students.find((s) => s.id === msg.senderId) : null
-
-                    return (
-                      <motion.div
-                        key={msg.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3, delay: index * 0.1 }}
-                        className={`flex ${isStudent ? "justify-start" : "justify-end"}`}
-                      >
-                        <div className={`max-w-[80%] ${isStudent ? "bg-gray-100" : "bg-purple-100"} rounded-lg p-3`}>
-                          {isStudent && (
-                            <div className="flex items-center mb-1">
-                              <div className="w-6 h-6 rounded-full bg-purple-200 flex items-center justify-center mr-2">
-                                <User className="h-3 w-3 text-purple-700" />
-                              </div>
-                              <span className="text-sm font-medium">{student?.name}</span>
-                            </div>
-                          )}
-                          <p className="text-gray-800">{msg.text}</p>
-                          <div className="flex items-center justify-end mt-1 text-xs text-gray-500">
-                            {formatTime(msg.timestamp)}
-                            {!isStudent && (
-                              <Check className={`h-3 w-3 ml-1 ${msg.read ? "text-green-500" : "text-gray-400"}`} />
-                            )}
-                          </div>
-                        </div>
-                      </motion.div>
-                    )
-                  })}
-                  <div ref={messagesEndRef} />
-                </div>
-
-                <div className="p-4 border-t">
-                  <div className="flex">
-                    <Textarea
-                      placeholder="Type your response..."
-                      value={message}
-                      onChange={(e) => setMessage(e.target.value)}
-                      className="flex-1 resize-none focus:ring-2 focus:ring-purple-500"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault()
-                          handleSendMessage()
-                        }
-                      }}
-                    />
-                    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="ml-2 self-end">
-                      <Button
-                        onClick={handleSendMessage}
-                        disabled={!message.trim()}
-                        className="bg-purple-600 hover:bg-purple-700"
-                      >
-                        <Send className="h-4 w-4" />
-                      </Button>
-                    </motion.div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center p-6">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                  <MessageCircle className="h-8 w-8 text-gray-400" />
-                </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No Query Selected</h3>
-                <p className="text-gray-500">Select a query from the list to view details</p>
+                  ))
+                )}
+                <div ref={messagesEndRef} />
               </div>
-            )}
-          </CardContent>
-        </Card>
+
+              {/* Chat Input */}
+              <div className="bg-white px-4 py-3 border-t">
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="icon" className="text-gray-400 hover:text-gray-600">
+                    <Smile className="h-5 w-5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="text-gray-400 hover:text-gray-600">
+                    <Paperclip className="h-5 w-5" />
+                  </Button>
+                  <Input
+                    placeholder="Type a message..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    className="flex-1 rounded-full bg-gray-100 border-0"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSendMessage()
+                      }
+                    }}
+                  />
+                  <Button 
+                    onClick={handleSendMessage} 
+                    disabled={!newMessage.trim()} 
+                    className="bg-purple-600 hover:bg-purple-700 rounded-full h-10 w-10 p-0"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-gray-500">
+                <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <MessageCircle className="h-12 w-12 text-gray-400" />
+                </div>
+                <h3 className="text-xl font-medium mb-2">Select a query</h3>
+                <p>Choose from student queries to respond</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  )
-
-  // Helper function to format timestamp
-  const formatTime = (timestamp) => {
-    const now = new Date()
-    const diff = now - new Date(timestamp)
-
-    // Less than a minute
-    if (diff < 60 * 1000) {
-      return "Just now"
-    }
-
-    // Less than an hour
-    if (diff < 60 * 60 * 1000) {
-      const minutes = Math.floor(diff / (60 * 1000))
-      return `${minutes}m ago`
-    }
-
-    // Less than a day
-    if (diff < 24 * 60 * 60 * 1000) {
-      const hours = Math.floor(diff / (60 * 60 * 1000))
-      return `${hours}h ago`
-    }
-
-    // Less than a week
-    if (diff < 7 * 24 * 60 * 60 * 1000) {
-      const days = Math.floor(diff / (24 * 60 * 60 * 1000))
-      return `${days}d ago`
-    }
-
-    // Format as date
-    return timestamp.toLocaleDateString()
-  }
-
-  return (
-    <div className="max-w-6xl mx-auto h-full">
-      <motion.h1
-        className="text-2xl font-bold mb-6 flex items-center"
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <MessageCircle className="inline-block mr-2 h-6 w-6 text-purple-600" />
-        Student Queries
-      </motion.h1>
-
-      <Tabs defaultValue="classes" value={activeTab} onValueChange={setActiveTab} className="mb-6">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger
-            value="classes"
-            className="data-[state=active]:bg-purple-100 data-[state=active]:text-purple-700"
-          >
-            <motion.div
-              className="flex items-center"
-              whileHover={{ scale: 1.03 }}
-              transition={{ type: "spring", stiffness: 400, damping: 10 }}
-            >
-              <BookOpen className="mr-2 h-4 w-4" />
-              Classes
-            </motion.div>
-          </TabsTrigger>
-          <TabsTrigger
-            value="queries"
-            className="data-[state=active]:bg-purple-100 data-[state=active]:text-purple-700"
-          >
-            <motion.div
-              className="flex items-center"
-              whileHover={{ scale: 1.03 }}
-              transition={{ type: "spring", stiffness: 400, damping: 10 }}
-            >
-              <MessageCircle className="mr-2 h-4 w-4" />
-              Queries
-              {queries.filter((q) => q.status === "unread").length > 0 && (
-                <Badge variant="destructive" className="ml-2">
-                  {queries.filter((q) => q.status === "unread").length}
-                </Badge>
-              )}
-            </motion.div>
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="classes" className="h-full">
-          {renderClassesTab()}
-        </TabsContent>
-        <TabsContent value="queries" className="h-full">
-          {renderQueriesTab()}
-        </TabsContent>
-      </Tabs>
     </div>
   )
 }

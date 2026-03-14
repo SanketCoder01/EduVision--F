@@ -310,7 +310,24 @@ class RealtimeService {
    * Faculty updates timetable -> Students see immediately
    */
   subscribeToTimetable(filter: StudentFilter, callback: (payload: RealtimePayload) => void): Subscription {
-    const channelName = `timetable-${filter.department}-${filter.year}-${Date.now()}`
+    const channelName = `timetables-${filter.department}-${filter.year}-${Date.now()}`
+    
+    // Normalize year format for comparison
+    const yearMapping: { [key: string]: string } = {
+      '1': '1st',
+      '2': '2nd', 
+      '3': '3rd',
+      '4': '4th',
+      '1st': '1st',
+      '2nd': '2nd',
+      '3rd': '3rd',
+      '4th': '4th',
+      'first': '1st',
+      'second': '2nd',
+      'third': '3rd',
+      'fourth': '4th'
+    }
+    const normalizedYear = yearMapping[filter.year.toLowerCase().trim()] || filter.year
     
     const channel = supabase
       .channel(channelName)
@@ -319,12 +336,17 @@ class RealtimeService {
         {
           event: '*',
           schema: 'public',
-          table: 'timetable_entries',
-          filter: `department=eq.${filter.department}`
+          table: 'timetables'
         },
         (payload) => {
           const { new: newRecord } = payload
-          if (newRecord?.year === filter.year) {
+          const recordDept = (newRecord?.department || '').toLowerCase().trim()
+          const filterDept = filter.department.toLowerCase().trim()
+          const recordYear = newRecord?.year || ''
+          
+          // Check department and year match
+          if (recordDept === filterDept && recordYear === normalizedYear) {
+            console.log('Timetable realtime matched:', newRecord?.file_name, 'dept:', recordDept, 'year:', recordYear)
             callback(payload as RealtimePayload)
           }
         }

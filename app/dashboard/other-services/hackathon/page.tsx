@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { motion } from "framer-motion"
 import { useRouter } from "next/navigation"
+import { createClient } from "@supabase/supabase-js"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -11,960 +12,550 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Separator } from "@/components/ui/separator"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { format } from "date-fns"
-import { cn } from "@/lib/utils"
-import { CalendarIcon, Search, Filter, Code, Users, Trophy, Clock, Calendar as CalendarIcon2, Laptop, Globe, BookOpen, Zap, CheckCircle, AlertCircle, User, Building, GraduationCap, MapPin, ArrowLeft } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+import { 
+  CalendarIcon, Search, Code, Users, Trophy, Clock, MapPin, ArrowLeft, 
+  Upload, Globe, Zap, Trash2, Loader2, AlertCircle, Eye, Download
+} from "lucide-react"
 
-// Mock data for hackathons
-const mockHackathons = [
-  {
-    id: "HACK-2023-001",
-    title: "EduTech Innovation Challenge",
-    status: "Upcoming",
-    startDate: "2023-12-15",
-    endDate: "2023-12-17",
-    registrationDeadline: "2023-12-10",
-    location: "Virtual",
-    description: "A 48-hour hackathon focused on developing innovative solutions for educational technology challenges. Open to all faculty members and students.",
-    theme: "Educational Technology",
-    prizes: [
-      "1st Place: $2,000 and mentorship opportunity",
-      "2nd Place: $1,000",
-      "3rd Place: $500",
-      "Best UI/UX: $300"
-    ],
-    eligibility: "Faculty members can participate as mentors or form teams with students. Each team should have 2-5 members.",
-    organizers: [
-      {
-        name: "Dr. Emily Chen",
-        department: "Computer Science",
-        role: "Lead Organizer"
-      },
-      {
-        name: "Prof. David Wilson",
-        department: "Educational Technology",
-        role: "Co-organizer"
-      }
-    ],
-    sponsors: ["University Innovation Lab", "TechEdu Solutions", "CloudServe Inc."],
-    timeline: [
-      {
-        date: "2023-12-15 18:00",
-        event: "Opening Ceremony"
-      },
-      {
-        date: "2023-12-15 19:00",
-        event: "Hacking Begins"
-      },
-      {
-        date: "2023-12-16 12:00",
-        event: "Midway Check-in"
-      },
-      {
-        date: "2023-12-17 17:00",
-        event: "Submission Deadline"
-      },
-      {
-        date: "2023-12-17 18:00",
-        event: "Presentations"
-      },
-      {
-        date: "2023-12-17 20:00",
-        event: "Awards Ceremony"
-      }
-    ],
-    resources: [
-      "Cloud computing credits for all participants",
-      "API access to university educational platforms",
-      "Mentorship sessions with industry experts"
-    ],
-    registeredTeams: 12,
-    maxTeams: 30
-  },
-  {
-    id: "HACK-2023-002",
-    title: "Sustainable Campus Hackathon",
-    status: "Registration Open",
-    startDate: "2024-01-20",
-    endDate: "2024-01-22",
-    registrationDeadline: "2024-01-15",
-    location: "Science Building, Main Campus",
-    description: "An on-campus hackathon focused on developing solutions for campus sustainability challenges. Projects should address energy efficiency, waste reduction, or sustainable transportation.",
-    theme: "Campus Sustainability",
-    prizes: [
-      "1st Place: $1,500 and implementation opportunity",
-      "2nd Place: $800",
-      "3rd Place: $400",
-      "People's Choice: $300"
-    ],
-    eligibility: "Open to all faculty members and students. Interdisciplinary teams are encouraged.",
-    organizers: [
-      {
-        name: "Dr. Sarah Johnson",
-        department: "Environmental Science",
-        role: "Lead Organizer"
-      },
-      {
-        name: "Prof. Michael Brown",
-        department: "Engineering",
-        role: "Technical Advisor"
-      }
-    ],
-    sponsors: ["University Sustainability Office", "GreenTech Innovations", "EcoSolutions Corp"],
-    timeline: [
-      {
-        date: "2024-01-20 09:00",
-        event: "Opening Ceremony"
-      },
-      {
-        date: "2024-01-20 10:00",
-        event: "Hacking Begins"
-      },
-      {
-        date: "2024-01-21 14:00",
-        event: "Workshop: Sustainable Design Principles"
-      },
-      {
-        date: "2024-01-22 15:00",
-        event: "Submission Deadline"
-      },
-      {
-        date: "2024-01-22 16:00",
-        event: "Presentations"
-      },
-      {
-        date: "2024-01-22 18:00",
-        event: "Awards Ceremony"
-      }
-    ],
-    resources: [
-      "Access to campus sustainability data",
-      "Consultation with sustainability experts",
-      "Prototyping materials and equipment"
-    ],
-    registeredTeams: 8,
-    maxTeams: 25
-  },
-  {
-    id: "HACK-2023-003",
-    title: "AI for Accessibility Hackathon",
-    status: "Completed",
-    startDate: "2023-10-05",
-    endDate: "2023-10-07",
-    registrationDeadline: "2023-09-30",
-    location: "Hybrid (Online & Computer Science Building)",
-    description: "A hackathon focused on developing AI-powered solutions to improve accessibility for individuals with disabilities. Projects should address challenges in education, navigation, communication, or daily living.",
-    theme: "AI & Accessibility",
-    prizes: [
-      "1st Place: $2,500 and incubation support",
-      "2nd Place: $1,200",
-      "3rd Place: $700",
-      "Most Innovative: $500"
-    ],
-    eligibility: "Open to faculty, students, and external participants. Teams must include at least one member with expertise in AI or accessibility.",
-    organizers: [
-      {
-        name: "Dr. Robert Lee",
-        department: "Computer Science",
-        role: "Lead Organizer"
-      },
-      {
-        name: "Prof. Jennifer Martinez",
-        department: "Disability Services",
-        role: "Accessibility Advisor"
-      }
-    ],
-    sponsors: ["University AI Research Center", "AccessTech Foundation", "Neural Innovations"],
-    timeline: [
-      {
-        date: "2023-10-05 10:00",
-        event: "Opening Ceremony"
-      },
-      {
-        date: "2023-10-05 11:00",
-        event: "Hacking Begins"
-      },
-      {
-        date: "2023-10-06 13:00",
-        event: "Workshop: Ethical AI Development"
-      },
-      {
-        date: "2023-10-07 16:00",
-        event: "Submission Deadline"
-      },
-      {
-        date: "2023-10-07 17:00",
-        event: "Presentations"
-      },
-      {
-        date: "2023-10-07 19:00",
-        event: "Awards Ceremony"
-      }
-    ],
-    resources: [
-      "Access to specialized AI APIs and tools",
-      "Consultation with accessibility experts",
-      "User testing opportunities with target populations"
-    ],
-    winners: [
-      {
-        place: "1st Place",
-        team: "AccessAI",
-        project: "Real-time Sign Language Translator for Classroom Settings"
-      },
-      {
-        place: "2nd Place",
-        team: "NaviGuide",
-        project: "Indoor Navigation System for Visually Impaired Students"
-      },
-      {
-        place: "3rd Place",
-        team: "VoiceNotes",
-        project: "AI-Powered Note-Taking Assistant for Students with Learning Disabilities"
-      }
-    ],
-    registeredTeams: 20,
-    maxTeams: 20
-  }
-]
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabase = createClient(supabaseUrl, supabaseKey)
 
-// Categories for hackathon proposals
 const categories = [
-  "Educational Technology",
-  "Sustainability",
-  "Healthcare",
-  "Accessibility",
-  "Smart Campus",
-  "Artificial Intelligence",
-  "Blockchain",
-  "Virtual Reality",
-  "Mobile Applications",
-  "Internet of Things",
-  "Data Science",
-  "Cybersecurity"
+  "Educational Technology", "Sustainability", "Healthcare", "Accessibility",
+  "Smart Campus", "Artificial Intelligence", "Blockchain", "Virtual Reality",
+  "Mobile Applications", "Internet of Things", "Data Science", "Cybersecurity"
 ]
 
-// Roles for team members
-const roles = [
-  "Team Lead",
-  "Developer",
-  "Designer",
-  "Subject Matter Expert",
-  "Mentor",
-  "Presenter"
+const yearOptions = [
+  { id: "all", name: "All Years" },
+  { id: "1st", name: "1st Year" },
+  { id: "2nd", name: "2nd Year" },
+  { id: "3rd", name: "3rd Year" },
+  { id: "4th", name: "4th Year" }
 ]
+
+interface Hackathon {
+  id: string
+  title: string
+  description: string
+  theme: string
+  category: string
+  start_date: string
+  end_date: string
+  registration_deadline: string
+  location: string
+  max_teams: number
+  team_size_min: number
+  team_size_max: number
+  department: string
+  target_years: string[]
+  registration_link: string
+  website_link: string
+  poster_url: string
+  prizes: any[]
+  status: string
+  registered_teams_count: number
+  created_at: string
+}
+
+interface Team {
+  id: string
+  team_name: string
+  team_leader_id: string
+  members: any[]
+  member_count: number
+  contact_email: string
+  status: string
+  registered_at: string
+}
 
 export default function HackathonPage() {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState("browse")
+  const { toast } = useToast()
+  
+  const [facultyId, setFacultyId] = useState<string>("")
+  const [facultyDepartment, setFacultyDepartment] = useState<string>("")
+  const [hackathons, setHackathons] = useState<Hackathon[]>([])
+  const [teams, setTeams] = useState<Team[]>([])
+  const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
-  const [statusFilter, setStatusFilter] = useState("All")
-  const [date, setDate] = useState<Date | undefined>(new Date())
+  const [statusFilter, setStatusFilter] = useState("all")
   
-  // Enhanced targeting state
-  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([])
-  const [selectedYears, setSelectedYears] = useState<string[]>([])
-  const [enableClassWiseTargeting, setEnableClassWiseTargeting] = useState(false)
-  const [selectedClasses, setSelectedClasses] = useState<string[]>([])
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+  const [theme, setTheme] = useState("")
+  const [category, setCategory] = useState("")
+  const [startDate, setStartDate] = useState<Date>()
+  const [endDate, setEndDate] = useState<Date>()
+  const [regDeadline, setRegDeadline] = useState<Date>()
+  const [location, setLocation] = useState("")
+  const [maxTeams, setMaxTeams] = useState(50)
+  const [teamSizeMin, setTeamSizeMin] = useState(2)
+  const [teamSizeMax, setTeamSizeMax] = useState(5)
+  const [targetYears, setTargetYears] = useState<string[]>(["all"])
+  const [regLink, setRegLink] = useState("")
+  const [websiteLink, setWebsiteLink] = useState("")
+  const [posterFile, setPosterFile] = useState<File | null>(null)
+  const [posterPreview, setPosterPreview] = useState<string>("")
+  const [prizes, setPrizes] = useState<string[]>(["", "", ""])
+  const [submitting, setSubmitting] = useState(false)
+  
+  const [selectedHackathon, setSelectedHackathon] = useState<Hackathon | null>(null)
+  const [showTeamsDialog, setShowTeamsDialog] = useState(false)
+  const [showPosterDialog, setShowPosterDialog] = useState(false)
+  const [posterDialogUrl, setPosterDialogUrl] = useState<string>("")
 
-  // Department and year options
-  const departments = [
-    { id: "cse", name: "Computer Science Engineering" },
-    { id: "aids", name: "Artificial Intelligence & Data Science" },
-    { id: "aiml", name: "AI & Machine Learning" },
-    { id: "cyber", name: "Cyber Security" },
-    { id: "mech", name: "Mechanical Engineering" },
-    { id: "civil", name: "Civil Engineering" },
-    { id: "ece", name: "Electronics & Communication" }
-  ]
-
-  const years = [
-    { id: "1st", name: "1st Year" },
-    { id: "2nd", name: "2nd Year" },
-    { id: "3rd", name: "3rd Year" },
-    { id: "4th", name: "4th Year" }
-  ]
-
-  // Classes for each department and year combination
-  const classes = [
-    "CSE-A", "CSE-B", "CSE-C",
-    "AIDS-A", "AIDS-B", 
-    "AIML-A", "AIML-B",
-    "CYBER-A", "CYBER-B",
-    "MECH-A", "MECH-B", "MECH-C",
-    "CIVIL-A", "CIVIL-B",
-    "ECE-A", "ECE-B", "ECE-C"
-  ]
-
-  // Handle department selection
-  const handleDepartmentChange = (departmentId: string, checked: boolean) => {
-    if (checked) {
-      setSelectedDepartments([...selectedDepartments, departmentId])
-    } else {
-      setSelectedDepartments(selectedDepartments.filter(id => id !== departmentId))
-    }
+  const openPosterDialog = (url: string) => {
+    setPosterDialogUrl(url)
+    setShowPosterDialog(true)
   }
 
-  // Handle year selection
+  useEffect(() => { loadFacultyData() }, [])
+
+  useEffect(() => {
+    if (facultyId && facultyDepartment) {
+      loadHackathons()
+      const channel = setupRealtimeSubscription()
+      return () => { if (channel) supabase.removeChannel(channel) }
+    }
+  }, [facultyId, facultyDepartment])
+
+  const loadFacultyData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push("/login"); return }
+      const { data: faculty } = await supabase
+        .from("faculty")
+        .select("id, department, name")
+        .eq("email", user.email)
+        .single()
+      if (faculty) {
+        setFacultyId(faculty.id)
+        setFacultyDepartment(faculty.department)
+      }
+    } catch (error) { console.error("Error loading faculty:", error) }
+  }
+
+  const loadHackathons = async () => {
+    setLoading(true)
+    try {
+      const { data } = await supabase
+        .from("hackathons")
+        .select("*")
+        .eq("faculty_id", facultyId)
+        .order("created_at", { ascending: false })
+      if (data) setHackathons(data)
+    } catch (error) { console.error("Error loading hackathons:", error) }
+    finally { setLoading(false) }
+  }
+
+  const setupRealtimeSubscription = () => {
+    return supabase
+      .channel(`hackathons-${facultyId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "hackathons", filter: `faculty_id=eq.${facultyId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") setHackathons(prev => [payload.new as Hackathon, ...prev])
+          else if (payload.eventType === "UPDATE") setHackathons(prev => prev.map(h => h.id === payload.new.id ? payload.new as Hackathon : h))
+          else if (payload.eventType === "DELETE") setHackathons(prev => prev.filter(h => h.id !== payload.old.id))
+        })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "hackathon_teams" },
+        (payload) => {
+          const team = payload.new as Team
+          toast({ title: "New Team Registration!", description: `Team "${team.team_name}" registered` })
+          loadHackathons()
+        })
+      .subscribe()
+  }
+
+  const loadTeamsForHackathon = async (hackathonId: string) => {
+    const { data } = await supabase.from("hackathon_teams").select("*").eq("hackathon_id", hackathonId).order("registered_at", { ascending: false })
+    if (data) setTeams(data)
+  }
+
   const handleYearChange = (yearId: string, checked: boolean) => {
-    if (checked) {
-      setSelectedYears([...selectedYears, yearId])
-    } else {
-      setSelectedYears(selectedYears.filter(id => id !== yearId))
+    if (yearId === "all") { if (checked) setTargetYears(["all"]) }
+    else {
+      let newYears = targetYears.filter(y => y !== "all")
+      newYears = checked ? [...newYears, yearId] : newYears.filter(y => y !== yearId)
+      setTargetYears(newYears.length > 0 ? newYears : ["all"])
     }
   }
 
-  // Handle class selection
-  const handleClassChange = (classId: string, checked: boolean) => {
-    if (checked) {
-      setSelectedClasses([...selectedClasses, classId])
-    } else {
-      setSelectedClasses(selectedClasses.filter(id => id !== classId))
+  const handlePosterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setPosterFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => setPosterPreview(reader.result as string)
+      reader.readAsDataURL(file)
     }
   }
-  
-  // Filter hackathons based on search query and status filter
-  const filteredHackathons = mockHackathons.filter(hackathon => {
-    const matchesSearch = hackathon.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         hackathon.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         hackathon.theme.toLowerCase().includes(searchQuery.toLowerCase())
-    
-    const matchesStatus = statusFilter === "All" || hackathon.status === statusFilter
-    
+
+  const uploadPoster = async (): Promise<string | null> => {
+    if (!posterFile) return null
+    const fileExt = posterFile.name.split('.').pop()
+    const fileName = `${facultyId}/${Date.now()}.${fileExt}`
+    const { error } = await supabase.storage.from("hackathon-posters").upload(fileName, posterFile)
+    if (error) return null
+    const { data } = supabase.storage.from("hackathon-posters").getPublicUrl(fileName)
+    return data.publicUrl
+  }
+
+  const handleSubmit = async () => {
+    if (!title || !description || !theme || !startDate || !endDate || !regDeadline || !location) {
+      toast({ title: "Missing Fields", description: "Please fill all required fields", variant: "destructive" })
+      return
+    }
+    setSubmitting(true)
+    try {
+      const posterUrl = posterFile ? await uploadPoster() || "" : ""
+      const { error } = await supabase.from("hackathons").insert({
+        faculty_id: facultyId, title, description, theme, category,
+        start_date: startDate.toISOString(), end_date: endDate.toISOString(),
+        registration_deadline: regDeadline.toISOString(), location,
+        max_teams: maxTeams, team_size_min: teamSizeMin, team_size_max: teamSizeMax,
+        department: facultyDepartment,
+        target_years: targetYears.includes("all") ? ["1st", "2nd", "3rd", "4th"] : targetYears,
+        registration_link: regLink, website_link: websiteLink, poster_url: posterUrl,
+        poster_file_name: posterFile?.name || "",
+        prizes: prizes.filter(p => p).map((p, i) => ({ place: `${i + 1}${i === 0 ? 'st' : i === 1 ? 'nd' : 'rd'} Place`, prize: p })),
+        status: "published", published_at: new Date().toISOString()
+      })
+      if (error) throw error
+      toast({ title: "Hackathon Published!", description: "Students will be notified in real-time" })
+      setTitle(""); setDescription(""); setTheme(""); setCategory("")
+      setStartDate(undefined); setEndDate(undefined); setRegDeadline(undefined)
+      setLocation(""); setTargetYears(["all"]); setRegLink(""); setWebsiteLink("")
+      setPosterFile(null); setPosterPreview(""); setPrizes(["", "", ""])
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" })
+    } finally { setSubmitting(false) }
+  }
+
+  const handleDelete = async (hackathonId: string) => {
+    if (!confirm("Delete this hackathon?")) return
+    await supabase.from("hackathons").delete().eq("id", hackathonId)
+    toast({ title: "Hackathon Deleted" })
+  }
+
+  const filteredHackathons = hackathons.filter(h => {
+    const matchesSearch = h.title.toLowerCase().includes(searchQuery.toLowerCase()) || h.description.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesStatus = statusFilter === "all" || h.status === statusFilter
     return matchesSearch && matchesStatus
   })
 
+  const getStatusColor = (status: string) => {
+    const colors: Record<string, string> = {
+      published: "bg-blue-100 text-blue-700", registration_open: "bg-green-100 text-green-700",
+      in_progress: "bg-amber-100 text-amber-700", completed: "bg-gray-100 text-gray-700", draft: "bg-gray-100 text-gray-500"
+    }
+    return colors[status] || "bg-gray-100 text-gray-700"
+  }
+
   return (
     <div className="container mx-auto px-4 py-8">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
           <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              onClick={() => router.push('/dashboard/other-services')}
-              className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back to Other Services
+            <Button variant="ghost" onClick={() => router.push('/dashboard/other-services')} className="flex items-center gap-2">
+              <ArrowLeft className="w-4 h-4" /> Back
             </Button>
           </div>
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Hackathon Portal</h1>
-            <p className="text-gray-500 mt-1">Organize and participate in coding competitions</p>
+            <p className="text-gray-500 mt-1">Department: <Badge variant="secondary">{facultyDepartment}</Badge></p>
           </div>
         </div>
 
-        <Tabs defaultValue="browse" className="mb-8" onValueChange={setActiveTab}>
-          <TabsList className="grid w-full md:w-[600px] grid-cols-3">
-            <TabsTrigger value="browse">Browse Hackathons</TabsTrigger>
+        <Tabs defaultValue="browse" className="mb-8">
+          <TabsList className="grid w-full md:w-[500px] grid-cols-3">
+            <TabsTrigger value="browse">My Hackathons</TabsTrigger>
             <TabsTrigger value="post">Post Hackathon</TabsTrigger>
-            <TabsTrigger value="resources">Resources</TabsTrigger>
+            <TabsTrigger value="teams">Team Registrations</TabsTrigger>
           </TabsList>
-          
-          {/* Browse Hackathons Tab */}
+
           <TabsContent value="browse" className="mt-6">
             <div className="flex flex-col md:flex-row gap-4 mb-6">
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
-                <Input
-                  type="search"
-                  placeholder="Search hackathons..."
-                  className="pl-8"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
+                <Input type="search" placeholder="Search hackathons..." className="pl-8" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full md:w-[180px]">
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
+                <SelectTrigger className="w-full md:w-[180px]"><SelectValue placeholder="Filter" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="All">All Statuses</SelectItem>
-                  <SelectItem value="Upcoming">Upcoming</SelectItem>
-                  <SelectItem value="Registration Open">Registration Open</SelectItem>
-                  <SelectItem value="In Progress">In Progress</SelectItem>
-                  <SelectItem value="Completed">Completed</SelectItem>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="published">Published</SelectItem>
+                  <SelectItem value="registration_open">Registration Open</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {filteredHackathons.length === 0 ? (
+            {loading ? (
+              <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>
+            ) : filteredHackathons.length === 0 ? (
               <div className="text-center py-12">
-                <AlertCircle className="mx-auto h-12 w-12 text-gray-400" />
+                <Code className="mx-auto h-12 w-12 text-gray-400" />
                 <h3 className="mt-4 text-lg font-medium">No hackathons found</h3>
-                <p className="mt-2 text-gray-500">Try adjusting your search or filter criteria.</p>
+                <p className="mt-2 text-gray-500">Create your first hackathon to get started.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-6">
                 {filteredHackathons.map((hackathon) => (
-                  <Card key={hackathon.id} className="overflow-hidden">
+                  <Card key={hackathon.id}>
                     <CardHeader className="pb-4">
                       <div className="flex justify-between items-start">
-                        <div>
+                        <div className="flex-1">
                           <CardTitle className="text-xl">{hackathon.title}</CardTitle>
                           <CardDescription className="mt-1">{hackathon.theme}</CardDescription>
+                          {hackathon.category && <Badge variant="outline" className="mt-2">{hackathon.category}</Badge>}
                         </div>
-                        <Badge 
-                          className={cn(
-                            hackathon.status === "Upcoming" && "bg-blue-100 text-blue-800",
-                            hackathon.status === "Registration Open" && "bg-green-100 text-green-800",
-                            hackathon.status === "In Progress" && "bg-amber-100 text-amber-800",
-                            hackathon.status === "Completed" && "bg-gray-100 text-gray-800"
-                          )}
-                        >
-                          {hackathon.status}
-                        </Badge>
+                        <Badge className={getStatusColor(hackathon.status)}>{hackathon.status.replace('_', ' ')}</Badge>
                       </div>
                     </CardHeader>
                     <CardContent className="pb-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div className="flex items-center gap-2">
-                          <CalendarIcon2 className="h-4 w-4 text-gray-500" />
-                          <span className="text-sm">
-                            {hackathon.startDate} to {hackathon.endDate}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-4 w-4 text-gray-500" />
-                          <span className="text-sm">
-                            Registration Deadline: {hackathon.registrationDeadline}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-4 w-4 text-gray-500" />
-                          <span className="text-sm">{hackathon.location}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4 text-gray-500" />
-                          <span className="text-sm">
-                            {hackathon.registeredTeams} / {hackathon.maxTeams} Teams Registered
-                          </span>
-                        </div>
+                        <div className="flex items-center gap-2"><CalendarIcon className="h-4 w-4 text-gray-500" /><span className="text-sm">{format(new Date(hackathon.start_date), "PPP")} to {format(new Date(hackathon.end_date), "PPP")}</span></div>
+                        <div className="flex items-center gap-2"><Clock className="h-4 w-4 text-gray-500" /><span className="text-sm">Deadline: {format(new Date(hackathon.registration_deadline), "PPP")}</span></div>
+                        <div className="flex items-center gap-2"><MapPin className="h-4 w-4 text-gray-500" /><span className="text-sm">{hackathon.location}</span></div>
+                        <div className="flex items-center gap-2"><Users className="h-4 w-4 text-gray-500" /><span className="text-sm">{hackathon.registered_teams_count} / {hackathon.max_teams} Teams</span></div>
                       </div>
-                      <p className="text-gray-700 mb-4">{hackathon.description}</p>
-                      
-                      {hackathon.status === "Completed" && hackathon.winners && (
-                        <div className="mb-4">
-                          <h4 className="font-medium text-gray-900 mb-2 flex items-center">
-                            <Trophy className="h-4 w-4 mr-2 text-amber-500" /> Winners
-                          </h4>
-                          <ul className="space-y-1">
-                            {hackathon.winners.map((winner, index) => (
-                              <li key={index} className="text-sm">
-                                <span className="font-medium">{winner.place}:</span> {winner.team} - {winner.project}
-                              </li>
-                            ))}
-                          </ul>
+                      <p className="text-gray-700 mb-4 line-clamp-2">{hackathon.description}</p>
+                      {hackathon.poster_url && (
+                        <div className="w-full bg-gray-100 flex items-center justify-center p-4 rounded-lg mb-4">
+                          <img 
+                            src={hackathon.poster_url} 
+                            alt={hackathon.title} 
+                            className="max-w-full max-h-[200px] object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={() => openPosterDialog(hackathon.poster_url)}
+                          />
                         </div>
                       )}
-                      
-                      <div className="mb-4">
-                        <h4 className="font-medium text-gray-900 mb-2 flex items-center">
-                          <Zap className="h-4 w-4 mr-2 text-blue-500" /> Prizes
-                        </h4>
-                        <ul className="list-disc list-inside space-y-1">
-                          {hackathon.prizes.map((prize, index) => (
-                            <li key={index} className="text-sm">{prize}</li>
-                          ))}
-                        </ul>
+                      <div className="flex flex-wrap gap-2">
+                        {hackathon.target_years.map(year => <Badge key={year} variant="outline" className="text-xs">{year} Year</Badge>)}
                       </div>
                     </CardContent>
                     <CardFooter className="flex justify-between border-t pt-4">
-                      <Button variant="outline" size="sm">
-                        View Details
+                      <Button variant="outline" size="sm" onClick={() => { setSelectedHackathon(hackathon); loadTeamsForHackathon(hackathon.id); setShowTeamsDialog(true) }}>
+                        <Users className="h-4 w-4 mr-2" /> View Teams ({hackathon.registered_teams_count})
                       </Button>
-                      {(hackathon.status === "Upcoming" || hackathon.status === "Registration Open") && (
-                        <Button size="sm">
-                          Register Team
-                        </Button>
-                      )}
-                      {hackathon.status === "Completed" && (
-                        <Button variant="outline" size="sm">
-                          View Projects
-                        </Button>
-                      )}
+                      <Button variant="destructive" size="sm" onClick={() => handleDelete(hackathon.id)}><Trash2 className="h-4 w-4 mr-2" /> Delete</Button>
                     </CardFooter>
                   </Card>
                 ))}
               </div>
             )}
           </TabsContent>
-          
-          {/* Post Hackathon Tab */}
+
           <TabsContent value="post" className="mt-6">
             <Card>
               <CardHeader>
                 <CardTitle>Post New Hackathon</CardTitle>
-                <CardDescription>
-                  Create and publish a new hackathon event for students. Include all necessary details, poster, and registration information.
-                </CardDescription>
+                <CardDescription>Create for <Badge variant="secondary">{facultyDepartment}</Badge> students</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Basic Information */}
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold">Basic Information</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="title">Hackathon Title *</Label>
-                      <Input id="title" placeholder="Enter hackathon title" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="theme">Theme/Category *</Label>
-                      <Select>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {categories.map((category) => (
-                            <SelectItem key={category} value={category}>
-                              {category}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    <div className="space-y-2"><Label>Title *</Label><Input placeholder="Enter title" value={title} onChange={(e) => setTitle(e.target.value)} /></div>
+                    <div className="space-y-2"><Label>Theme *</Label><Input placeholder="e.g., AI Innovation" value={theme} onChange={(e) => setTheme(e.target.value)} /></div>
                   </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="description">Description *</Label>
-                    <Textarea 
-                      id="description" 
-                      placeholder="Describe the hackathon objectives, challenges, and expected outcomes..." 
-                      className="min-h-[120px]"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2"><Label>Category</Label><Select value={category} onValueChange={setCategory}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
+                    <div className="space-y-2"><Label>Location *</Label><Input placeholder="e.g., Main Auditorium" value={location} onChange={(e) => setLocation(e.target.value)} /></div>
                   </div>
+                  <div className="space-y-2"><Label>Description *</Label><Textarea placeholder="Describe objectives..." className="min-h-[120px]" value={description} onChange={(e) => setDescription(e.target.value)} /></div>
                 </div>
 
-                {/* Dates and Location */}
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold">Event Details</h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label>Start Date *</Label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="outline" className="w-full justify-start text-left font-normal">
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {date ? format(date, "PPP") : "Pick start date"}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0">
-                          <Calendar mode="single" selected={date} onSelect={setDate} initialFocus />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>End Date *</Label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="outline" className="w-full justify-start text-left font-normal">
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            Pick end date
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0">
-                          <Calendar mode="single" initialFocus />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Registration Deadline *</Label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="outline" className="w-full justify-start text-left font-normal">
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            Registration deadline
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0">
-                          <Calendar mode="single" initialFocus />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="location">Location *</Label>
-                      <Input id="location" placeholder="e.g., Main Auditorium, Online, Hybrid" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="maxTeams">Maximum Teams</Label>
-                      <Input id="maxTeams" type="number" placeholder="e.g., 50" />
-                    </div>
+                    <div className="space-y-2"><Label>Start Date *</Label><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start"><CalendarIcon className="mr-2 h-4 w-4" />{startDate ? format(startDate, "PPP") : "Pick"}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={startDate} onSelect={setStartDate} /></PopoverContent></Popover></div>
+                    <div className="space-y-2"><Label>End Date *</Label><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start"><CalendarIcon className="mr-2 h-4 w-4" />{endDate ? format(endDate, "PPP") : "Pick"}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={endDate} onSelect={setEndDate} /></PopoverContent></Popover></div>
+                    <div className="space-y-2"><Label>Registration Deadline *</Label><Popover><PopoverTrigger asChild><Button variant="outline" className="w-full justify-start"><CalendarIcon className="mr-2 h-4 w-4" />{regDeadline ? format(regDeadline, "PPP") : "Pick"}</Button></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={regDeadline} onSelect={setRegDeadline} /></PopoverContent></Popover></div>
                   </div>
                 </div>
 
-                {/* Poster Upload */}
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Hackathon Poster</h3>
+                  <h3 className="text-lg font-semibold">Team Settings</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2"><Label>Max Teams</Label><Input type="number" value={maxTeams} onChange={(e) => setMaxTeams(parseInt(e.target.value) || 50)} /></div>
+                    <div className="space-y-2"><Label>Min Team Size</Label><Input type="number" value={teamSizeMin} onChange={(e) => setTeamSizeMin(parseInt(e.target.value) || 2)} /></div>
+                    <div className="space-y-2"><Label>Max Team Size</Label><Input type="number" value={teamSizeMax} onChange={(e) => setTeamSizeMax(parseInt(e.target.value) || 5)} /></div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Target Years</h3>
+                  <p className="text-sm text-gray-500">Department locked to: {facultyDepartment}</p>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    {yearOptions.map(y => (
+                      <div key={y.id} className="flex items-center space-x-2">
+                        <Checkbox id={y.id} checked={targetYears.includes(y.id)} onCheckedChange={(c) => handleYearChange(y.id, c as boolean)} />
+                        <Label htmlFor={y.id} className="text-sm cursor-pointer">{y.name}</Label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Poster</h3>
                   <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
-                    <div className="text-center">
-                      <Globe className="mx-auto h-12 w-12 text-gray-400" />
-                      <div className="mt-4">
-                        <Button variant="outline">
-                          Upload Poster
-                        </Button>
-                        <p className="mt-2 text-sm text-gray-500">
-                          PNG, JPG, or PDF up to 10MB
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Registration Link */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Registration & Links</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="regLink">Registration Link</Label>
-                      <Input id="regLink" placeholder="https://forms.google.com/..." />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="website">Event Website (Optional)</Label>
-                      <Input id="website" placeholder="https://hackathon-website.com" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Target Audience */}
-                <div className="space-y-6">
-                  <h3 className="text-lg font-semibold">Target Audience & Participation</h3>
-                  
-                  {/* Department Selection */}
-                  <div className="space-y-3">
-                    <Label className="text-base font-medium">Target Departments *</Label>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {departments.map((dept) => (
-                        <div key={dept.id} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={dept.id}
-                            checked={selectedDepartments.includes(dept.id)}
-                            onCheckedChange={(checked) => handleDepartmentChange(dept.id, checked as boolean)}
-                          />
-                          <Label htmlFor={dept.id} className="text-sm font-normal cursor-pointer">
-                            {dept.name}
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-                    {selectedDepartments.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {selectedDepartments.map((deptId) => {
-                          const dept = departments.find(d => d.id === deptId)
-                          return (
-                            <Badge key={deptId} variant="secondary" className="text-xs">
-                              {dept?.name}
-                            </Badge>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Year Selection */}
-                  <div className="space-y-3">
-                    <Label className="text-base font-medium">Target Years *</Label>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {years.map((year) => (
-                        <div key={year.id} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={year.id}
-                            checked={selectedYears.includes(year.id)}
-                            onCheckedChange={(checked) => handleYearChange(year.id, checked as boolean)}
-                          />
-                          <Label htmlFor={year.id} className="text-sm font-normal cursor-pointer">
-                            {year.name}
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-                    {selectedYears.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {selectedYears.map((yearId) => {
-                          const year = years.find(y => y.id === yearId)
-                          return (
-                            <Badge key={yearId} variant="secondary" className="text-xs">
-                              {year?.name}
-                            </Badge>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Optional Class-wise Targeting */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-base font-medium">Class-wise Targeting (Optional)</Label>
-                      <div className="flex items-center space-x-2">
-                        <Switch
-                          id="class-targeting"
-                          checked={enableClassWiseTargeting}
-                          onCheckedChange={setEnableClassWiseTargeting}
+                    {posterPreview ? (
+                      <div className="flex flex-col items-center gap-4">
+                        <img 
+                          src={posterPreview} 
+                          alt="Preview" 
+                          className="max-w-full max-h-[300px] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => openPosterDialog(posterPreview)}
                         />
-                        <Label htmlFor="class-targeting" className="text-sm">
-                          Enable specific class targeting
-                        </Label>
-                      </div>
-                    </div>
-                    
-                    {enableClassWiseTargeting && (
-                      <div className="border rounded-lg p-4 bg-gray-50">
-                        <p className="text-sm text-gray-600 mb-3">
-                          Select specific classes to target. If no classes are selected, all classes within the selected departments and years will be included.
-                        </p>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                          {classes.map((className) => (
-                            <div key={className} className="flex items-center space-x-2">
-                              <Checkbox
-                                id={className}
-                                checked={selectedClasses.includes(className)}
-                                onCheckedChange={(checked) => handleClassChange(className, checked as boolean)}
-                              />
-                              <Label htmlFor={className} className="text-sm font-normal cursor-pointer">
-                                {className}
-                              </Label>
-                            </div>
-                          ))}
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => openPosterDialog(posterPreview)}><Eye className="h-4 w-4 mr-1" />View Full</Button>
+                          <Button variant="outline" size="sm" onClick={() => { setPosterFile(null); setPosterPreview("") }}>Remove</Button>
                         </div>
-                        {selectedClasses.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mt-3">
-                            {selectedClasses.map((className) => (
-                              <Badge key={className} variant="outline" className="text-xs">
-                                {className}
-                              </Badge>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <Upload className="mx-auto h-12 w-12 text-gray-400" />
+                        <Input id="poster" type="file" accept="image/*" className="hidden" onChange={handlePosterChange} />
+                        <Button variant="outline" className="mt-4" onClick={() => document.getElementById("poster")?.click()}>Upload Poster</Button>
+                        <p className="text-xs text-gray-500 mt-2">Click to select an image file</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Links (Optional)</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2"><Label>Registration Link</Label><Input placeholder="https://forms..." value={regLink} onChange={(e) => setRegLink(e.target.value)} /></div>
+                    <div className="space-y-2"><Label>Website</Label><Input placeholder="https://..." value={websiteLink} onChange={(e) => setWebsiteLink(e.target.value)} /></div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Prizes</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2"><Label>1st Place</Label><Input placeholder="₹50,000" value={prizes[0]} onChange={(e) => setPrizes([e.target.value, prizes[1], prizes[2]])} /></div>
+                    <div className="space-y-2"><Label>2nd Place</Label><Input placeholder="₹30,000" value={prizes[1]} onChange={(e) => setPrizes([prizes[0], e.target.value, prizes[2]])} /></div>
+                    <div className="space-y-2"><Label>3rd Place</Label><Input placeholder="₹20,000" value={prizes[2]} onChange={(e) => setPrizes([prizes[0], prizes[1], e.target.value])} /></div>
+                  </div>
+                </div>
+
+                <Button className="w-full" size="lg" onClick={handleSubmit} disabled={submitting}>
+                  {submitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Publishing...</> : <><Zap className="h-4 w-4 mr-2" />Publish Hackathon</>}
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="teams" className="mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Team Registrations</CardTitle>
+                <CardDescription>Select a hackathon to view teams</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {hackathons.length === 0 ? (
+                  <div className="text-center py-8"><Users className="h-12 w-12 text-gray-400 mx-auto mb-4" /><p className="text-gray-500">No hackathons yet</p></div>
+                ) : (
+                  <div className="space-y-4">
+                    <Select onValueChange={(val) => { const h = hackathons.find(h => h.id === val); if (h) { setSelectedHackathon(h); loadTeamsForHackathon(val) } }}>
+                      <SelectTrigger><SelectValue placeholder="Select hackathon" /></SelectTrigger>
+                      <SelectContent>{hackathons.map(h => <SelectItem key={h.id} value={h.id}>{h.title} ({h.registered_teams_count} teams)</SelectItem>)}</SelectContent>
+                    </Select>
+                    {selectedHackathon && (
+                      <div className="mt-6">
+                        <h4 className="font-semibold mb-4">Teams for {selectedHackathon.title}</h4>
+                        {teams.length === 0 ? (
+                          <div className="text-center py-8"><AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" /><p className="text-gray-500">No teams yet</p></div>
+                        ) : (
+                          <div className="space-y-3">
+                            {teams.map(team => (
+                              <div key={team.id} className="p-4 border rounded-lg">
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <h5 className="font-semibold">{team.team_name}</h5>
+                                    <p className="text-sm text-gray-500">Leader: {team.team_leader_id}</p>
+                                    <p className="text-sm text-gray-500">Members: {team.member_count}</p>
+                                    <p className="text-sm text-gray-500">Email: {team.contact_email}</p>
+                                  </div>
+                                  <Badge className={team.status === 'registered' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}>{team.status}</Badge>
+                                </div>
+                                {team.members?.length > 0 && (
+                                  <div className="mt-3 flex flex-wrap gap-1">
+                                    {team.members.map((m: any, i: number) => <Badge key={i} variant="outline" className="text-xs">{m.name}</Badge>)}
+                                  </div>
+                                )}
+                              </div>
                             ))}
                           </div>
                         )}
                       </div>
                     )}
                   </div>
-
-                  {/* Team Size */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="teamSize">Team Size *</Label>
-                      <Input id="teamSize" placeholder="e.g., 2-5 members" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="participationType">Participation Type</Label>
-                      <Select>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select participation type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="individual">Individual</SelectItem>
-                          <SelectItem value="team">Team-based</SelectItem>
-                          <SelectItem value="both">Both Individual & Team</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  {/* Targeting Summary */}
-                  {(selectedDepartments.length > 0 || selectedYears.length > 0) && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <h4 className="font-medium text-blue-900 mb-2">Targeting Summary</h4>
-                      <div className="text-sm text-blue-800 space-y-1">
-                        {selectedDepartments.length > 0 && (
-                          <p>
-                            <span className="font-medium">Departments:</span> {selectedDepartments.length} selected
-                          </p>
-                        )}
-                        {selectedYears.length > 0 && (
-                          <p>
-                            <span className="font-medium">Years:</span> {selectedYears.length} selected
-                          </p>
-                        )}
-                        {enableClassWiseTargeting && selectedClasses.length > 0 && (
-                          <p>
-                            <span className="font-medium">Specific Classes:</span> {selectedClasses.length} selected
-                          </p>
-                        )}
-                        <p className="text-xs mt-2 text-blue-600">
-                          This hackathon will be visible to students matching the above criteria.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Prizes and Eligibility */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Prizes & Eligibility</h3>
-                  <div className="space-y-2">
-                    <Label htmlFor="prizes">Prize Details</Label>
-                    <Textarea 
-                      id="prizes" 
-                      placeholder="1st Place: ₹50,000&#10;2nd Place: ₹30,000&#10;3rd Place: ₹20,000&#10;Best Innovation: ₹10,000" 
-                      className="min-h-[100px]"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="eligibility">Eligibility Criteria</Label>
-                    <Textarea 
-                      id="eligibility" 
-                      placeholder="Open to all students. Teams must have 2-5 members. At least one member should be from technical background..." 
-                      className="min-h-[80px]"
-                    />
-                  </div>
-                </div>
-
-                {/* Additional Information */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Additional Information</h3>
-                  <div className="space-y-2">
-                    <Label htmlFor="resources">Resources Provided</Label>
-                    <Textarea 
-                      id="resources" 
-                      placeholder="Mentorship, API access, cloud credits, development tools..." 
-                      className="min-h-[80px]"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="contact">Contact Information</Label>
-                    <Input id="contact" placeholder="Email or phone for queries" />
-                  </div>
-                </div>
-
-                <div className="flex justify-end space-x-4 pt-4">
-                  <Button variant="outline">Save as Draft</Button>
-                  <Button>Publish Hackathon</Button>
-                </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
-          
-          {/* Resources Tab */}
-          <TabsContent value="resources" className="mt-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <BookOpen className="h-5 w-5 mr-2 text-blue-500" />
-                    Hackathon Guidelines
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Participation Rules</h4>
-                      <p className="text-sm text-gray-600">All participants must adhere to the university's code of conduct. Teams must consist of 2-5 members, and all projects must be original work created during the hackathon period.</p>
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Judging Criteria</h4>
-                      <p className="text-sm text-gray-600">Projects are typically judged on innovation, technical complexity, practicality, presentation quality, and alignment with the hackathon theme.</p>
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Intellectual Property</h4>
-                      <p className="text-sm text-gray-600">Participants retain ownership of their intellectual property. The university may request a non-exclusive license to showcase winning projects.</p>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button variant="outline" className="w-full">Download Complete Guidelines</Button>
-                </CardFooter>
-              </Card>
-              
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Laptop className="h-5 w-5 mr-2 text-green-500" />
-                    Technical Resources
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Available APIs & Services</h4>
-                      <p className="text-sm text-gray-600">Participants can access university APIs for educational data, campus services, and more. Cloud computing credits are often provided by sponsors.</p>
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Development Environments</h4>
-                      <p className="text-sm text-gray-600">Pre-configured development environments and templates are available to help teams get started quickly.</p>
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Hardware Resources</h4>
-                      <p className="text-sm text-gray-600">For on-campus hackathons, specialized hardware like VR headsets, IoT devices, and robotics kits may be available for checkout.</p>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button variant="outline" className="w-full">Access Resource Portal</Button>
-                </CardFooter>
-              </Card>
-              
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Users className="h-5 w-5 mr-2 text-purple-500" />
-                    Mentorship & Support
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Faculty Mentors</h4>
-                      <p className="text-sm text-gray-600">Faculty members can volunteer as mentors to provide guidance to student teams during hackathons. Mentors typically offer 2-3 hour blocks of availability.</p>
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Industry Experts</h4>
-                      <p className="text-sm text-gray-600">Industry partners often provide technical experts to help teams with specific technologies or domains.</p>
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Technical Support</h4>
-                      <p className="text-sm text-gray-600">IT staff are available during hackathons to help resolve technical issues and provide infrastructure support.</p>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button variant="outline" className="w-full">Sign Up as Mentor</Button>
-                </CardFooter>
-              </Card>
-              
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Globe className="h-5 w-5 mr-2 text-amber-500" />
-                    Past Hackathon Showcase
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Project Gallery</h4>
-                      <p className="text-sm text-gray-600">Browse through winning projects from previous hackathons to get inspiration and see the quality of work expected.</p>
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Success Stories</h4>
-                      <p className="text-sm text-gray-600">Several hackathon projects have gone on to become full-fledged startups or have been integrated into university systems.</p>
-                    </div>
-                    <div>
-                      <h4 className="font-medium text-gray-900 mb-1">Testimonials</h4>
-                      <p className="text-sm text-gray-600">Read about the experiences of past participants and how hackathons have enhanced their skills and careers.</p>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button variant="outline" className="w-full">View Project Gallery</Button>
-                </CardFooter>
-              </Card>
-            </div>
-          </TabsContent>
         </Tabs>
+
+        <Dialog open={showTeamsDialog} onOpenChange={setShowTeamsDialog}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Teams for {selectedHackathon?.title}</DialogTitle><DialogDescription>{teams.length} team(s)</DialogDescription></DialogHeader>
+            <div className="space-y-3">
+              {teams.map(team => (
+                <div key={team.id} className="p-4 border rounded-lg">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h5 className="font-semibold">{team.team_name}</h5>
+                      <p className="text-sm text-gray-500">Leader: {team.team_leader_id}</p>
+                      <p className="text-sm text-gray-500">Members: {team.member_count}</p>
+                    </div>
+                    <Badge className={team.status === 'registered' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}>{team.status}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <DialogFooter><Button onClick={() => setShowTeamsDialog(false)}>Close</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showPosterDialog} onOpenChange={setShowPosterDialog}>
+          <DialogContent className="max-w-5xl max-h-[95vh] p-0 overflow-hidden">
+            <DialogHeader className="p-4 pb-0 flex flex-row items-center justify-between">
+              <DialogTitle>Poster Preview</DialogTitle>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => {
+                  const link = document.createElement('a')
+                  link.href = posterDialogUrl
+                  link.download = selectedHackathon?.title?.replace(/\s+/g, '_') || 'hackathon-poster'
+                  link.target = '_blank'
+                  document.body.appendChild(link)
+                  link.click()
+                  document.body.removeChild(link)
+                }}>
+                  <Download className="h-4 w-4 mr-1" /> Download
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setShowPosterDialog(false)}>Close</Button>
+              </div>
+            </DialogHeader>
+            <div className="p-4 flex items-center justify-center bg-gray-100 min-h-[60vh]">
+              <img 
+                src={posterDialogUrl} 
+                alt="Poster Full View" 
+                className="max-w-full max-h-[75vh] object-contain rounded-lg shadow-lg" 
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
       </motion.div>
     </div>
   )
