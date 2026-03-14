@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Calendar, MapPin, Users, Search, Bell, CheckCircle } from "lucide-react"
+import { Calendar, MapPin, Users, Search, Bell, CheckCircle, X } from "lucide-react"
 import { realtimeService, RealtimePayload } from "@/lib/realtime-service"
 import { supabase } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
@@ -17,13 +17,29 @@ interface Event {
   description: string
   event_type: string
   department: string
-  target_years: string[]
+  target_departments: string[]
   venue: string
   event_date: string
-  end_date?: string
+  event_time: string
+  poster_url?: string
   max_participants?: number
-  registered_count: number
-  status: string
+  enable_payment: boolean
+  payment_amount?: number
+  allow_registration: boolean
+  created_at: string
+  registered_students?: number
+  attended_students?: number
+}
+
+interface Registration {
+  id: string
+  event_id: string
+  student_name: string
+  student_prn: string
+  student_email: string
+  student_class: string
+  paid: boolean
+  attended: boolean
   created_at: string
 }
 
@@ -43,6 +59,9 @@ export default function StudentEventsPage() {
   const [selectedType, setSelectedType] = useState<string>("all")
   const [loading, setLoading] = useState(true)
   const [student, setStudent] = useState<any>(null)
+  const [myRegistrations, setMyRegistrations] = useState<Registration[]>([])
+  const [showQR, setShowQR] = useState<string | null>(null)
+  const [expandedPoster, setExpandedPoster] = useState<string | null>(null)
   const { toast } = useToast()
 
   const subscriptionsRef = useRef<{ unsubscribe: () => void } | null>(null)
@@ -60,6 +79,7 @@ export default function StudentEventsPage() {
   useEffect(() => {
     if (student) {
       fetchEvents()
+      fetchMyRegistrations()
       setupRealtimeSubscriptions(student)
     }
   }, [student])
@@ -89,26 +109,42 @@ export default function StudentEventsPage() {
     try {
       setLoading(true)
       
-      // Fetch events that match student's department or are for all departments
+      // Fetch events from the events table
       const { data, error } = await supabase
-        .from('dean_events')
+        .from('events')
         .select('*')
-        .or(`department.eq.${student.department},department.eq.All Departments`)
-        .gte('event_date', new Date().toISOString())
-        .order('event_date', { ascending: true })
+        .order('created_at', { ascending: false })
 
       if (error) throw error
 
-      // Filter by student's year
-      const relevantEvents = data?.filter(event => 
-        event.target_years?.includes('all') || event.target_years?.includes(student.year)
-      ) || []
+      // Filter events for student's department
+      const relevantEvents = data?.filter(event => {
+        // Check if event is for student's department or has no department restriction
+        const deptMatch = !event.department || 
+                         event.department === student.department ||
+                         event.target_departments?.includes(student.department)
+        return deptMatch
+      }) || []
 
       setEvents(relevantEvents)
     } catch (error) {
       console.error('Error fetching events:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchMyRegistrations = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('event_registrations')
+        .select('*')
+        .eq('student_email', student.email)
+      
+      if (error) throw error
+      setMyRegistrations(data || [])
+    } catch (error) {
+      console.error('Error fetching registrations:', error)
     }
   }
 
@@ -124,6 +160,7 @@ export default function StudentEventsPage() {
       (payload: RealtimePayload) => {
         console.log('Event change detected:', payload)
         fetchEvents()
+        fetchMyRegistrations() // Refresh registrations too
         
         if (payload.eventType === 'INSERT') {
           toast({
@@ -133,6 +170,27 @@ export default function StudentEventsPage() {
         }
       }
     )
+
+    // Subscribe to registration changes for real-time attendance updates
+    const registrationChannel = supabase
+      .channel('registration-changes')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'event_registrations',
+        filter: `student_email=eq.${studentData.email}`
+      }, (payload) => {
+        console.log('Registration updated:', payload)
+        fetchMyRegistrations()
+        
+        if (payload.new.attended !== payload.old?.attended) {
+          toast({
+            title: payload.new.attended ? "Attendance Marked!" : "Attendance Updated",
+            description: `Your attendance for the event has been ${payload.new.attended ? 'marked present' : 'updated'}`,
+          })
+        }
+      })
+      .subscribe()
   }
 
   const filterEvents = () => {
@@ -153,13 +211,45 @@ export default function StudentEventsPage() {
     setFilteredEvents(filtered)
   }
 
-  const handleRegister = async (eventId: string) => {
+  const handleRegister = async (event: Event) => {
     try {
-      // Implement registration logic here
+      // Check if already registered
+      const existingReg = myRegistrations.find(r => r.event_id === event.id)
+      if (existingReg) {
+        toast({
+          title: "Already Registered",
+          description: "You have already registered for this event",
+        })
+        return
+      }
+
+      // If payment required, show QR
+      if (event.enable_payment && event.payment_amount) {
+        setShowQR(event.id)
+        return
+      }
+
+      // Register the student
+      const { error } = await supabase
+        .from('event_registrations')
+        .insert({
+          event_id: event.id,
+          student_id: student.id,
+          student_name: student.name || student.full_name,
+          student_prn: student.prn,
+          student_email: student.email,
+          student_class: student.class || `${student.department} ${student.year}`,
+          paid: false,
+          attended: false
+        })
+
+      if (error) throw error
+
       toast({
-        title: "Registration Successful",
+        title: "Registration Successful!",
         description: "You have been registered for this event",
       })
+      fetchMyRegistrations()
     } catch (error) {
       console.error('Error registering:', error)
       toast({
@@ -168,6 +258,44 @@ export default function StudentEventsPage() {
         variant: "destructive"
       })
     }
+  }
+
+  const handlePaymentConfirm = async (event: Event) => {
+    try {
+      // Register with payment confirmed
+      const { error } = await supabase
+        .from('event_registrations')
+        .insert({
+          event_id: event.id,
+          student_id: student.id,
+          student_name: student.name || student.full_name,
+          student_prn: student.prn,
+          student_email: student.email,
+          student_class: student.class || `${student.department} ${student.year}`,
+          paid: true,
+          attended: false
+        })
+
+      if (error) throw error
+
+      setShowQR(null)
+      toast({
+        title: "Payment & Registration Successful!",
+        description: "Your payment has been recorded and you are registered",
+      })
+      fetchMyRegistrations()
+    } catch (error) {
+      console.error('Error with payment:', error)
+      toast({
+        title: "Error",
+        description: "Failed to complete registration",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const getMyRegistration = (eventId: string) => {
+    return myRegistrations.find(r => r.event_id === eventId)
   }
 
   const getEventTypeColor = (type: string) => {
@@ -236,14 +364,25 @@ export default function StudentEventsPage() {
               transition={{ delay: index * 0.1 }}
             >
               <Card className="border-0 shadow-lg hover:shadow-xl transition-all h-full">
+                {event.poster_url && (
+                  <div className="relative h-48 w-full cursor-pointer" onClick={() => setExpandedPoster(event.poster_url || null)}>
+                    <img 
+                      src={event.poster_url} 
+                      alt={event.title}
+                      className="w-full h-full object-cover rounded-t-lg hover:opacity-90 transition-opacity"
+                    />
+                  </div>
+                )}
                 <CardHeader>
                   <div className="flex items-start justify-between mb-2">
                     <Badge className={getEventTypeColor(event.event_type)}>
-                      {event.event_type.charAt(0).toUpperCase() + event.event_type.slice(1)}
+                      {event.event_type?.charAt(0).toUpperCase() + event.event_type?.slice(1) || 'Event'}
                     </Badge>
-                    <Badge className={getStatusColor(event.status)}>
-                      {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
-                    </Badge>
+                    {event.enable_payment && event.payment_amount && (
+                      <Badge className="bg-green-100 text-green-700">
+                        ₹{event.payment_amount}
+                      </Badge>
+                    )}
                   </div>
                   <CardTitle className="text-lg">{event.title}</CardTitle>
                 </CardHeader>
@@ -253,25 +392,86 @@ export default function StudentEventsPage() {
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center gap-2 text-gray-600">
                       <Calendar className="w-4 h-4" />
-                      <span>{new Date(event.event_date).toLocaleString()}</span>
+                      <span>{event.event_date} at {event.event_time}</span>
                     </div>
                     <div className="flex items-center gap-2 text-gray-600">
                       <MapPin className="w-4 h-4" />
                       <span>{event.venue}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <Users className="w-4 h-4" />
-                      <span>{event.registered_count} / {event.max_participants || '∞'} registered</span>
-                    </div>
+                    {event.max_participants && (
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Users className="w-4 h-4" />
+                        <span>Max {event.max_participants} participants</span>
+                      </div>
+                    )}
                   </div>
 
-                  <Button 
-                    onClick={() => handleRegister(event.id)}
-                    className="w-full bg-blue-600 hover:bg-blue-700"
-                  >
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    Register Now
-                  </Button>
+                  {event.allow_registration && (
+                    <div className="space-y-2">
+                      {/* Show registration status */}
+                      {getMyRegistration(event.id) ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 p-2 bg-green-50 rounded-lg">
+                            <CheckCircle className="w-5 h-5 text-green-600" />
+                            <span className="text-sm font-medium text-green-700">Registered</span>
+                          </div>
+                          <div className="flex gap-2 text-xs">
+                            <Badge className={getMyRegistration(event.id)!.paid ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}>
+                              {getMyRegistration(event.id)!.paid ? "Paid" : "Payment Pending"}
+                            </Badge>
+                            <Badge className={getMyRegistration(event.id)!.attended ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-700"}>
+                              {getMyRegistration(event.id)!.attended ? "Attended" : "Not Attended"}
+                            </Badge>
+                          </div>
+                        </div>
+                      ) : (
+                        <Button 
+                          onClick={() => handleRegister(event)}
+                          className="w-full bg-blue-600 hover:bg-blue-700"
+                        >
+                          <CheckCircle className="w-4 h-4 mr-2" />
+                          Register Now
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* QR Code Modal */}
+                  {showQR === event.id && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                      <Card className="max-w-sm w-full">
+                        <CardHeader>
+                          <CardTitle>Payment Required</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="text-center">
+                            <img 
+                              src="/images/QR.jpg" 
+                              alt="Payment QR Code"
+                              className="w-48 h-48 mx-auto rounded-lg border"
+                            />
+                            <p className="mt-2 text-lg font-bold">₹{event.payment_amount}</p>
+                            <p className="text-sm text-gray-500">Scan QR to pay</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button 
+                              variant="outline" 
+                              className="flex-1"
+                              onClick={() => setShowQR(null)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button 
+                              className="flex-1 bg-green-600 hover:bg-green-700"
+                              onClick={() => handlePaymentConfirm(event)}
+                            >
+                              I've Paid
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
@@ -288,6 +488,26 @@ export default function StudentEventsPage() {
           </Card>
         )}
       </div>
+
+      {/* Full-screen Poster Modal */}
+      {expandedPoster && (
+        <div 
+          className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+          onClick={() => setExpandedPoster(null)}
+        >
+          <button 
+            className="absolute top-4 right-4 text-white hover:text-gray-300"
+            onClick={() => setExpandedPoster(null)}
+          >
+            <X className="h-8 w-8" />
+          </button>
+          <img 
+            src={expandedPoster} 
+            alt="Event Poster" 
+            className="max-w-full max-h-full object-contain rounded-lg"
+          />
+        </div>
+      )}
     </div>
   )
 }

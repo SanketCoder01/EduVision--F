@@ -168,7 +168,11 @@ export default function AnnouncementsPage() {
 
   const handlePosterUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    if (!file) return
+    console.log('DEBUG: File selected:', file?.name, file?.type, file?.size)
+    if (!file) {
+      console.log('DEBUG: No file selected')
+      return
+    }
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
@@ -192,6 +196,7 @@ export default function AnnouncementsPage() {
 
     // Show local preview immediately
     const localPreview = URL.createObjectURL(file)
+    console.log('DEBUG: Local preview URL:', localPreview)
     setPoster(localPreview)
     setIsUploadingPoster(true)
 
@@ -199,7 +204,7 @@ export default function AnnouncementsPage() {
       const formData = new FormData()
       formData.append('file', file)
 
-      console.log('Uploading poster to API...')
+      console.log('DEBUG: Uploading poster to API...')
       
       // Call API route directly
       const response = await fetch('/api/announcements/upload-poster', {
@@ -207,13 +212,14 @@ export default function AnnouncementsPage() {
         body: formData,
       })
 
-      console.log('Response status:', response.status)
+      console.log('DEBUG: Response status:', response.status)
       const result = await response.json()
-      console.log('Upload result:', result)
+      console.log('DEBUG: Upload result:', result)
 
       if (result.success && result.url) {
         // Revoke local preview and use server URL
         URL.revokeObjectURL(localPreview)
+        console.log('DEBUG: Setting poster URL from server:', result.url)
         setPoster(result.url)
         setPosterPath(result.path || null)
         toast({
@@ -223,10 +229,11 @@ export default function AnnouncementsPage() {
       } else {
         // Keep local preview but show error
         setPosterPath(null)
+        console.log('DEBUG: Upload failed, keeping local preview')
         throw new Error(result.error || 'Upload failed - using local preview')
       }
     } catch (error) {
-      console.error('Upload error:', error)
+      console.error('DEBUG: Upload error:', error)
       toast({
         title: "Upload Warning",
         description: error instanceof Error ? error.message : "Using local preview - save to persist",
@@ -685,10 +692,25 @@ export default function AnnouncementsPage() {
                     {poster ? (
                       <div className="relative">
                         <img
-                          src={poster || "/placeholder.svg"}
+                          src={poster}
                           alt="Announcement Poster"
-                          className="max-h-[300px] mx-auto rounded-md"
+                          className="max-h-[300px] mx-auto rounded-md object-contain"
+                          onLoad={() => console.log('DEBUG: Announcement poster loaded successfully:', poster)}
+                          onError={(e) => {
+                            console.error('DEBUG: Announcement poster failed to load:', poster)
+                            if (poster.startsWith('blob:')) {
+                              console.log('DEBUG: Blob URL may have been revoked prematurely')
+                            }
+                          }}
                         />
+                        {isUploadingPoster && (
+                          <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
+                            <div className="text-center">
+                              <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                              <span className="text-sm text-gray-600">Uploading...</span>
+                            </div>
+                          </div>
+                        )}
                         <Button
                           variant="outline"
                           size="icon"

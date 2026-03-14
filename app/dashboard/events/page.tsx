@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import { supabase } from '@/lib/supabase'
 import {
   Calendar,
   Clock,
@@ -31,7 +32,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 const departments = ["CSE", "IT", "ME", "EE", "CY", "AIML", "AIDS"]
 
 // Venue configurations
-const venueConfigs = {
+const venueConfigs: Record<string, {
+  name: string;
+  totalSeats: number;
+  rows: number;
+  seatsPerRow: number;
+  hasGenderSeparation: boolean;
+}> = {
   "seminar-hall": {
     name: "Seminar Hall",
     totalSeats: 120,
@@ -60,7 +67,7 @@ export default function EventsPage() {
   const [activeTab, setActiveTab] = useState("create")
   const [currentStep, setCurrentStep] = useState(1)
   const [eventType, setEventType] = useState("")
-  const [selectedDepartments, setSelectedDepartments] = useState([])
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([])
   const [enablePayment, setEnablePayment] = useState(false)
   const [allowRegistration, setAllowRegistration] = useState(false)
   const [registrationFields, setRegistrationFields] = useState("")
@@ -69,12 +76,13 @@ export default function EventsPage() {
   const [showRegistrations, setShowRegistrations] = useState(false)
   const [selectedVenue, setSelectedVenue] = useState("")
   const [genderSeparation, setGenderSeparation] = useState("")
-  const [selectedSeats, setSelectedSeats] = useState([])
-  const [seatAssignments, setSeatAssignments] = useState({})
+  const [selectedSeats, setSelectedSeats] = useState<string[]>([])
+  const [seatAssignments, setSeatAssignments] = useState<Record<string, string[]>>({})
   const [currentAssignClass, setCurrentAssignClass] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
   const [isGeneratingForm, setIsGeneratingForm] = useState(false)
-  const [generatedFormFields, setGeneratedFormFields] = useState([])
+  const [generatedFormFields, setGeneratedFormFields] = useState<{name: string; label: string; type: string; required: boolean; placeholder?: string; options?: string[]}[]>([])
+  const [expandedPoster, setExpandedPoster] = useState<string | null>(null)
 
   // Form states
   const [title, setTitle] = useState("")
@@ -84,68 +92,173 @@ export default function EventsPage() {
   const [venue, setVenue] = useState("")
   const [maxParticipants, setMaxParticipants] = useState("")
   const [paymentAmount, setPaymentAmount] = useState("")
-  const [poster, setPoster] = useState(null)
+  const [poster, setPoster] = useState<string | null>(null)
+  const [posterPath, setPosterPath] = useState<string | null>(null)
+  const [isUploadingPoster, setIsUploadingPoster] = useState(false)
+  const [facultyDepartment, setFacultyDepartment] = useState<string>('')
+  const [facultyId, setFacultyId] = useState<string>('')
 
-  const fileInputRef = useRef(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Events state - load from localStorage on mount
-  const [events, setEvents] = useState([])
+  // Events state - load from Supabase on mount
+  const [events, setEvents] = useState<any[]>([])
+  
+  // Registered students for attendance (fetched from event registrations)
+  const [students, setStudents] = useState<any[]>([])
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
-  // Load events from localStorage on component mount
+  // Load events from Supabase on component mount
   useEffect(() => {
-    const storedEvents = JSON.parse(localStorage.getItem("facultyEvents") || "[]")
-    setEvents(storedEvents)
+    fetchFacultyInfo()
+    fetchEvents()
   }, [])
 
-  // Save events to localStorage whenever events change
-  useEffect(() => {
-    if (events.length > 0) {
-      localStorage.setItem("facultyEvents", JSON.stringify(events))
-      // Also save to student events for visibility
-      localStorage.setItem("events", JSON.stringify(events))
+  const fetchFacultyInfo = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: faculty } = await supabase
+        .from('faculty')
+        .select('id, department')
+        .eq('email', user.email)
+        .single()
+
+      if (faculty) {
+        setFacultyId(faculty.id)
+        setFacultyDepartment(faculty.department)
+      }
+    } catch (error) {
+      console.error('Error fetching faculty info:', error)
     }
-  }, [events])
+  }
 
-  // Mock students data for attendance
-  const [students, setStudents] = useState([
-    { id: 1, name: "Rahul Sharma", prn: "PRN2023001", class: "FY-CSE", present: false, paid: true },
-    { id: 2, name: "Priya Patel", prn: "PRN2023002", class: "FY-CSE", present: false, paid: true },
-    { id: 3, name: "Amit Kumar", prn: "PRN2023003", class: "SY-CSE", present: false, paid: false },
-    { id: 4, name: "Sneha Gupta", prn: "PRN2023004", class: "SY-CSE", present: false, paid: true },
-    { id: 5, name: "Vikram Singh", prn: "PRN2023005", class: "TY-CSE", present: false, paid: true },
-    { id: 6, name: "Neha Verma", prn: "PRN2023006", class: "FY-IT", present: false, paid: false },
-    { id: 7, name: "Raj Malhotra", prn: "PRN2023007", class: "SY-IT", present: false, paid: true },
-    { id: 8, name: "Ananya Desai", prn: "PRN2023008", class: "TY-IT", present: false, paid: true },
-    { id: 9, name: "Rohan Joshi", prn: "PRN2023009", class: "SY-AIML", present: false, paid: true },
-    { id: 10, name: "Kavita Reddy", prn: "PRN2023010", class: "SY-AIML", present: false, paid: true },
-  ])
+  const fetchEvents = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      setEvents(data || [])
+    } catch (error) {
+      console.error('Error fetching events:', error)
+    }
+  }
 
-  // Available classes for seat assignment
-  const availableClasses = [
-    "FY-CSE",
-    "SY-CSE",
-    "TY-CSE",
-    "FY-IT",
-    "SY-IT",
-    "TY-IT",
-    "FY-AIML",
-    "SY-AIML",
-    "TY-AIML",
-    "FY-AIDS",
-    "SY-AIDS",
-    "TY-AIDS",
-  ]
+  // Fetch registered students for a specific event
+  const fetchEventRegistrations = async (eventId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('event_registrations')
+        .select('*')
+        .eq('event_id', eventId)
+        .order('created_at', { ascending: true })
+      
+      if (error) throw error
+      
+      // Map registrations to student format for attendance
+      const registeredStudents = (data || []).map(reg => ({
+        id: reg.id,
+        name: reg.student_name,
+        prn: reg.student_prn,
+        email: reg.student_email,
+        class: reg.student_class,
+        paid: reg.paid === true,
+        present: reg.attended === true,
+        student_id: reg.student_id
+      }))
+      
+      setStudents(registeredStudents)
+      setSelectedEventId(eventId)
+      return registeredStudents
+    } catch (error) {
+      console.error('Error fetching registrations:', error)
+      setStudents([])
+      return []
+    }
+  }
 
-  const toggleDepartment = (dept) => {
+  // Department-specific class options based on faculty's department
+  const getDepartmentClasses = () => {
+    const dept = facultyDepartment?.toLowerCase() || 'cse'
+    const years = [
+      { id: 'fy', name: 'FY', fullName: 'First Year' },
+      { id: 'sy', name: 'SY', fullName: 'Second Year' },
+      { id: 'ty', name: 'TY', fullName: 'Third Year' },
+      { id: 'btech', name: 'B.Tech', fullName: 'Fourth Year' },
+    ]
+    const genders = ['Boys', 'Girls']
+    
+    const classes: { id: string; name: string; year: string; gender: string }[] = []
+    years.forEach(year => {
+      genders.forEach(gender => {
+        classes.push({
+          id: `${year.id}-${dept}-${gender.toLowerCase()}`,
+          name: `${year.name}-${facultyDepartment?.toUpperCase()}-${gender}`,
+          year: year.fullName,
+          gender
+        })
+      })
+    })
+    return classes
+  }
+
+  // Available classes for seat assignment - generated dynamically based on faculty department
+  const availableClasses = getDepartmentClasses()
+
+  const toggleDepartment = (dept: string) => {
     setSelectedDepartments((prev) => (prev.includes(dept) ? prev.filter((d) => d !== dept) : [...prev, dept]))
   }
 
-  const handlePosterUpload = () => {
-    setPoster("/placeholder.svg?height=300&width=600")
-    toast({
-      title: "Poster Uploaded",
-      description: "Event poster has been uploaded successfully.",
-    })
+  const handlePosterUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    console.log('DEBUG Events: File selected:', file?.name, file?.type, file?.size)
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      toast({ title: "Invalid File", description: "Please upload an image file", variant: "destructive" })
+      return
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File Too Large", description: "Please upload an image smaller than 5MB", variant: "destructive" })
+      return
+    }
+
+    const localPreview = URL.createObjectURL(file)
+    console.log('DEBUG Events: Local preview URL:', localPreview)
+    setPoster(localPreview)
+    setIsUploadingPoster(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('/api/events/upload-poster', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const result = await response.json()
+      console.log('DEBUG Events: Upload result:', result)
+
+      if (result.success && result.url) {
+        URL.revokeObjectURL(localPreview)
+        setPoster(result.url)
+        setPosterPath(result.path || null)
+        toast({ title: "Poster Uploaded", description: "Event poster uploaded successfully." })
+      } else {
+        setPosterPath(null)
+        throw new Error(result.error || 'Upload failed')
+      }
+    } catch (error) {
+      console.error('DEBUG Events: Upload error:', error)
+      toast({ title: "Upload Warning", description: error instanceof Error ? error.message : "Upload failed", variant: "default" })
+    } finally {
+      setIsUploadingPoster(false)
+    }
   }
 
   const generateRegistrationForm = async () => {
@@ -196,14 +309,14 @@ export default function EventsPage() {
     }
   }
 
-  const parseFormFields = (fieldsText) => {
+  const parseFormFields = (fieldsText: string) => {
     const commonFields = fieldsText
       .toLowerCase()
       .split(/[,\n]+/)
-      .map((field) => field.trim())
-    const fields = []
+      .map((field: string) => field.trim())
+    const fields: {name: string; label: string; type: string; required: boolean; placeholder?: string; options?: string[]}[] = []
 
-    commonFields.forEach((field) => {
+    commonFields.forEach((field: string) => {
       if (field.includes("name")) {
         fields.push({
           name: "name",
@@ -282,18 +395,45 @@ export default function EventsPage() {
     setShowSeatSelection(true)
   }
 
-  const toggleAttendance = (id) => {
-    setStudents(students.map((student) => (student.id === id ? { ...student, present: !student.present } : student)))
+  const toggleAttendance = async (id: string) => {
+    const student = students.find(s => s.id === id)
+    if (!student) return
+    
+    const newPresentState = !student.present
+    
+    // Update local state
+    setStudents(students.map((s) => (s.id === id ? { ...s, present: newPresentState } : s)))
+    
+    // Update in Supabase
+    try {
+      await supabase
+        .from('event_registrations')
+        .update({ attended: newPresentState })
+        .eq('id', id)
+    } catch (error) {
+      console.error('Error updating attendance:', error)
+    }
   }
 
-  const submitAttendance = () => {
+  const submitAttendance = async () => {
     const attendedCount = students.filter((s) => s.present).length
-    setEvents(events.map((event) => (event.id === 1 ? { ...event, attendedStudents: attendedCount } : event)))
+    
+    // Update event with attended count
+    if (selectedEventId) {
+      try {
+        await supabase
+          .from('events')
+          .update({ attended_students: attendedCount })
+          .eq('id', selectedEventId)
+      } catch (error) {
+        console.error('Error updating event:', error)
+      }
+    }
+    
     setShowAttendance(false)
-    toast({
-      title: "Attendance Submitted",
-      description: `Attendance marked for ${attendedCount} students.`,
-    })
+    setStudents([])
+    setSelectedEventId(null)
+    toast({ title: "Attendance Submitted", description: `Attendance marked for ${attendedCount} students.` })
   }
 
   const downloadAttendanceExcel = () => {
@@ -328,7 +468,7 @@ export default function EventsPage() {
     })
   }
 
-  const handleSeatSelection = (seatNumber) => {
+  const handleSeatSelection = (seatNumber: string) => {
     if (selectedSeats.includes(seatNumber)) {
       setSelectedSeats(selectedSeats.filter((seat) => seat !== seatNumber))
     } else {
@@ -360,17 +500,17 @@ export default function EventsPage() {
     setCurrentAssignClass("")
   }
 
-  const isSeatAssigned = (seatNumber) => {
+  const isSeatAssigned = (seatNumber: string) => {
     return Object.values(seatAssignments).some((seats) => seats.includes(seatNumber))
   }
 
-  const getSeatClass = (seatNumber) => {
+  const getSeatClass = (seatNumber: string): string => {
     for (const [className, seats] of Object.entries(seatAssignments)) {
       if (seats.includes(seatNumber)) {
         return className
       }
     }
-    return null
+    return ""
   }
 
   const getFilteredStudents = () => {
@@ -387,74 +527,76 @@ export default function EventsPage() {
     return filtered
   }
 
-  const createEvent = () => {
+  const createEvent = async () => {
     if (currentStep < 4) {
       setCurrentStep(currentStep + 1)
       return
     }
 
     if (!title || !description || !date || !time || !venue || !poster || selectedDepartments.length === 0) {
-      toast({
-        title: "Error",
-        description: "Please fill all required fields",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" })
       return
     }
 
-    const newEvent = {
-      id: Date.now(), // Use timestamp for unique ID
-      title,
-      description,
-      date,
-      time,
-      venue,
-      poster,
-      maxParticipants: maxParticipants ? Number.parseInt(maxParticipants) : undefined,
-      targetAudience: selectedDepartments,
-      onlinePayment: enablePayment,
-      paymentAmount,
-      allowRegistration,
-      registrationFields: generatedFormFields,
-      registeredStudents: 0,
-      paidStudents: 0,
-      attendedStudents: 0,
-      seatAssignments: seatAssignments,
-      venueType: selectedVenue,
-      genderSeparation,
-      registrations: [],
-      createdAt: new Date().toISOString(),
+    if (!facultyId) {
+      toast({ title: "Error", description: "Faculty information not found", variant: "destructive" })
+      return
     }
 
-    const updatedEvents = [...events, newEvent]
-    setEvents(updatedEvents)
+    try {
+      const { data, error } = await supabase
+        .from('events')
+        .insert({
+          title,
+          description,
+          event_date: date,
+          event_time: time,
+          venue,
+          poster_url: poster,
+          max_participants: maxParticipants ? Number.parseInt(maxParticipants) : null,
+          target_departments: selectedDepartments,
+          enable_payment: enablePayment,
+          payment_amount: paymentAmount ? Number.parseFloat(paymentAmount) : null,
+          allow_registration: allowRegistration,
+          registration_fields: generatedFormFields,
+          seat_assignments: seatAssignments,
+          venue_type: selectedVenue,
+          event_type: eventType,
+          faculty_id: facultyId,
+          department: facultyDepartment,
+        })
+        .select()
+        .single()
 
-    // Reset form
-    setTitle("")
-    setDescription("")
-    setDate("")
-    setTime("")
-    setVenue("")
-    setMaxParticipants("")
-    setSelectedDepartments([])
-    setEnablePayment(false)
-    setAllowRegistration(false)
-    setRegistrationFields("")
-    setGeneratedFormFields([])
-    setPaymentAmount("")
-    setPoster(null)
-    setCurrentStep(1)
-    setEventType("")
-    setSeatAssignments({})
-    setSelectedVenue("")
-    setGenderSeparation("")
+      if (error) throw error
 
-    setActiveTab("manage")
+      toast({ title: "Success", description: "Event created successfully!" })
+      fetchEvents()
 
-    toast({
-      title: "Success",
-      description: "Event created successfully!",
-    })
+      // Reset form
+      setTitle("")
+      setDescription("")
+      setDate("")
+      setTime("")
+      setVenue("")
+      setMaxParticipants("")
+      setSelectedDepartments([])
+      setEnablePayment(false)
+      setAllowRegistration(false)
+      setRegistrationFields("")
+      setGeneratedFormFields([])
+      setPaymentAmount("")
+      setPoster(null)
+      setPosterPath(null)
+      setCurrentStep(1)
+      setEventType("")
+      setSeatAssignments({})
+      setSelectedVenue("")
+      setGenderSeparation("")
+    } catch (error) {
+      console.error('Error creating event:', error)
+      toast({ title: "Error", description: "Failed to create event", variant: "destructive" })
+    }
   }
 
   const eventTypes = [
@@ -477,24 +619,30 @@ export default function EventsPage() {
       for (let seat = 0; seat < config.seatsPerRow; seat++) {
         const seatNumber = row * config.seatsPerRow + seat + 1
         if (seatNumber <= config.totalSeats) {
-          const isSelected = selectedSeats.includes(seatNumber)
-          const isAssigned = isSeatAssigned(seatNumber)
-          const assignedClass = getSeatClass(seatNumber)
+          const seatId = String(seatNumber)
+          const isSelected = selectedSeats.includes(seatId)
+          const isAssigned = isSeatAssigned(seatId)
+          const assignedClass = getSeatClass(seatId)
 
           rowSeats.push(
             <div
               key={seatNumber}
-              className={`w-8 h-8 flex items-center justify-center rounded-md cursor-pointer border text-xs ${
+              className={`w-8 h-8 flex items-center justify-center rounded-md cursor-pointer border text-xs relative ${
                 isSelected
                   ? "bg-purple-600 text-white border-purple-700"
                   : isAssigned
-                    ? "bg-gray-800 text-white border-gray-900"
+                    ? "bg-black text-white border-gray-900"
                     : "bg-white border-gray-300 hover:bg-gray-100"
               }`}
-              onClick={() => !isAssigned && handleSeatSelection(seatNumber)}
-              title={assignedClass ? `Assigned to ${assignedClass}` : ""}
+              onClick={() => !isAssigned && handleSeatSelection(seatId)}
+              title={assignedClass ? `Reserved for ${assignedClass}` : "Available"}
             >
               {seatNumber}
+              {isAssigned && (
+                <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 bg-black text-white text-[8px] px-1 rounded whitespace-nowrap z-10">
+                  {assignedClass}
+                </div>
+              )}
             </div>,
           )
         }
@@ -519,6 +667,20 @@ export default function EventsPage() {
               Arrangement: {genderSeparation === "girls" ? "Girls Section" : "Boys Section"}
             </div>
           )}
+        </div>
+        <div className="flex justify-center gap-4 mt-2 text-xs">
+          <div className="flex items-center gap-1">
+            <div className="w-4 h-4 bg-white border border-gray-300 rounded"></div>
+            <span>Available</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="w-4 h-4 bg-black border border-gray-900 rounded"></div>
+            <span>Reserved</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="w-4 h-4 bg-purple-600 border border-purple-700 rounded"></div>
+            <span>Selected</span>
+          </div>
         </div>
       </div>
     )
@@ -668,7 +830,7 @@ export default function EventsPage() {
                 <div className="space-y-2">
                   <Label>Target Audience *</Label>
                   <div className="flex flex-wrap gap-2">
-                    {departments.map((dept) => (
+                    {departments.map((dept: string) => (
                       <Button
                         key={dept}
                         variant={selectedDepartments.includes(dept) ? "default" : "outline"}
@@ -690,10 +852,26 @@ export default function EventsPage() {
                     {poster ? (
                       <div className="relative">
                         <img
-                          src={poster || "/placeholder.svg"}
+                          src={poster}
                           alt="Event Poster"
-                          className="max-h-[300px] mx-auto rounded-md"
+                          className="max-h-[300px] mx-auto rounded-md object-contain"
+                          onLoad={() => console.log('DEBUG: Poster image loaded successfully:', poster)}
+                          onError={(e) => {
+                            console.error('DEBUG: Poster image failed to load:', poster)
+                            // If local blob URL fails, it might have been revoked
+                            if (poster.startsWith('blob:')) {
+                              console.log('DEBUG: Blob URL may have been revoked prematurely')
+                            }
+                          }}
                         />
+                        {isUploadingPoster && (
+                          <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
+                            <div className="text-center">
+                              <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                              <span className="text-sm text-gray-600">Uploading...</span>
+                            </div>
+                          </div>
+                        )}
                         <Button
                           variant="outline"
                           size="icon"
@@ -701,6 +879,7 @@ export default function EventsPage() {
                           onClick={(e) => {
                             e.stopPropagation()
                             setPoster(null)
+                            setPosterPath(null)
                           }}
                         >
                           <X className="h-4 w-4" />
@@ -711,7 +890,10 @@ export default function EventsPage() {
                         <Upload className="h-10 w-10 text-gray-400 mx-auto mb-4" />
                         <h4 className="text-lg font-medium text-gray-700 mb-1">Upload Poster</h4>
                         <p className="text-gray-500 text-sm mb-4">PNG, JPG, JPEG</p>
-                        <Button variant="outline" size="sm">
+                        <Button variant="outline" size="sm" onClick={(e) => {
+                          e.stopPropagation()
+                          fileInputRef.current?.click()
+                        }}>
                           Browse Files
                         </Button>
                       </>
@@ -727,15 +909,6 @@ export default function EventsPage() {
                 </div>
 
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="seatAssignment" className="cursor-pointer">
-                      Configure Seat Assignments
-                    </Label>
-                    <Button variant="outline" size="sm" onClick={handleSeatAssignment}>
-                      Assign Seats
-                    </Button>
-                  </div>
-
                   <div className="space-y-2">
                     <Label>Select Venue Type</Label>
                     <Select value={selectedVenue} onValueChange={setSelectedVenue}>
@@ -752,18 +925,27 @@ export default function EventsPage() {
 
                   {selectedVenue === "classroom" && (
                     <div className="space-y-2">
-                      <Label>Gender Arrangement</Label>
+                      <Label>Select Gender Arrangement</Label>
                       <Select value={genderSeparation} onValueChange={setGenderSeparation}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select arrangement" />
+                          <SelectValue placeholder="Choose gender arrangement" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="girls">Girls Section</SelectItem>
                           <SelectItem value="boys">Boys Section</SelectItem>
+                          <SelectItem value="girls">Girls Section</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                   )}
+
+                  <div className="flex items-center justify-between pt-2">
+                    <Label htmlFor="seatAssignment" className="cursor-pointer">
+                      Configure Seat Assignments
+                    </Label>
+                    <Button variant="outline" size="sm" onClick={handleSeatAssignment}>
+                      Assign Seats
+                    </Button>
+                  </div>
 
                   {Object.keys(seatAssignments).length > 0 && (
                     <div className="mt-2 p-3 bg-gray-50 rounded-lg">
@@ -973,8 +1155,8 @@ export default function EventsPage() {
                 >
                   <option value="">Select Class</option>
                   {availableClasses.map((cls) => (
-                    <option key={cls} value={cls}>
-                      {cls}
+                    <option key={cls.id} value={cls.name}>
+                      {cls.name}
                     </option>
                   ))}
                 </select>
@@ -1042,11 +1224,18 @@ export default function EventsPage() {
               <CardContent className="p-0">
                 <div className="md:flex">
                   <div className="md:w-1/3">
-                    <img
-                      src={event.poster || "/placeholder.svg"}
-                      alt={event.title}
-                      className="w-full h-48 md:h-full object-cover"
-                    />
+                    {event.poster_url ? (
+                      <img
+                        src={event.poster_url}
+                        alt={event.title}
+                        className="w-full h-48 md:h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => setExpandedPoster(event.poster_url)}
+                      />
+                    ) : (
+                      <div className="w-full h-48 md:h-full bg-gray-100 flex items-center justify-center">
+                        <Calendar className="h-12 w-12 text-gray-400" />
+                      </div>
+                    )}
                   </div>
                   <div className="p-6 md:w-2/3">
                     <div className="flex justify-between items-start mb-4">
@@ -1068,15 +1257,29 @@ export default function EventsPage() {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        {event.allowRegistration && (
-                          <Button variant="outline" size="sm" onClick={() => setShowRegistrations(!showRegistrations)}>
-                            View Registrations
-                          </Button>
-                        )}
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={async () => {
+                            if (!showRegistrations) {
+                              await fetchEventRegistrations(event.id)
+                            }
+                            setShowRegistrations(!showRegistrations)
+                            setShowAttendance(false)
+                          }}
+                        >
+                          View Registrations ({students.length || 0})
+                        </Button>
                         <Button
                           variant={showAttendance ? "outline" : "default"}
                           size="sm"
-                          onClick={() => setShowAttendance(!showAttendance)}
+                          onClick={async () => {
+                            if (!showAttendance) {
+                              await fetchEventRegistrations(event.id)
+                            }
+                            setShowAttendance(!showAttendance)
+                            setShowRegistrations(false)
+                          }}
                         >
                           {showAttendance ? "Cancel" : "Mark Attendance"}
                         </Button>
@@ -1087,27 +1290,45 @@ export default function EventsPage() {
                       <>
                         <p className="text-gray-600 mb-4 line-clamp-2">{event.description}</p>
 
+                        {/* QR Code for Payment */}
+                        {event.enable_payment && (
+                          <div className="mb-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                            <div className="flex items-center gap-4">
+                              <img 
+                                src="/images/QR.jpg" 
+                                alt="Payment QR Code" 
+                                className="w-32 h-32 rounded-lg border"
+                              />
+                              <div>
+                                <h4 className="font-semibold text-green-800">Payment Required</h4>
+                                <p className="text-lg font-bold text-green-900">₹{event.payment_amount}</p>
+                                <p className="text-sm text-green-600">Scan QR to pay & register</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                           <div className="bg-purple-50 p-3 rounded-lg">
                             <div className="text-sm text-gray-500">Registered</div>
-                            <div className="text-xl font-bold">{event.registeredStudents}</div>
+                            <div className="text-xl font-bold">{event.registered_students || 0}</div>
                           </div>
                           <div className="bg-green-50 p-3 rounded-lg">
                             <div className="text-sm text-gray-500">Payments</div>
-                            <div className="text-xl font-bold">{event.paidStudents}</div>
+                            <div className="text-xl font-bold">{event.paid_students || 0}</div>
                           </div>
                           <div className="bg-blue-50 p-3 rounded-lg">
                             <div className="text-sm text-gray-500">Attended</div>
-                            <div className="text-xl font-bold">{event.attendedStudents}</div>
+                            <div className="text-xl font-bold">{event.attended_students || 0}</div>
                           </div>
                           <div className="bg-yellow-50 p-3 rounded-lg">
                             <div className="text-sm text-gray-500">Revenue</div>
-                            <div className="text-xl font-bold">₹{event.paidStudents * (event.paymentAmount || 0)}</div>
+                            <div className="text-xl font-bold">₹{(event.paid_students || 0) * (event.payment_amount || 0)}</div>
                           </div>
                         </div>
 
                         <div className="flex flex-wrap gap-1 mb-4">
-                          {event.targetAudience.map((dept) => (
+                          {(event.target_departments || []).map((dept: string) => (
                             <span key={dept} className="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded">
                               {dept}
                             </span>
@@ -1155,32 +1376,38 @@ export default function EventsPage() {
                             <div>Status</div>
                           </div>
 
-                          {(event.registrations || []).map((registration) => (
-                            <div key={registration.id} className="grid grid-cols-6 p-3 text-sm border-t">
-                              <div>{registration.name}</div>
-                              <div>{registration.prn}</div>
-                              <div>{registration.email}</div>
-                              <div>{registration.class}</div>
+                          {students.length === 0 ? (
+                          <div className="p-4 text-center text-gray-500">
+                            No registrations yet
+                          </div>
+                        ) : (
+                          students.map((student) => (
+                            <div key={student.id} className="grid grid-cols-6 p-3 text-sm border-t hover:bg-gray-50">
+                              <div>{student.name}</div>
+                              <div>{student.prn}</div>
+                              <div>{student.email}</div>
+                              <div>{student.class}</div>
                               <div>
                                 <Badge
                                   className={
-                                    registration.paid ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                                    student.paid ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
                                   }
                                 >
-                                  {registration.paid ? "Paid" : "Unpaid"}
+                                  {student.paid ? "Paid" : "Unpaid"}
                                 </Badge>
                               </div>
                               <div>
                                 <Badge
                                   className={
-                                    registration.attended ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"
+                                    student.present ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"
                                   }
                                 >
-                                  {registration.attended ? "Attended" : "Registered"}
+                                  {student.present ? "Attended" : "Registered"}
                                 </Badge>
                               </div>
                             </div>
-                          ))}
+                          ))
+                        )}
                         </div>
                       </div>
                     ) : (
@@ -1215,9 +1442,12 @@ export default function EventsPage() {
                             <div className="col-span-2">Payment</div>
                           </div>
 
-                          {getFilteredStudents()
-                            .filter((student) => student.paid)
-                            .map((student) => (
+                          {students.length === 0 ? (
+                            <div className="p-4 text-center text-gray-500 col-span-12">
+                              No registered students yet
+                            </div>
+                          ) : (
+                            getFilteredStudents().map((student) => (
                               <div
                                 key={student.id}
                                 className="grid grid-cols-12 p-3 text-sm border-t hover:bg-gray-50 cursor-pointer"
@@ -1226,7 +1456,7 @@ export default function EventsPage() {
                                 <div className="col-span-1 flex items-center">
                                   <div
                                     className={`w-5 h-5 rounded border flex items-center justify-center ${
-                                      student.present ? "bg-purple-600 border-purple-600" : "border-gray-300"
+                                      student.present ? "bg-green-600 border-green-600" : "border-gray-300"
                                     }`}
                                   >
                                     {student.present && <Check className="h-3 w-3 text-white" />}
@@ -1236,10 +1466,13 @@ export default function EventsPage() {
                                 <div className="col-span-3">{student.prn}</div>
                                 <div className="col-span-2">{student.class}</div>
                                 <div className="col-span-2">
-                                  <Badge className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded">Paid</Badge>
+                                  <Badge className={`${student.paid ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"} text-xs px-2 py-1 rounded`}>
+                                    {student.paid ? "Paid" : "Unpaid"}
+                                  </Badge>
                                 </div>
                               </div>
-                            ))}
+                            ))
+                          )}
                         </div>
 
                         <Button onClick={submitAttendance}>Submit Attendance</Button>
@@ -1267,6 +1500,26 @@ export default function EventsPage() {
         <TabsContent value="create">{renderCreateTab()}</TabsContent>
         <TabsContent value="manage">{renderManageTab()}</TabsContent>
       </Tabs>
+
+      {/* Full-screen Poster Modal */}
+      {expandedPoster && (
+        <div 
+          className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+          onClick={() => setExpandedPoster(null)}
+        >
+          <button 
+            className="absolute top-4 right-4 text-white hover:text-gray-300"
+            onClick={() => setExpandedPoster(null)}
+          >
+            <X className="h-8 w-8" />
+          </button>
+          <img 
+            src={expandedPoster} 
+            alt="Event Poster" 
+            className="max-w-full max-h-full object-contain rounded-lg"
+          />
+        </div>
+      )}
     </div>
   )
 }
