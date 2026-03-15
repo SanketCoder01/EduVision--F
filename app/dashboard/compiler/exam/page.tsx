@@ -38,6 +38,11 @@ import {
   Timer
 } from "lucide-react"
 import AIQuestionGenerator from "@/components/ai/AIQuestionGenerator"
+import { createClient } from "@supabase/supabase-js"
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 interface ExamData {
   title: string
@@ -65,10 +70,11 @@ interface ExamData {
   scheduleDate: string
   scheduleTime: string
   questionsPerStudent: number
-  questionGenerationMethod: 'ai' | 'upload' | 'random'
+  questionGenerationMethod: 'ai' | 'upload'
   uploadedFile?: File
   aiQuestions: any[]
   useAIQuestions: boolean
+  randomizeQuestions: boolean
 }
 
 interface Student {
@@ -95,6 +101,7 @@ export default function CreateExam() {
   const [studentList, setStudentList] = useState<any[]>([])
   const [validationErrors, setValidationErrors] = useState<{[key: string]: boolean}>({})
   const [isPublished, setIsPublished] = useState(false)
+  const [facultyProfile, setFacultyProfile] = useState<{name: string, department: string} | null>(null)
   const [examData, setExamData] = useState<ExamData>({
     title: "",
     facultyName: "",
@@ -123,26 +130,46 @@ export default function CreateExam() {
     questionsPerStudent: 3,
     questionGenerationMethod: 'ai',
     aiQuestions: [],
-    useAIQuestions: false
+    useAIQuestions: false,
+    randomizeQuestions: false
   })
 
   useEffect(() => {
-    setExamData(prev => ({
-      ...prev,
-      facultyName: "Dr. Sarah Johnson" // This would come from user session
-    }))
+    loadFacultyProfile()
   }, [])
+
+  const loadFacultyProfile = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data, error } = await supabase
+          .from('faculty')
+          .select('name, department')
+          .eq('id', user.id)
+          .single()
+        
+        if (data) {
+          setFacultyProfile({ name: data.name, department: data.department })
+          setExamData(prev => ({
+            ...prev,
+            facultyName: data.name || "",
+            department: data.department || ""
+          }))
+        }
+      }
+    } catch (error) {
+      console.error("Error loading faculty profile:", error)
+    }
+  }
 
   const validateMandatoryFields = () => {
     const errors: {[key: string]: boolean} = {}
     
-    // Basic Info validation
+    // Basic Info validation - department and facultyName are auto-filled from profile, not mandatory
     if (!examData.title.trim()) errors.title = true
-    if (!examData.facultyName.trim()) errors.facultyName = true
     if (!examData.examDate) errors.examDate = true
     if (!examData.startTime) errors.startTime = true
     if (!examData.endTime) errors.endTime = true
-    if (!examData.department) errors.department = true
     if (!examData.studyingYear) errors.studyingYear = true
     if (!examData.language) errors.language = true
     if (!examData.totalMarks.trim()) errors.totalMarks = true
@@ -154,13 +181,11 @@ export default function CreateExam() {
 
   const canProceedToNextStep = () => {
     if (currentStep === 1) {
-      // Basic Info step validation
+      // Basic Info step validation - department and facultyName are auto-filled from profile, not mandatory
       return examData.title.trim() && 
-             examData.facultyName.trim() && 
              examData.examDate && 
              examData.startTime && 
              examData.endTime && 
-             examData.department && 
              examData.studyingYear && 
              examData.language && 
              examData.totalMarks.trim() && 
@@ -173,11 +198,11 @@ export default function CreateExam() {
     return true
   }
 
-  const handleInputChange = (field: string, value: string) => {
+  const handleInputChange = (field: string, value: string | boolean | number | any[] | File | undefined) => {
     setExamData(prev => ({ ...prev, [field]: value }))
     
-    // Remove error when field is filled
-    if (value && value.trim() !== '') {
+    // Remove error when field is filled (only for string values)
+    if (typeof value === 'string' && value && value.trim() !== '') {
       setValidationErrors(prev => {
         const newErrors = { ...prev }
         delete newErrors[field]
@@ -216,7 +241,7 @@ export default function CreateExam() {
     }
   }
 
-  const handlePublish = () => {
+  const handlePublish = async () => {
     if (!validateMandatoryFields()) {
       toast({
         title: "Missing Required Fields",
@@ -227,20 +252,60 @@ export default function CreateExam() {
     }
 
     try {
-      const newExam = {
-        id: Date.now(),
-        ...examData,
-        isExam: true,
-        status: "scheduled",
-        createdAt: new Date().toISOString()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast({
+          title: "Error",
+          description: "You must be logged in to create an exam.",
+          variant: "destructive"
+        })
+        return
       }
 
-      const existingExams = JSON.parse(localStorage.getItem("coding_exams") || "[]")
-      const updatedExams = [...existingExams, newExam]
-      localStorage.setItem("coding_exams", JSON.stringify(updatedExams))
+      // Combine date and time for start and end
+      const startDateTime = new Date(`${examData.examDate}T${examData.startTime}`)
+      const endDateTime = new Date(`${examData.examDate}T${examData.endTime}`)
+
+      // Normalize year format
+      const normalizedYear = examData.studyingYear.includes('Year') 
+        ? examData.studyingYear 
+        : `${examData.studyingYear} Year`
+
+      // Save to Supabase - only use columns that exist in the table
+      const { error } = await supabase
+        .from('compiler_exams')
+        .insert({
+          title: examData.title,
+          faculty_name: examData.facultyName || facultyProfile?.name || '',
+          faculty_id: user.id,
+          department: examData.department || facultyProfile?.department || '',
+          studying_year: normalizedYear,
+          language: examData.language,
+          description: examData.description,
+          instructions: examData.instructions,
+          total_marks: parseInt(examData.totalMarks) || 100,
+          passing_marks: parseInt(examData.passingMarks) || 40,
+          start_time: startDateTime.toISOString(),
+          end_time: endDateTime.toISOString(),
+          duration: parseInt(examData.duration) || 120,
+          enable_proctoring: examData.enableSecurity,
+          enable_code_execution: true,
+          enable_auto_grading: false,
+          questions: examData.aiQuestions || [],
+          question_generation_method: examData.questionGenerationMethod,
+          status: 'scheduled'
+        })
+
+      if (error) throw error
       
-      router.push('/dashboard/compiler/exam/success')
+      toast({
+        title: "Exam Scheduled!",
+        description: `Exam created for ${examData.department || facultyProfile?.department} - ${normalizedYear} students.`
+      })
+      
+      router.push('/dashboard/compiler/view-exams')
     } catch (error) {
+      console.error("Error creating exam:", error)
       toast({
         title: "Error",
         description: "Failed to schedule exam. Please try again.",
@@ -386,23 +451,17 @@ export default function CreateExam() {
                       <Input
                         value={examData.facultyName}
                         onChange={(e) => handleInputChange("facultyName", e.target.value)}
-                        disabled
-                        className="bg-gray-50"
+                        placeholder="Enter faculty name"
                       />
                     </div>
                     <div>
-                      <label className="text-sm font-medium mb-2 block text-red-600">Department *</label>
-                      <Select value={examData.department} onValueChange={(value) => handleInputChange("department", value)}>
-                        <SelectTrigger className={`${validationErrors.department ? 'border-red-500 bg-red-50' : 'border-red-200'} focus:border-red-500`}>
-                          <SelectValue placeholder="Select department" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="CSE">Computer Science</SelectItem>
-                          <SelectItem value="AIDS">AI & Data Science</SelectItem>
-                          <SelectItem value="AIML">AI & Machine Learning</SelectItem>
-                          <SelectItem value="CYBER">Cyber Security</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <label className="text-sm font-medium mb-2 block text-gray-700">Department</label>
+                      <Input
+                        value={examData.department || facultyProfile?.department || ''}
+                        className="bg-gray-100 text-gray-900 font-semibold"
+                        disabled
+                      />
+                      <p className="text-xs text-gray-500 mt-1">🔒 Locked to your department</p>
                     </div>
                     <div>
                       <label className="text-sm font-medium mb-2 block text-red-600">Year *</label>
@@ -430,6 +489,19 @@ export default function CreateExam() {
                           <SelectItem value="Java">Java</SelectItem>
                           <SelectItem value="Python">Python</SelectItem>
                           <SelectItem value="JavaScript">JavaScript</SelectItem>
+                          <SelectItem value="TypeScript">TypeScript</SelectItem>
+                          <SelectItem value="C#">C#</SelectItem>
+                          <SelectItem value="Go">Go</SelectItem>
+                          <SelectItem value="Rust">Rust</SelectItem>
+                          <SelectItem value="Kotlin">Kotlin</SelectItem>
+                          <SelectItem value="Swift">Swift</SelectItem>
+                          <SelectItem value="PHP">PHP</SelectItem>
+                          <SelectItem value="Ruby">Ruby</SelectItem>
+                          <SelectItem value="Scala">Scala</SelectItem>
+                          <SelectItem value="Perl">Perl</SelectItem>
+                          <SelectItem value="Bash">Bash</SelectItem>
+                          <SelectItem value="SQL">SQL</SelectItem>
+                          <SelectItem value="R">R</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -553,10 +625,9 @@ export default function CreateExam() {
                     </CardHeader>
                     <CardContent>
                       <Tabs value={examData.questionGenerationMethod} onValueChange={(value: any) => handleInputChange("questionGenerationMethod", value)}>
-                        <TabsList className="grid w-full grid-cols-3">
+                        <TabsList className="grid w-full grid-cols-2">
                           <TabsTrigger value="ai">AI Generation</TabsTrigger>
                           <TabsTrigger value="upload">Upload File</TabsTrigger>
-                          <TabsTrigger value="random">Random Assignment</TabsTrigger>
                         </TabsList>
                         
                         <TabsContent value="ai" className="space-y-4">
@@ -652,35 +723,6 @@ export default function CreateExam() {
                             )}
                           </div>
                         </TabsContent>
-                        
-                        <TabsContent value="random" className="space-y-4">
-                          <div className="bg-white p-4 rounded-lg border">
-                            <h4 className="font-medium mb-3">Random Question Assignment</h4>
-                            <p className="text-sm text-gray-600 mb-4">Assign different questions to each student</p>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                              <div>
-                                <label className="text-sm font-medium mb-2 block">Questions per Student *</label>
-                                <Input
-                                  type="number"
-                                  min="1"
-                                  max="10"
-                                  value={examData.questionsPerStudent}
-                                  onChange={(e) => handleInputChange("questionsPerStudent", parseInt(e.target.value) || 3)}
-                                  placeholder="3"
-                                />
-                              </div>
-                              <div className="flex items-end">
-                                <Button 
-                                  onClick={() => setShowStudentAssignment(true)}
-                                  className="bg-blue-600 hover:bg-blue-700"
-                                >
-                                  Generate Random Assignment
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        </TabsContent>
                       </Tabs>
                     </CardContent>
                   </Card>
@@ -707,6 +749,16 @@ export default function CreateExam() {
                         Security Monitoring
                       </h3>
                       <div className="space-y-4">
+                        <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200">
+                          <div>
+                            <label className="text-sm font-medium text-purple-800">🎲 Random Questions for Students</label>
+                            <p className="text-xs text-purple-600">Each student gets different questions from the pool</p>
+                          </div>
+                          <Switch
+                            checked={examData.randomizeQuestions || false}
+                            onCheckedChange={(checked) => handleInputChange("randomizeQuestions", checked)}
+                          />
+                        </div>
                         <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
                           <div>
                             <label className="text-sm font-medium">Enable Security Monitoring</label>

@@ -63,64 +63,29 @@ interface Language {
 }
 
 const languages: Language[] = [
-  {
-    id: "c",
-    name: "C",
-    icon: "🔵",
-    color: "text-blue-600",
-    version: "GCC 9.1.0",
-  },
-  {
-    id: "cpp",
-    name: "C++",
-    icon: "🔷",
-    color: "text-blue-700",
-    version: "GCC 9.1.0",
-  },
-  {
-    id: "java",
-    name: "Java",
-    icon: "☕",
-    color: "text-orange-600",
-    version: "OpenJDK 13.0.1",
-  },
-  {
-    id: "python3",
-    name: "Python",
-    icon: "🐍",
-    color: "text-green-600",
-    version: "3.8.1",
-  },
-  {
-    id: "javascript",
-    name: "JavaScript",
-    icon: "🟨",
-    color: "text-yellow-600",
-    version: "Node.js 12.14.0",
-  },
+  { id: "c", name: "C", icon: "🔵", color: "text-blue-600", version: "GCC 9.1.0" },
+  { id: "cpp", name: "C++", icon: "🔷", color: "text-blue-700", version: "GCC 9.1.0" },
+  { id: "java", name: "Java", icon: "☕", color: "text-orange-600", version: "OpenJDK 13.0.1" },
+  { id: "python3", name: "Python", icon: "🐍", color: "text-green-600", version: "3.8.1" },
+  { id: "javascript", name: "JavaScript", icon: "🟨", color: "text-yellow-600", version: "Node.js 12.14.0" },
+  { id: "typescript", name: "TypeScript", icon: "🔷", color: "text-blue-500", version: "4.1.3" },
+  { id: "csharp", name: "C#", icon: "💜", color: "text-purple-600", version: ".NET 5.0" },
+  { id: "go", name: "Go", icon: "🐹", color: "text-cyan-600", version: "1.14" },
+  { id: "rust", name: "Rust", icon: "🦀", color: "text-orange-700", version: "1.44.0" },
+  { id: "kotlin", name: "Kotlin", icon: "🟣", color: "text-purple-500", version: "1.3.70" },
+  { id: "swift", name: "Swift", icon: "🍎", color: "text-red-500", version: "5.2" },
+  { id: "php", name: "PHP", icon: "🐘", color: "text-indigo-600", version: "7.4" },
+  { id: "ruby", name: "Ruby", icon: "💎", color: "text-red-600", version: "2.7" },
+  { id: "scala", name: "Scala", icon: "🔴", color: "text-red-500", version: "2.13" },
+  { id: "perl", name: "Perl", icon: "🐪", color: "text-blue-500", version: "5.30" },
+  { id: "bash", name: "Bash", icon: "🖥️", color: "text-gray-600", version: "5.0" },
+  { id: "sql", name: "SQL", icon: "🗃️", color: "text-blue-400", version: "MySQL 8.0" },
+  { id: "r", name: "R", icon: "📊", color: "text-blue-300", version: "4.0" },
 ]
 
 export default function StudentAssignmentCompilerPage({ params }: { params: { id: string } }) {
-  // Mock assignment data - in real app, fetch from API
-  const [assignment] = useState<Assignment>({
-    id: params.id,
-    title: "Array Manipulation Challenge",
-    description: "Implement a function to find the maximum sum of a subarray using Kadane's algorithm.",
-    language: "python3",
-    dueDate: "2024-01-15T23:59:59",
-    allowCopyPaste: false,
-    allowResubmission: true,
-    enableMarking: true,
-    totalMarks: "100",
-    attempts: "yes",
-    maxAttempts: "3",
-    rules: "Write clean, well-commented code. Test your solution with multiple test cases.",
-    facultyName: "Dr. Sarah Johnson",
-    givenDate: "2024-01-01",
-  })
-
-  const selectedLanguage = languages.find((lang) => lang.id === assignment.language) || languages[0]
-
+  const [assignment, setAssignment] = useState<Assignment | null>(null)
+  const [loading, setLoading] = useState(true)
   const [code, setCode] = useState("")
   const [output, setOutput] = useState("")
   const [isRunning, setIsRunning] = useState(false)
@@ -150,6 +115,40 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
   const analyserRef = useRef<AnalyserNode | null>(null)
   const lastFaceCheckRef = useRef<number>(Date.now())
   const voiceThresholdRef = useRef<number>(0)
+
+  // Language mapping for faculty selection to JDoodle ID
+  const languageIdMap: Record<string, string> = {
+    'Java': 'java', 'Python': 'python3', 'C++': 'cpp', 'C': 'c',
+    'JavaScript': 'javascript', 'TypeScript': 'typescript', 'C#': 'csharp',
+    'Go': 'go', 'Rust': 'rust', 'Kotlin': 'kotlin', 'Swift': 'swift',
+    'PHP': 'php', 'Ruby': 'ruby', 'Scala': 'scala', 'Perl': 'perl',
+    'Bash': 'bash', 'SQL': 'sql', 'R': 'r'
+  }
+
+  // Fetch assignment from Supabase
+  useEffect(() => {
+    loadAssignment()
+  }, [params.id])
+
+  const loadAssignment = async () => {
+    try {
+      const response = await fetch(`/api/compiler/assignments/${params.id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setAssignment(data)
+      } else {
+        toast.error("Failed to load assignment")
+      }
+    } catch (error) {
+      console.error("Error loading assignment:", error)
+      toast.error("Error loading assignment")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Get locked language from assignment
+  const selectedLanguage = assignment ? (languages.find((lang) => lang.id === languageIdMap[assignment.language]) || languages[0]) : null
 
   // Initialize proctoring for assignments
   useEffect(() => {
@@ -358,6 +357,7 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
 
   // Calculate time remaining
   useEffect(() => {
+    if (!assignment) return
     const timer = setInterval(() => {
       const now = new Date().getTime()
       const due = new Date(assignment.dueDate).getTime()
@@ -375,7 +375,7 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
     }, 1000)
 
     return () => clearInterval(timer)
-  }, [assignment.dueDate])
+  }, [assignment?.dueDate])
 
   // Progress calculation based on code length
   useEffect(() => {
@@ -386,7 +386,7 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
 
   // Handle copy-paste restrictions
   const handlePaste = (e: React.ClipboardEvent) => {
-    if (!assignment.allowCopyPaste) {
+    if (!assignment?.allowCopyPaste) {
       e.preventDefault()
       setCopyAttempts((prev) => prev + 1)
 
@@ -423,11 +423,16 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
       return
     }
 
+    if (!selectedLanguage) {
+      toast.error("Language not loaded yet")
+      return
+    }
+
     setIsRunning(true)
     setOutput("🚀 Running your code...")
 
     try {
-      const response = await fetch("/api/compile", {
+      const response = await fetch("/api/compiler/execute", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -440,11 +445,12 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
 
       const result = await response.json()
 
-      if (result.success) {
-        setOutput(result.output || "✅ Program executed successfully (no output)")
+      if (result.stdout || result.status === 'Accepted') {
+        const outputText = result.stdout || result.compile_output || "✅ Program executed successfully (no output)"
+        setOutput(outputText)
         toast.success("Code executed successfully!")
       } else {
-        setOutput(`❌ Error: ${result.error || "Compilation failed"}`)
+        setOutput(`❌ Error: ${result.stderr || result.error || "Compilation failed"}`)
         toast.error("Compilation failed")
       }
     } catch (error) {
@@ -461,9 +467,9 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
       return
     }
 
-    const maxSubmissions = assignment.allowResubmission
+    const maxSubmissions = assignment?.allowResubmission
       ? assignment.attempts === "yes"
-        ? Number.parseInt(assignment.maxAttempts)
+        ? Number.parseInt(assignment.maxAttempts || "1")
         : 1
       : 1
 
@@ -478,24 +484,53 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
   const confirmSubmit = async () => {
     setIsSubmitting(true)
 
-    // Simulate submission process
-    for (let i = 0; i <= 100; i += 10) {
-      await new Promise((resolve) => setTimeout(resolve, 100))
+    try {
+      // Get current user
+      const { createClient } = await import("@supabase/supabase-js")
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      const supabase = createClient(supabaseUrl, supabaseKey)
+      
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        toast.error("You must be logged in to submit")
+        setIsSubmitting(false)
+        return
+      }
+
+      // Save submission to Supabase for realtime faculty visibility
+      const { error } = await supabase
+        .from('student_code_submissions')
+        .insert({
+          student_id: user.id,
+          assignment_id: params.id,
+          code: code,
+          language: selectedLanguage?.id || 'python3',
+          status: 'submitted',
+          submitted_at: new Date().toISOString()
+        })
+
+      if (error) {
+        console.error("Submission error:", error)
+        toast.error("Failed to submit assignment")
+      } else {
+        setSubmissionCount((prev) => prev + 1)
+        setShowSubmitDialog(false)
+        setShowCelebration(true)
+        toast.success("Assignment submitted successfully!")
+      }
+    } catch (error) {
+      console.error("Submit error:", error)
+      toast.error("Failed to submit assignment")
+    } finally {
+      setIsSubmitting(false)
     }
-
-    setSubmissionCount((prev) => prev + 1)
-    setIsSubmitting(false)
-    setShowSubmitDialog(false)
-    setShowCelebration(true)
-
-    toast.success("Assignment submitted successfully!", {
-      description: `Submission ${submissionCount + 1} completed`,
-    })
 
     setTimeout(() => {
       setShowCelebration(false)
       // If marking is enabled, show auto-marking
-      if (assignment.enableMarking) {
+      if (assignment?.enableMarking) {
         // Auto-trigger evaluation after submission
         handleAutoEvaluation()
       }
@@ -515,7 +550,7 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
 📊 Code Quality: 8/10 (-4 marks)
 ⚡ Performance Bonus: Fast execution time (+5 marks)
 
-📈 Final Score: 91 / ${assignment.totalMarks} (91%)`,
+📈 Final Score: 91 / ${assignment?.totalMarks || '100'} (91%)`,
         submissionDate: new Date().toISOString(),
         studentName: "John Doe",
         percentage: 91,
@@ -538,18 +573,22 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
       return
     }
 
-    localStorage.setItem(`assignment_${assignment.id}_code`, code)
-    toast.success("Code saved locally!")
+    if (assignment?.id) {
+      localStorage.setItem(`assignment_${assignment.id}_code`, code)
+      toast.success("Code saved locally!")
+    }
   }
 
   // Load saved code on mount
   useEffect(() => {
-    const savedCode = localStorage.getItem(`assignment_${assignment.id}_code`)
-    if (savedCode) {
-      setCode(savedCode)
-      toast.info("Previous code loaded from local storage")
+    if (assignment?.id) {
+      const savedCode = localStorage.getItem(`assignment_${assignment.id}_code`)
+      if (savedCode) {
+        setCode(savedCode)
+        toast.info("Previous code loaded from local storage")
+      }
     }
-  }, [assignment.id])
+  }, [assignment?.id])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -563,9 +602,9 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
     }
   }, [cameraStream])
 
-  const maxSubmissions = assignment.allowResubmission
+  const maxSubmissions = assignment?.allowResubmission
     ? assignment.attempts === "yes"
-      ? Number.parseInt(assignment.maxAttempts)
+      ? Number.parseInt(assignment.maxAttempts || "1")
       : 1
     : 1
 
@@ -583,6 +622,15 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
           : "bg-gradient-to-br from-blue-50 via-white to-purple-50 text-gray-900"
       }`}
     >
+      {loading || !assignment || !selectedLanguage ? (
+        <div className="flex items-center justify-center h-screen">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-gray-500">Loading assignment...</p>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Animated Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -737,10 +785,10 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
             </Card>
 
             {/* Auto-marking component */}
-            {assignment.enableMarking && (
+            {assignment?.enableMarking && (
               <AutoMarkingComponent
                 submittedCode={code}
-                maxMarks={Number.parseInt(assignment.totalMarks)}
+                maxMarks={Number.parseInt(assignment?.totalMarks || "100")}
                 language={selectedLanguage.name}
                 onResult={(marks, feedback, details) => {
                   const result = {
@@ -748,7 +796,7 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
                     feedback,
                     submissionDate: new Date().toISOString(),
                     studentName: "John Doe",
-                    percentage: Math.round((marks / Number.parseInt(assignment.totalMarks)) * 100),
+                    percentage: Math.round((marks / Number.parseInt(assignment?.totalMarks || "100")) * 100),
                   }
                   setEvaluationResult(result)
                   setShowScorecard(true)
@@ -1034,6 +1082,8 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
             </AlertDescription>
           </Alert>
         </div>
+      )}
+        </>
       )}
     </div>
   )

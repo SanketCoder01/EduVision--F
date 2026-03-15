@@ -1,377 +1,376 @@
 "use client"
 
-import { DialogDescription } from "@/components/ui/dialog"
-
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import {
-  Code,
-  BookOpen,
-  GraduationCap,
-  Play,
-  Calendar,
-  User,
-  Clock,
-  Eye,
-  Camera,
-  Mic,
-  AlertTriangle,
-  Trophy,
-} from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Code, BookOpen, GraduationCap, Trophy, Clock, ArrowRight } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import { useToast } from "@/hooks/use-toast"
+import { createClient } from "@supabase/supabase-js"
 
-interface Assignment {
-  id: string
-  title: string
-  facultyName: string
-  className: string
-  givenDate: string
-  lastDate: string
-  description: string
-  language: string
-  rules: string[]
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabase = createClient(supabaseUrl, supabaseKey)
+
+interface StudentProfile {
+  department: string
+  studying_year: string
 }
 
-// Mock data for assignments
-const mockAssignments: Assignment[] = [
-  {
-    id: "1",
-    title: "Basic Calculator Implementation",
-    facultyName: "Dr. Sarah Johnson",
-    className: "Computer Science - FY",
-    givenDate: "2024-01-15",
-    lastDate: "2024-01-25",
-    description:
-      "Create a basic calculator that can perform arithmetic operations including addition, subtraction, multiplication, and division. The calculator should handle edge cases like division by zero.",
-    language: "C++",
-    rules: [
-      "No external libraries allowed except standard library",
-      "Code must be well-commented",
-      "Handle all edge cases",
-      "Submit within the deadline",
-      "No plagiarism allowed",
-    ],
-  },
-  {
-    id: "2",
-    title: "Student Management System",
-    facultyName: "Prof. Michael Chen",
-    className: "Computer Science - FY",
-    givenDate: "2024-01-20",
-    lastDate: "2024-02-05",
-    description:
-      "Develop a student management system that can add, delete, update, and display student records. Use appropriate data structures for efficient operations.",
-    language: "Java",
-    rules: [
-      "Use object-oriented programming concepts",
-      "Implement proper exception handling",
-      "Code should be modular and reusable",
-      "Include input validation",
-      "Document your code properly",
-    ],
-  },
-]
+interface CodingAssignment {
+  id: string
+  title: string
+  description: string
+  language: string
+  due_date: string
+  faculty_name: string
+  department: string
+  studying_year: string
+  status: string
+}
+
+interface CodingExam {
+  id: string
+  title: string
+  language: string
+  duration: number
+  start_time: string
+  end_time: string
+  department: string
+  studying_year: string
+  status: string
+}
 
 export default function CompilerPage() {
-  const [selectedOption, setSelectedOption] = useState<string | null>(null)
-  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null)
-  const [showPermissionDialog, setShowPermissionDialog] = useState(false)
+  const router = useRouter()
+  const { toast } = useToast()
+  const [studentId, setStudentId] = useState<string>("")
+  const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null)
+  const [assignments, setAssignments] = useState<CodingAssignment[]>([])
+  const [exams, setExams] = useState<CodingExam[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadData()
+    
+    // Set up realtime subscription for new assignments
+    const channel = supabase
+      .channel('compiler-assignments-student')
+      .on('postgres_changes', 
+        { event: 'INSERT', schema: 'public', table: 'compiler_assignments' },
+        (payload) => {
+          const newAssignment = payload.new as CodingAssignment
+          // Only add if matches student's department and year
+          if (studentProfile && 
+              newAssignment.department === studentProfile.department &&
+              (newAssignment.studying_year === studentProfile.studying_year ||
+               newAssignment.studying_year === `${studentProfile.studying_year} Year`) &&
+              newAssignment.status === 'published') {
+            setAssignments(prev => [newAssignment, ...prev])
+            toast({
+              title: "New Assignment!",
+              description: `${newAssignment.title} has been posted.`
+            })
+          }
+        }
+      )
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'compiler_exams' },
+        (payload) => {
+          const newExam = payload.new as CodingExam
+          if (studentProfile &&
+              newExam.department === studentProfile.department &&
+              (newExam.studying_year === studentProfile.studying_year ||
+               newExam.studying_year === `${studentProfile.studying_year} Year`) &&
+              ['scheduled', 'ongoing'].includes(newExam.status)) {
+            setExams(prev => [newExam, ...prev])
+            toast({
+              title: "New Exam!",
+              description: `${newExam.title} has been scheduled.`
+            })
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [studentProfile])
+
+  const loadData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setStudentId(user.id)
+        await loadStudentProfile(user.id)
+      }
+    } catch (error) {
+      console.error("Error loading data:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadStudentProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('students')
+        .select('department, year')
+        .eq('id', userId)
+        .single()
+
+      if (data) {
+        setStudentProfile({ department: data.department, studying_year: data.year })
+      }
+      if (error) throw error
+    } catch (error) {
+      console.error("Error loading student profile:", error)
+    }
+  }
+
+  const loadAssignments = async (department: string, year: string) => {
+    try {
+      // Normalize year format to match database
+      const normalizedYear = year.includes('Year') ? year : `${year} Year`
+      
+      const { data, error } = await supabase
+        .from('compiler_assignments')
+        .select('*')
+        .eq('department', department)
+        .eq('studying_year', normalizedYear)
+        .eq('status', 'published')
+        .order('due_date', { ascending: true })
+
+      if (error) {
+        console.error("Supabase error:", error)
+        throw error
+      }
+      
+      console.log("Loaded assignments for", department, normalizedYear, ":", data)
+      setAssignments(data || [])
+    } catch (error) {
+      console.error("Error loading assignments:", error)
+    }
+  }
+
+  const loadExams = async (department: string, year: string) => {
+    try {
+      const normalizedYear = year.includes('Year') ? year : `${year} Year`
+      const now = new Date().toISOString()
+      
+      const { data, error } = await supabase
+        .from('compiler_exams')
+        .select('*')
+        .eq('department', department)
+        .eq('studying_year', normalizedYear)
+        .in('status', ['scheduled', 'ongoing'])
+        .gte('end_time', now)
+        .order('start_time', { ascending: true })
+
+      if (error) {
+        console.error("Supabase error:", error)
+        throw error
+      }
+      
+      console.log("Loaded exams for", department, normalizedYear, ":", data)
+      setExams(data || [])
+    } catch (error) {
+      console.error("Error loading exams:", error)
+    }
+  }
 
   const options = [
     {
       id: "assignments",
       title: "Assignments",
-      description: "Complete coding assignments",
+      description: "Complete coding assignments from your faculty",
       icon: BookOpen,
       color: "from-blue-500 to-blue-600",
-      count: mockAssignments.length,
+      href: "/student-dashboard/compiler/assignments"
     },
     {
       id: "exams",
       title: "Exams",
-      description: "Take proctored exams",
+      description: "Take proctored coding exams",
       icon: GraduationCap,
       color: "from-red-500 to-red-600",
-      count: 2,
+      href: "/student-dashboard/compiler/exams"
     },
     {
-      id: "practice",
+      id: "free-coding",
       title: "Free Coding",
-      description: "Practice coding",
+      description: "Practice coding with auto-save",
       icon: Code,
       color: "from-green-500 to-green-600",
-      count: null,
+      href: "/student-dashboard/compiler/free-coding"
     },
     {
       id: "scorecard",
       title: "Scorecards",
-      description: "View your results",
+      description: "View your results and submissions",
       icon: Trophy,
       color: "from-yellow-500 to-orange-600",
-      count: null,
+      href: "/student-dashboard/compiler/scorecard"
     },
   ]
 
-  const handleOptionSelect = (optionId: string) => {
-    setSelectedOption(optionId)
-  }
-
-  const handleStartCoding = (assignment: Assignment) => {
-    setSelectedAssignment(assignment)
-    setShowPermissionDialog(true)
-  }
-
-  const requestPermissions = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      })
-
-      // Stop the stream immediately after getting permission
-      stream.getTracks().forEach((track) => track.stop())
-
-      toast.success("Permissions granted! Starting coding session...")
-
-      // Navigate to the proctored compiler
-      window.location.href = `/student-dashboard/compiler/code?assignment=${selectedAssignment?.id}`
-    } catch (error) {
-      toast.error("Camera and microphone access required for proctored sessions")
-    }
-  }
-
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
+      month: "short",
       day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
     })
   }
 
-  if (selectedOption === "practice") {
-    // Navigate to free coding compiler
-    window.location.href = "/student-dashboard/compiler/code"
-    return null
-  }
-
-  if (selectedOption === "scorecard") {
-    // Navigate to scorecard page
-    window.location.href = "/student-dashboard/compiler/scorecard"
-    return null
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-white">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
+    <div className="min-h-screen bg-white p-6">
       <div className="max-w-7xl mx-auto">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Code Compiler</h1>
-          <p className="text-xl text-gray-600">Choose your coding environment</p>
+        {/* Header */}
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-8">
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <Code className="w-10 h-10 text-blue-600" />
+            <h1 className="text-4xl font-bold text-gray-900">Code Compiler</h1>
+          </div>
+          <p className="text-gray-600 text-lg">Professional coding environment with Monaco Editor</p>
         </motion.div>
 
-        {!selectedOption ? (
-          <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {options.map((option, index) => (
-              <motion.div
-                key={option.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+        {/* Quick Stats */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <Card className="bg-white border-gray-200 shadow-sm">
+            <CardContent className="pt-4">
+              <div className="text-2xl font-bold text-blue-600">{assignments.length}</div>
+              <div className="text-sm text-gray-600">Assignments</div>
+            </CardContent>
+          </Card>
+          <Card className="bg-white border-gray-200 shadow-sm">
+            <CardContent className="pt-4">
+              <div className="text-2xl font-bold text-red-600">{exams.length}</div>
+              <div className="text-sm text-gray-600">Upcoming Exams</div>
+            </CardContent>
+          </Card>
+          <Card className="bg-white border-gray-200 shadow-sm">
+            <CardContent className="pt-4">
+              <div className="text-2xl font-bold text-green-600">7</div>
+              <div className="text-sm text-gray-600">Languages</div>
+            </CardContent>
+          </Card>
+          <Card className="bg-white border-gray-200 shadow-sm">
+            <CardContent className="pt-4">
+              <div className="text-2xl font-bold text-yellow-600">Auto</div>
+              <div className="text-sm text-gray-600">Save Mode</div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Main Options */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {options.map((option, index) => (
+            <motion.div
+              key={option.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1 }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <Card
+                className="cursor-pointer h-full bg-white border-gray-200 hover:border-gray-300 hover:shadow-lg transition-all duration-300 overflow-hidden"
+                onClick={() => router.push(option.href)}
               >
-                <Card
-                  className="cursor-pointer h-full hover:shadow-xl transition-all duration-300 border-0 overflow-hidden"
-                  onClick={() => handleOptionSelect(option.id)}
-                >
-                  <div className={`h-2 bg-gradient-to-r ${option.color}`} />
-                  <CardHeader className="text-center pb-3">
-                    <div
-                      className={`w-12 h-12 mx-auto rounded-full bg-gradient-to-r ${option.color} flex items-center justify-center mb-3`}
-                    >
-                      <option.icon className="h-6 w-6 text-white" />
-                    </div>
-                    <CardTitle className="text-lg">{option.title}</CardTitle>
-                    <CardDescription className="text-sm">{option.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="text-center pt-0">
-                    {option.count !== null && (
-                      <Badge variant="secondary" className="text-sm px-3 py-1">
-                        {option.count} Available
+                <div className={`h-1 bg-gradient-to-r ${option.color}`} />
+                <CardHeader className="text-center pb-3">
+                  <div className={`w-14 h-14 mx-auto rounded-xl bg-gradient-to-r ${option.color} flex items-center justify-center mb-3`}>
+                    <option.icon className="h-7 w-7 text-white" />
+                  </div>
+                  <CardTitle className="text-gray-900 text-lg">{option.title}</CardTitle>
+                  <CardDescription className="text-gray-600 text-sm">{option.description}</CardDescription>
+                </CardHeader>
+                <CardContent className="text-center pt-0">
+                  <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
+                    Open <ArrowRight className="w-4 h-4 ml-1" />
+                  </Button>
+                </CardContent>
+              </Card>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Upcoming Deadlines */}
+        {(assignments.length > 0 || exams.length > 0) && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+            <h2 className="text-xl font-semibold text-gray-900">Upcoming Deadlines</h2>
+            
+            <div className="grid md:grid-cols-2 gap-4">
+              {/* Assignments */}
+              {assignments.slice(0, 3).map(assignment => (
+                <Card key={assignment.id} className="bg-white border-gray-200 shadow-sm">
+                  <CardContent className="pt-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="text-gray-900 font-medium">{assignment.title}</h3>
+                        <p className="text-gray-600 text-sm">{assignment.faculty_name}</p>
+                      </div>
+                      <Badge variant="outline" className="border-blue-500 text-blue-600">
+                        {assignment.language}
                       </Badge>
-                    )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-3 text-sm text-gray-600">
+                      <Clock className="w-4 h-4" />
+                      Due: {formatDate(assignment.due_date)}
+                    </div>
+                    <Button 
+                      size="sm" 
+                      className="mt-3 w-full"
+                      onClick={() => router.push(`/student-dashboard/compiler/assignment/${assignment.id}`)}
+                    >
+                      Start Coding
+                    </Button>
                   </CardContent>
                 </Card>
-              </motion.div>
-            ))}
-          </div>
-        ) : selectedOption === "assignments" ? (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-3xl font-bold text-gray-900">Your Assignments</h2>
-              <Button variant="outline" onClick={() => setSelectedOption(null)}>
-                Back to Options
-              </Button>
-            </div>
+              ))}
 
-            <div className="grid gap-6">
-              {mockAssignments.map((assignment, index) => (
-                <motion.div
-                  key={assignment.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                >
-                  <Card className="hover:shadow-lg transition-all duration-300">
-                    <CardHeader>
-                      <div className="flex justify-between items-start">
-                        <div className="space-y-2">
-                          <CardTitle className="text-xl">{assignment.title}</CardTitle>
-                          <div className="flex items-center gap-4 text-sm text-gray-600">
-                            <div className="flex items-center gap-1">
-                              <User className="h-4 w-4" />
-                              {assignment.facultyName}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <BookOpen className="h-4 w-4" />
-                              {assignment.className}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-4 text-sm">
-                            <div className="flex items-center gap-1 text-green-600">
-                              <Calendar className="h-4 w-4" />
-                              Given: {formatDate(assignment.givenDate)}
-                            </div>
-                            <div className="flex items-center gap-1 text-red-600">
-                              <Clock className="h-4 w-4" />
-                              Due: {formatDate(assignment.lastDate)}
-                            </div>
-                          </div>
-                        </div>
-                        <Badge variant="outline" className="text-sm px-2 py-1">
-                          {assignment.language}
-                        </Badge>
+              {/* Exams */}
+              {exams.slice(0, 2).map(exam => (
+                <Card key={exam.id} className="bg-white border-gray-200 border-l-2 border-l-red-500 shadow-sm">
+                  <CardContent className="pt-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="text-gray-900 font-medium">{exam.title}</h3>
+                        <p className="text-gray-600 text-sm">{exam.duration} minutes</p>
                       </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex gap-2">
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button variant="outline" size="sm" className="flex items-center gap-2">
-                              <Eye className="h-4 w-4" />
-                              View Details
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-2xl">
-                            <DialogHeader>
-                              <DialogTitle className="text-2xl">{assignment.title}</DialogTitle>
-                              <DialogDescription className="text-lg">Assignment Details</DialogDescription>
-                            </DialogHeader>
-                            <div className="space-y-4">
-                              <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div>
-                                  <strong>Faculty:</strong> {assignment.facultyName}
-                                </div>
-                                <div>
-                                  <strong>Class:</strong> {assignment.className}
-                                </div>
-                                <div>
-                                  <strong>Language:</strong> {assignment.language}
-                                </div>
-                                <div>
-                                  <strong>Due Date:</strong> {formatDate(assignment.lastDate)}
-                                </div>
-                              </div>
-
-                              <div>
-                                <h4 className="font-semibold mb-2">Description:</h4>
-                                <p className="text-gray-700">{assignment.description}</p>
-                              </div>
-
-                              <div>
-                                <h4 className="font-semibold mb-2">Rules:</h4>
-                                <ul className="list-disc list-inside space-y-1 text-gray-700">
-                                  {assignment.rules.map((rule, index) => (
-                                    <li key={index}>{rule}</li>
-                                  ))}
-                                </ul>
-                              </div>
-
-                              <Button className="w-full mt-4" onClick={() => handleStartCoding(assignment)}>
-                                <Play className="h-4 w-4 mr-2" />
-                                Start Coding
-                              </Button>
-                            </div>
-                          </DialogContent>
-                        </Dialog>
-
-                        <Button
-                          size="sm"
-                          className="flex items-center gap-2"
-                          onClick={() => handleStartCoding(assignment)}
-                        >
-                          <Play className="h-4 w-4" />
-                          Start Coding
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
+                      <Badge variant="outline" className="border-red-500 text-red-600">
+                        EXAM
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2 mt-3 text-sm text-gray-600">
+                      <Clock className="w-4 h-4" />
+                      Starts: {formatDate(exam.start_time)}
+                    </div>
+                    <Button 
+                      size="sm" 
+                      className="mt-3 w-full bg-red-600 hover:bg-red-700"
+                      onClick={() => router.push(`/student-dashboard/compiler/exam/${exam.id}`)}
+                    >
+                      Enter Exam
+                    </Button>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           </motion.div>
-        ) : selectedOption === "exams" ? (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-20">
-            <GraduationCap className="h-24 w-24 mx-auto text-gray-400 mb-4" />
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">Exams Coming Soon</h2>
-            <p className="text-xl text-gray-600 mb-8">Proctored coding exams will be available soon</p>
-            <Button variant="outline" onClick={() => setSelectedOption(null)}>
-              Back to Options
-            </Button>
-          </motion.div>
-        ) : null}
-
-        {/* Permission Dialog */}
-        <Dialog open={showPermissionDialog} onOpenChange={setShowPermissionDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                Camera & Microphone Access Required
-              </DialogTitle>
-              <DialogDescription>
-                This is a proctored coding session. We need access to your camera and microphone to monitor the session.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
-                <Camera className="h-5 w-5 text-blue-600" />
-                <span className="text-sm">Camera will monitor your face during the session</span>
-              </div>
-              <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
-                <Mic className="h-5 w-5 text-blue-600" />
-                <span className="text-sm">Microphone will detect if you speak during the session</span>
-              </div>
-              <div className="bg-yellow-50 p-3 rounded-lg">
-                <p className="text-sm text-yellow-800">
-                  <strong>Warning:</strong> You will receive warnings for looking away or speaking. After 3 warnings,
-                  your session will be terminated.
-                </p>
-              </div>
-              <div className="flex gap-3">
-                <Button variant="outline" onClick={() => setShowPermissionDialog(false)} className="flex-1">
-                  Cancel
-                </Button>
-                <Button onClick={requestPermissions} className="flex-1">
-                  Allow Access & Start
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        )}
       </div>
     </div>
   )

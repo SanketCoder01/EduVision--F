@@ -52,7 +52,6 @@ const sidebarItems = [
   { icon: Calendar, label: "Timetable", href: "/student-dashboard/timetable", color: "text-red-600" },
   { icon: FileText, label: "Study Materials", href: "/student-dashboard/study-materials", color: "text-purple-600" },
   { icon: Bot, label: "AI Tutor", href: "/student-dashboard/ai-tutor", color: "text-indigo-600" },
-  { icon: GraduationCap, label: "AI Learning Assistant", href: "/student-dashboard/ai-learning-assistant", color: "text-cyan-600" },
   { icon: MessageSquare, label: "Queries", href: "/student-dashboard/queries", color: "text-indigo-600" },
   { icon: Calendar, label: "Events", href: "/student-dashboard/events", color: "text-orange-600" },
   { icon: Bell, label: "Announcements", href: "/student-dashboard/announcements", color: "text-yellow-600" },

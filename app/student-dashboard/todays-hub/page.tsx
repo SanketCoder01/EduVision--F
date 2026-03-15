@@ -306,6 +306,27 @@ export default function StudentTodaysHubPage() {
         })
       })
 
+      // Process Lost & Found items
+      data.lostFoundItems?.forEach((item: any) => {
+        items.push({
+          id: item.id,
+          type: "event",
+          title: `Lost & Found: ${item.item_name}`,
+          description: `${item.item_category} - ${item.location_found}`,
+          author: item.department,
+          time: getRelativeTime(item.created_at),
+          urgent: item.status === 'lost',
+          department: item.department,
+          redirectUrl: `/student-dashboard/other-services/lost-found`,
+          metadata: {
+            category: item.item_category,
+            location: item.location_found,
+            status: item.status
+          },
+          status: item.status
+        })
+      })
+
       // Sort by creation time (newest first)
       items.sort((a, b) => {
         const timeA = new Date(a.time.includes('ago') ? Date.now() : a.time).getTime()
@@ -408,6 +429,16 @@ export default function StudentTodaysHubPage() {
             toast({
               title: "Timetable Updated",
               description: `New timetable entry has been added.`,
+            })
+          }
+        },
+        onLostFound: (payload: RealtimePayload) => {
+          console.log('Relevant lost & found change:', payload)
+          loadTodaysHubData(user)
+          if (payload.eventType === 'INSERT') {
+            toast({
+              title: "New Lost & Found Item",
+              description: `${payload.new?.item_name || 'A new item'} has been posted.`,
             })
           }
         },

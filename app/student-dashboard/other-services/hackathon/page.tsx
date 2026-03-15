@@ -148,70 +148,157 @@ export default function StudentHackathonPage() {
     try {
       console.log("Loading hackathons for:", { studentDepartment, studentYear })
       
-      // Fetch hackathons for student's department with published status
+      // Department name mappings for matching
+      const deptMappings: Record<string, string[]> = {
+        'cse': ['cse', 'computer science', 'computer science and engineering', 'cs', 'cs&e'],
+        'aiml': ['aiml', 'ai ml', 'artificial intelligence', 'ai & ml', 'ai-ml'],
+        'aids': ['aids', 'ai ds', 'artificial intelligence and data science', 'ai-ds'],
+        'cyber': ['cyber', 'cyber security', 'cybersecurity', 'cyber security and forensics']
+      }
+      
+      // Normalize student department
+      const studentDeptLower = studentDepartment?.toLowerCase().trim()
+      let studentDeptKey = 'cse'
+      
+      for (const [key, values] of Object.entries(deptMappings)) {
+        if (values.some(v => studentDeptLower?.includes(v))) {
+          studentDeptKey = key
+          break
+        }
+      }
+      
+      console.log("Student department normalized to:", studentDeptKey, "from:", studentDepartment)
+      
+      // Fetch ALL hackathons with published status (we'll filter in JS)
       const { data, error } = await supabase
         .from("hackathons")
         .select("*")
-        .eq("department", studentDepartment)
         .in("status", ["published", "registration_open", "in_progress"])
         .order("created_at", { ascending: false })
       
-      console.log("Hackathons query result:", { data, error, count: data?.length })
+      console.log("Total hackathons query result:", { data: data?.length, error })
       
       if (data) {
-        // Normalize student year for comparison (handle different formats)
-        const normalizedYear = studentYear.toLowerCase().replace('year', '').trim()
-        const yearMappings: Record<string, string[]> = {
-          '1': ['1st', '1', 'first', 'first year'],
-          '2': ['2nd', '2', 'second', 'second year'],
-          '3': ['3rd', '3', 'third', 'third year'],
-          '4': ['4th', '4', 'fourth', 'fourth year']
-        }
+        console.log("Hackathon departments in DB:", [...new Set(data.map(h => h.department))])
         
-        console.log("Year mapping:", { normalizedYear, yearKey })
+        // First filter by department
+        const deptFiltered = data.filter(h => {
+          const hackDeptLower = h.department?.toLowerCase().trim()
+          
+          // Direct match
+          if (hackDeptLower === studentDeptLower) return true
+          
+          // Check using mappings
+          for (const [key, values] of Object.entries(deptMappings)) {
+            const studentMatches = values.some(v => studentDeptLower?.includes(v))
+            const hackMatches = values.some(v => hackDeptLower?.includes(v))
+            if (studentMatches && hackMatches) return true
+          }
+          
+          return false
+        })
+        
+        console.log("After department filter:", deptFiltered.length, "hackathons")
+        
+        // Normalize student year for comparison
+        const normalizedYear = studentYear.toLowerCase().replace(/['\s]/g, '').replace('year', '').trim()
+        
+        // Map student year to standard format
+        const yearMappings: Record<string, string[]> = {
+          '1': ['1st', '1', 'first', 'firstyear'],
+          '2': ['2nd', '2', 'second', 'secondyear'],
+          '3': ['3rd', '3', 'third', 'thirdyear'],
+          '4': ['4th', '4', 'fourth', 'fourthyear']
+        }
         
         // Find matching year key
         let yearKey = '1'
         for (const [key, values] of Object.entries(yearMappings)) {
-          if (values.some(v => normalizedYear.includes(v.toLowerCase()))) {
+          if (values.some(v => normalizedYear === v || normalizedYear.includes(v))) {
             yearKey = key
             break
           }
         }
         
-        console.log("Year mapping:", { normalizedYear, yearKey })
+        console.log("Year mapping:", { studentYear, normalizedYear, yearKey })
         
-        // Filter by target years - show if student's year matches OR all years selected
-        const filtered = data.filter(h => {
+        // Filter by target years
+        const filtered = deptFiltered.filter(h => {
           if (!h.target_years || h.target_years.length === 0) return true
           
-          // Check if all years are selected (length 4 means all)
-          if (h.target_years.length === 4) {
-            console.log(`Hackathon "${h.title}" targets all years (length 4)`)
+          // Check if all years are selected
+          const allYears = ['1st', '2nd', '3rd', '4th']
+          const hasAllYears = allYears.every(y => 
+            h.target_years.some((ty: string) => ty.toLowerCase() === y.toLowerCase())
+          )
+          if (hasAllYears) {
+            console.log(`Hackathon "${h.title}" targets all years`)
             return true
           }
           
-          // Check if student's year matches any target year format
-          const targetYearsLower = h.target_years.map((y: string) => y.toLowerCase())
-          const matchesYear = targetYearsLower.some((y: string) => {
-            return y.includes(yearKey) || 
-                   y.includes(normalizedYear) ||
-                   yearMappings[yearKey]?.some(v => y.includes(v))
-          })
+          // Check if student's year matches
+          const targetYearsLower = h.target_years.map((y: string) => y.toLowerCase().replace(/['\s]/g, ''))
+          const studentYearFormats = [
+            yearKey,
+            normalizedYear,
+            `${yearKey}st`, `${yearKey}nd`, `${yearKey}rd`, `${yearKey}th`,
+            ...(yearMappings[yearKey] || [])
+          ].map(y => y.toLowerCase().replace(/['\s]/g, ''))
+          
+          const matchesYear = targetYearsLower.some((ty: string) => 
+            studentYearFormats.some(sy => ty === sy || ty.includes(sy) || sy.includes(ty))
+          )
           console.log(`Hackathon "${h.title}" target_years:`, h.target_years, "matches:", matchesYear)
           return matchesYear
         })
+        
         setHackathons(filtered)
-        console.log(`Loaded ${filtered.length} hackathons for ${studentDepartment} year ${studentYear} (normalized: ${yearKey})`)
+        console.log(`Loaded ${filtered.length} hackathons for ${studentDepartment} (${studentDeptKey}) year ${studentYear} (${yearKey})`)
       }
     } catch (error) { console.error("Error loading hackathons:", error) } finally { setLoading(false) }
   }
 
   const loadMyTeams = async () => {
     try {
-      const { data } = await supabase.from("hackathon_teams").select("*").contains("member_prns", [studentId]).order("registered_at", { ascending: false })
-      if (data) setMyTeams(data)
-    } catch (error) { console.error("Error loading teams:", error) }
+      console.log("Loading teams for student:", studentId)
+      
+      // Query teams where the student is either the team leader OR in the members array
+      const { data, error } = await supabase
+        .from("hackathon_teams")
+        .select("*")
+        .or(`team_leader_id.eq.${studentId},members.cs.[{"prn":"${studentId}"}]`)
+        .order("registered_at", { ascending: false })
+      
+      if (error) {
+        console.error("Error loading teams:", error)
+        // Fallback: try simpler query
+        const { data: fallbackData } = await supabase
+          .from("hackathon_teams")
+          .select("*")
+          .eq("team_leader_id", studentId)
+          .order("registered_at", { ascending: false })
+        
+        if (fallbackData) {
+          console.log("Fallback teams loaded:", fallbackData.length)
+          setMyTeams(fallbackData)
+        }
+      } else {
+        console.log("Teams loaded:", data?.length || 0)
+        if (data) setMyTeams(data)
+      }
+    } catch (error) { 
+      console.error("Error loading teams:", error)
+      // Try simplest query as last resort
+      try {
+        const { data } = await supabase
+          .from("hackathon_teams")
+          .select("*")
+          .eq("team_leader_id", studentId)
+        if (data) setMyTeams(data)
+      } catch (e) {
+        console.error("Final fallback failed:", e)
+      }
+    }
   }
 
   const loadTeamFiles = async (teamId: string) => {
@@ -339,24 +426,101 @@ export default function StudentHackathonPage() {
   useEffect(() => {
     if (!studentDepartment || !studentYear) return
     
-    // Real-time subscription for hackathons
+    // Department name mappings for matching
+    const deptMappings: Record<string, string[]> = {
+      'cse': ['cse', 'computer science', 'computer science and engineering', 'cs', 'cs&e'],
+      'aiml': ['aiml', 'ai ml', 'artificial intelligence', 'ai & ml', 'ai-ml'],
+      'aids': ['aids', 'ai ds', 'artificial intelligence and data science', 'ai-ds'],
+      'cyber': ['cyber', 'cyber security', 'cybersecurity', 'cyber security and forensics']
+    }
+    
+    // Normalize student department
+    const studentDeptLower = studentDepartment?.toLowerCase().trim()
+    let studentDeptKey = 'cse'
+    
+    for (const [key, values] of Object.entries(deptMappings)) {
+      if (values.some(v => studentDeptLower?.includes(v))) {
+        studentDeptKey = key
+        break
+      }
+    }
+    
+    // Normalize year for real-time matching
+    const normalizedYear = studentYear.toLowerCase().replace(/['\s]/g, '').replace('year', '').trim()
+    const yearMappings: Record<string, string[]> = {
+      '1': ['1st', '1', 'first', 'firstyear'],
+      '2': ['2nd', '2', 'second', 'secondyear'],
+      '3': ['3rd', '3', 'third', 'thirdyear'],
+      '4': ['4th', '4', 'fourth', 'fourthyear']
+    }
+    let yearKey = '1'
+    for (const [key, values] of Object.entries(yearMappings)) {
+      if (values.some(v => normalizedYear === v || normalizedYear.includes(v))) {
+        yearKey = key
+        break
+      }
+    }
+    
+    console.log("Setting up hackathon real-time for:", { studentDepartment, studentDeptKey, studentYear, yearKey })
+    
+    // Real-time subscription for ALL hackathons (filter in JS)
     const channel = supabase
-      .channel(`hackathons-student-${studentDepartment}`)
+      .channel(`hackathons-student-${studentDeptKey}-${yearKey}`)
       .on(
         "postgres_changes", 
         { 
           event: "INSERT", 
           schema: "public", 
-          table: "hackathons",
-          filter: `department=eq.${studentDepartment}`
+          table: "hackathons"
         }, 
         (payload) => {
           const newH = payload.new as Hackathon
-          // Check if hackathon is for student's year (all years = length 4)
-          const yearMatch = !newH.target_years || 
+          console.log("New hackathon received:", newH.title, "department:", newH.department, "target_years:", newH.target_years, "status:", newH.status)
+          
+          // Check department match
+          const hackDeptLower = newH.department?.toLowerCase().trim()
+          let deptMatch = hackDeptLower === studentDeptLower
+          
+          if (!deptMatch) {
+            for (const [key, values] of Object.entries(deptMappings)) {
+              const studentMatches = values.some(v => studentDeptLower?.includes(v))
+              const hackMatches = values.some(v => hackDeptLower?.includes(v))
+              if (studentMatches && hackMatches) {
+                deptMatch = true
+                break
+              }
+            }
+          }
+          
+          if (!deptMatch) {
+            console.log("Department mismatch, skipping")
+            return
+          }
+          
+          // Check if hackathon is for student's year
+          const allYears = ['1st', '2nd', '3rd', '4th']
+          const hasAllYears = allYears.every(y => 
+            (newH.target_years || []).some((ty: string) => ty.toLowerCase() === y.toLowerCase())
+          )
+          
+          const targetYearsLower = (newH.target_years || []).map((y: string) => y.toLowerCase().replace(/['\s]/g, ''))
+          const studentYearFormats = [
+            yearKey,
+            normalizedYear,
+            `${yearKey}st`, `${yearKey}nd`, `${yearKey}rd`, `${yearKey}th`,
+            ...(yearMappings[yearKey] || [])
+          ].map(y => y.toLowerCase().replace(/['\s]/g, ''))
+          
+          const yearMatch = hasAllYears || 
+                          !newH.target_years || 
                           newH.target_years.length === 0 ||
-                          newH.target_years.length === 4
+                          targetYearsLower.some((ty: string) => 
+                            studentYearFormats.some(sy => ty === sy || ty.includes(sy) || sy.includes(ty))
+                          )
+          
           const statusOk = ['published', 'registration_open', 'in_progress'].includes(newH.status)
+          
+          console.log("Match result:", { deptMatch, yearMatch, statusOk, hasAllYears })
           
           if (yearMatch && statusOk) {
             toast({ title: "New Hackathon!", description: `${newH.title} is now open for registration` })
@@ -369,15 +533,33 @@ export default function StudentHackathonPage() {
         {
           event: "UPDATE",
           schema: "public",
-          table: "hackathons",
-          filter: `department=eq.${studentDepartment}`
+          table: "hackathons"
         },
         (payload) => {
           const updated = payload.new as Hackathon
-          setHackathons(prev => prev.map(h => h.id === updated.id ? updated : h))
+          // Only update if it's for student's department
+          const hackDeptLower = updated.department?.toLowerCase().trim()
+          let deptMatch = hackDeptLower === studentDeptLower
+          
+          if (!deptMatch) {
+            for (const [key, values] of Object.entries(deptMappings)) {
+              const studentMatches = values.some(v => studentDeptLower?.includes(v))
+              const hackMatches = values.some(v => hackDeptLower?.includes(v))
+              if (studentMatches && hackMatches) {
+                deptMatch = true
+                break
+              }
+            }
+          }
+          
+          if (deptMatch) {
+            setHackathons(prev => prev.map(h => h.id === updated.id ? updated : h))
+          }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log("Hackathon subscription status:", status)
+      })
     
     return () => { supabase.removeChannel(channel) }
   }, [studentDepartment, studentYear])

@@ -27,16 +27,13 @@ const supabase = createClient(supabaseUrl, supabaseKey)
 
 interface LostFoundItem {
   id: string
-  title: string
-  category: string
-  location: string
-  date: string
+  item_name: string
+  item_category: string
+  location_found: string
   description: string
   status: string
   image_url: string
-  reporter_name: string
-  reporter_email: string
-  reporter_phone: string
+  reporter_id: string
   department: string
   target_years: string[]
   resolved_at: string
@@ -156,14 +153,10 @@ export default function LostFoundPage() {
       let imageUrl = ""
       if (itemImage) imageUrl = await uploadImage(itemImage)
       
-      const targetYears = selectedYears.includes("all") ? ["1st", "2nd", "3rd", "4th"] : selectedYears.map(y => {
-        // Convert year format
-        const yearMap: Record<string, string> = {
-          'first': '1st', 'second': '2nd', 'third': '3rd', 'fourth': '4th',
-          '1': '1st', '2': '2nd', '3': '3rd', '4': '4th'
-        }
-        return yearMap[y] || y
-      })
+      // Items visible to ALL students across all departments and years
+      const targetYearsValue = selectedYears.includes("all") 
+        ? ["1st", "2nd", "3rd", "4th"] 
+        : selectedYears.filter(y => y !== "all")
       
       const { error } = await supabase.from("lost_found_items").insert({
         item_name: itemTitle, 
@@ -173,13 +166,15 @@ export default function LostFoundPage() {
         status: itemStatus.toLowerCase() === 'lost' ? 'found' : itemStatus.toLowerCase(), 
         image_url: imageUrl,
         reporter_id: facultyId, 
-        department: facultyDepartment, 
-        target_years: targetYears
+        reporter_name: facultyName,
+        department: facultyDepartment,
+        target_years: targetYearsValue,
+        created_at: new Date().toISOString()
       })
       
       if (error) throw error
-      toast({ title: "Success", description: `${itemStatus} item reported successfully!` })
-      setItemTitle(""); setItemCategory(""); setItemLocation(""); setItemDescription(""); setItemImage(null); setItemImagePreview(""); setSelectedYears(["all"]); setDate(new Date()); setActiveTab("browse")
+      toast({ title: "Success", description: `${itemStatus} item reported successfully! Visible to all students` })
+      setItemTitle(""); setItemCategory(""); setItemLocation(""); setItemDescription(""); setItemImage(null); setItemImagePreview(""); setDate(new Date()); setActiveTab("browse")
       loadItems()
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" })
@@ -188,7 +183,7 @@ export default function LostFoundPage() {
 
   const handleResolve = async (itemId: string) => {
     try {
-      const { error } = await supabase.from("lost_found").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", itemId)
+      const { error } = await supabase.from("lost_found_items").update({ status: "resolved", resolved_at: new Date().toISOString() }).eq("id", itemId)
       if (error) throw error
       toast({ title: "Item Resolved", description: "The item has been marked as resolved" })
       loadItems()
@@ -198,8 +193,8 @@ export default function LostFoundPage() {
   }
 
   const filteredItems = items.filter(item => {
-    const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase()) || item.description.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesCategory = selectedCategory === "All" || item.category === selectedCategory
+    const matchesSearch = item.item_name?.toLowerCase().includes(searchQuery.toLowerCase()) || item.description?.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesCategory = selectedCategory === "All" || item.item_category === selectedCategory.toLowerCase()
     const matchesStatus = selectedStatus === "All" || item.status === selectedStatus.toLowerCase()
     return matchesSearch && matchesCategory && matchesStatus
   })
@@ -266,18 +261,18 @@ export default function LostFoundPage() {
                 {filteredItems.map((item) => (
                   <Card key={item.id} className="overflow-hidden">
                     <div className="relative">
-                      {item.image_url ? <img src={item.image_url} alt={item.title} className="w-full h-48 object-cover" /> : <div className="w-full h-48 bg-gray-100 flex items-center justify-center"><Info className="h-10 w-10 text-gray-300" /></div>}
+                      {item.image_url ? <img src={item.image_url} alt={item.item_name} className="w-full h-48 object-cover" /> : <div className="w-full h-48 bg-gray-100 flex items-center justify-center"><Info className="h-10 w-10 text-gray-300" /></div>}
                       <Badge className={cn("absolute top-2 right-2", getStatusColor(item.status))}>{item.status}</Badge>
                     </div>
                     <CardHeader className="pb-2">
-                      <CardTitle>{item.title}</CardTitle>
+                      <CardTitle>{item.item_name}</CardTitle>
                       <div className="flex items-center text-sm text-gray-500 mt-1">
-                        <Badge variant="outline" className="mr-2">{item.category}</Badge>
-                        <span className="flex items-center"><CalendarIcon className="h-4 w-4 mr-1" />{format(new Date(item.date), "PP")}</span>
+                        <Badge variant="outline" className="mr-2">{item.item_category}</Badge>
+                        <span className="flex items-center"><CalendarIcon className="h-4 w-4 mr-1" />{format(new Date(item.created_at), "PP")}</span>
                       </div>
                     </CardHeader>
                     <CardContent className="pb-2">
-                      <div className="flex items-start mb-2"><MapPin className="h-4 w-4 text-gray-400 mr-1 mt-0.5" /><p className="text-sm text-gray-600">{item.location}</p></div>
+                      <div className="flex items-start mb-2"><MapPin className="h-4 w-4 text-gray-400 mr-1 mt-0.5" /><p className="text-sm text-gray-600">{item.location_found}</p></div>
                       <p className="text-sm text-gray-700 line-clamp-2">{item.description}</p>
                       <div className="flex flex-wrap gap-1 mt-2">{item.target_years.map(y => <Badge key={y} variant="outline" className="text-xs">{y} Year</Badge>)}</div>
                     </CardContent>
@@ -310,7 +305,9 @@ export default function LostFoundPage() {
                           {itemImagePreview ? <div className="relative"><img src={itemImagePreview} alt="Preview" className="mx-auto max-h-[150px] rounded-lg" /><Button type="button" variant="destructive" size="sm" className="absolute top-2 right-2" onClick={() => { setItemImage(null); setItemImagePreview("") }}>Remove</Button></div> : <div><Input id="image" type="file" accept="image/*" onChange={handleImageChange} className="hidden" /><Button type="button" variant="outline" onClick={() => document.getElementById("image")?.click()}><Upload className="h-4 w-4 mr-2" /> Upload</Button></div>}
                         </div>
                       </div>
-                      <div className="space-y-2"><Label>Target Years</Label><div className="grid grid-cols-2 gap-2">{years.map(y => <div key={y.id} className="flex items-center space-x-2"><Checkbox id={y.id} checked={selectedYears.includes(y.id)} onCheckedChange={(checked) => handleYearChange(y.id, checked as boolean)} /><Label htmlFor={y.id} className="text-sm cursor-pointer">{y.name}</Label></div>)}</div></div>
+                      <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <p className="text-sm text-blue-700">📢 This item will be visible to <strong>ALL students</strong> across all departments and years.</p>
+                      </div>
                     </div>
                   </div>
                   <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setActiveTab("browse")}>Cancel</Button><Button type="submit" disabled={submitting}>{submitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Submitting...</> : "Submit Report"}</Button></div>
@@ -338,7 +335,9 @@ export default function LostFoundPage() {
                           {itemImagePreview ? <div className="relative"><img src={itemImagePreview} alt="Preview" className="mx-auto max-h-[150px] rounded-lg" /><Button type="button" variant="destructive" size="sm" className="absolute top-2 right-2" onClick={() => { setItemImage(null); setItemImagePreview("") }}>Remove</Button></div> : <div><Input id="image2" type="file" accept="image/*" onChange={handleImageChange} className="hidden" /><Button type="button" variant="outline" onClick={() => document.getElementById("image2")?.click()}><Upload className="h-4 w-4 mr-2" /> Upload</Button></div>}
                         </div>
                       </div>
-                      <div className="space-y-2"><Label>Target Years</Label><div className="grid grid-cols-2 gap-2">{years.map(y => <div key={y.id} className="flex items-center space-x-2"><Checkbox id={`found-${y.id}`} checked={selectedYears.includes(y.id)} onCheckedChange={(checked) => handleYearChange(y.id, checked as boolean)} /><Label htmlFor={`found-${y.id}`} className="text-sm cursor-pointer">{y.name}</Label></div>)}</div></div>
+                      <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <p className="text-sm text-blue-700">📢 This item will be visible to <strong>ALL students</strong> across all departments and years.</p>
+                      </div>
                     </div>
                   </div>
                   <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setActiveTab("browse")}>Cancel</Button><Button type="submit" disabled={submitting}>{submitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Submitting...</> : "Submit Report"}</Button></div>
@@ -350,18 +349,17 @@ export default function LostFoundPage() {
 
         <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
           <DialogContent className="max-w-lg">
-            <DialogHeader><DialogTitle>{selectedItem?.title}</DialogTitle><DialogDescription>{selectedItem?.category}</DialogDescription></DialogHeader>
+            <DialogHeader><DialogTitle>{selectedItem?.item_name}</DialogTitle><DialogDescription>{selectedItem?.item_category}</DialogDescription></DialogHeader>
             {selectedItem && (
               <div className="space-y-4">
-                {selectedItem.image_url && <img src={selectedItem.image_url} alt={selectedItem.title} className="w-full h-48 object-cover rounded-lg" />}
+                {selectedItem.image_url && <img src={selectedItem.image_url} alt={selectedItem.item_name} className="w-full h-48 object-cover rounded-lg" />}
                 <div className="grid grid-cols-2 gap-4">
-                  <div><Label className="text-sm text-gray-500">Location</Label><p className="text-sm flex items-center gap-1"><MapPin className="h-4 w-4" />{selectedItem.location}</p></div>
-                  <div><Label className="text-sm text-gray-500">Date</Label><p className="text-sm flex items-center gap-1"><CalendarIcon className="h-4 w-4" />{format(new Date(selectedItem.date), "PP")}</p></div>
+                  <div><Label className="text-sm text-gray-500">Location</Label><p className="text-sm flex items-center gap-1"><MapPin className="h-4 w-4" />{selectedItem.location_found}</p></div>
+                  <div><Label className="text-sm text-gray-500">Date</Label><p className="text-sm flex items-center gap-1"><CalendarIcon className="h-4 w-4" />{format(new Date(selectedItem.created_at), "PP")}</p></div>
                   <div><Label className="text-sm text-gray-500">Status</Label><Badge className={getStatusColor(selectedItem.status)}>{selectedItem.status}</Badge></div>
-                  <div><Label className="text-sm text-gray-500">Reported By</Label><p className="text-sm">{selectedItem.reporter_name}</p></div>
+                  <div><Label className="text-sm text-gray-500">Department</Label><p className="text-sm">{selectedItem.department}</p></div>
                 </div>
                 <div><Label className="text-sm text-gray-500">Description</Label><p className="text-sm mt-1">{selectedItem.description}</p></div>
-                <div><Label className="text-sm text-gray-500">Target Years</Label><div className="flex flex-wrap gap-1 mt-1">{selectedItem.target_years.map(y => <Badge key={y} variant="outline">{y} Year</Badge>)}</div></div>
               </div>
             )}
             <DialogFooter><Button variant="outline" onClick={() => setShowDetailsDialog(false)}>Close</Button></DialogFooter>

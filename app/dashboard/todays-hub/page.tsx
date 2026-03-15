@@ -188,6 +188,27 @@ export default function FacultyTodaysHubPage() {
         })
       })
       
+      // Process Lost & Found items
+      data.lostFoundItems?.forEach((item: any) => {
+        items.push({
+          id: item.id,
+          type: "announcement",
+          title: `Lost & Found: ${item.item_name}`,
+          description: `${item.item_category} - ${item.location_found}`,
+          author: item.reporter_id === user.id ? "You" : item.department,
+          time: getRelativeTime(item.created_at),
+          urgent: item.status === 'lost',
+          department: item.department,
+          redirectUrl: `/dashboard/other-services/lost-found`,
+          metadata: {
+            category: item.item_category,
+            location: item.location_found,
+            status: item.status
+          },
+          status: item.status
+        })
+      })
+      
       // Sort by creation time (newest first)
       items.sort((a, b) => {
         const timeA = new Date(a.time.includes('ago') ? Date.now() : a.time).getTime()

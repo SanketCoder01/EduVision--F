@@ -28,6 +28,11 @@ import {
   Settings
 } from "lucide-react"
 import AIQuestionGenerator from "@/components/ai/AIQuestionGenerator"
+import { createClient } from "@supabase/supabase-js"
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 interface AssignmentData {
   title: string
@@ -51,6 +56,19 @@ interface AssignmentData {
   uploadedFile?: File
   aiQuestions: any[]
   useAIQuestions: boolean
+  manualQuestions: ManualQuestion[]
+  pdfPreviewUrl?: string
+}
+
+interface ManualQuestion {
+  id: string
+  title: string
+  description: string
+  marks: number
+  difficulty: 'easy' | 'medium' | 'hard'
+  sampleInput?: string
+  sampleOutput?: string
+  constraints?: string
 }
 
 export default function CreateCompilerAssignment() {
@@ -59,6 +77,7 @@ export default function CreateCompilerAssignment() {
   const [currentStep, setCurrentStep] = useState(1)
   const [showAIConfirmation, setShowAIConfirmation] = useState(false)
   const [validationErrors, setValidationErrors] = useState<{[key: string]: boolean}>({})
+  const [facultyProfile, setFacultyProfile] = useState<{name: string, department: string} | null>(null)
 
   const [assignmentData, setAssignmentData] = useState<AssignmentData>({
     title: "",
@@ -81,32 +100,71 @@ export default function CreateCompilerAssignment() {
     questionGenerationMethod: 'manual',
     uploadedFile: undefined,
     aiQuestions: [],
-    useAIQuestions: false
+    useAIQuestions: false,
+    manualQuestions: [],
+    pdfPreviewUrl: undefined
   })
 
   useEffect(() => {
-    setAssignmentData(prev => ({
-      ...prev,
-      facultyName: "Dr. Sarah Johnson" // This would come from user session
-    }))
+    loadFacultyProfile()
   }, [])
+
+  const loadFacultyProfile = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data, error } = await supabase
+          .from('faculty')
+          .select('name, department')
+          .eq('id', user.id)
+          .single()
+        
+        if (data) {
+          setFacultyProfile({ name: data.name, department: data.department })
+          setAssignmentData(prev => ({
+            ...prev,
+            facultyName: data.name || "",
+            department: data.department || ""
+          }))
+        }
+      }
+    } catch (error) {
+      console.error("Error loading faculty profile:", error)
+    }
+  }
 
   const canProceedToNextStep = () => {
     if (currentStep === 1) {
-      // Basic Info step validation
-      return assignmentData.title.trim() && 
-             assignmentData.facultyName.trim() && 
-             assignmentData.dueDate && 
-             assignmentData.dueTime && 
-             assignmentData.department && 
-             assignmentData.studyingYear && 
-             assignmentData.language && 
-             assignmentData.totalMarks.trim() && 
-             assignmentData.passingMarks.trim()
+      // Basic Info step validation - department and facultyName are auto-filled from profile, not mandatory
+      const validation = {
+        title: assignmentData.title.trim() !== '',
+        dueDate: !!assignmentData.dueDate,
+        dueTime: !!assignmentData.dueTime,
+        studyingYear: !!assignmentData.studyingYear,
+        language: !!assignmentData.language,
+        totalMarks: assignmentData.totalMarks.trim() !== '',
+        passingMarks: assignmentData.passingMarks.trim() !== ''
+      }
+      
+      console.log('Step 1 Validation:', validation)
+      console.log('Assignment Data:', assignmentData)
+      
+      return Object.values(validation).every(v => v === true)
     }
     if (currentStep === 2) {
-      // Content step validation
-      return assignmentData.description.trim() && assignmentData.instructions.trim()
+      // Content step validation - must have description, instructions, AND questions
+      const hasDescription = assignmentData.description.trim() !== ''
+      const hasInstructions = assignmentData.instructions.trim() !== ''
+      
+      // Check if at least one question source is provided
+      const hasAIQuestions = assignmentData.aiQuestions.length > 0
+      const hasUploadedFile = assignmentData.uploadedFile !== undefined
+      const hasManualQuestions = assignmentData.manualQuestions.length > 0 && 
+        assignmentData.manualQuestions.every(q => q.title.trim() !== '' && q.description.trim() !== '')
+      
+      const hasQuestions = hasAIQuestions || hasUploadedFile || hasManualQuestions
+      
+      return !!(hasDescription && hasInstructions && hasQuestions)
     }
     return true
   }
@@ -126,6 +184,21 @@ export default function CreateCompilerAssignment() {
 
   const handleNext = () => {
     if (!canProceedToNextStep()) {
+      if (currentStep === 2) {
+        const hasQuestions = assignmentData.aiQuestions.length > 0 || 
+          assignmentData.uploadedFile !== undefined || 
+          (assignmentData.manualQuestions.length > 0 && 
+            assignmentData.manualQuestions.every(q => q.title.trim() !== '' && q.description.trim() !== ''))
+        
+        if (!hasQuestions) {
+          toast({
+            title: "Questions Required",
+            description: "Please add questions using AI generation, file upload, or manual entry before proceeding.",
+            variant: "destructive"
+          })
+          return
+        }
+      }
       toast({
         title: "Missing Required Fields",
         description: "Please fill all mandatory fields before proceeding.",
@@ -140,7 +213,7 @@ export default function CreateCompilerAssignment() {
     setCurrentStep(prev => Math.max(prev - 1, 1))
   }
 
-  const handlePublish = () => {
+  const handlePublish = async () => {
     if (!canProceedToNextStep()) {
       toast({
         title: "Missing Required Fields",
@@ -151,27 +224,51 @@ export default function CreateCompilerAssignment() {
     }
 
     try {
-      const newAssignment = {
-        id: Date.now(),
-        ...assignmentData,
-        isExam: false,
-        status: "active",
-        createdAt: new Date().toISOString(),
-        submissions: 0,
-        totalStudents: 0
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast({
+          title: "Error",
+          description: "You must be logged in to create an assignment.",
+          variant: "destructive"
+        })
+        return
       }
 
-      const existingAssignments = JSON.parse(localStorage.getItem("coding_assignments") || "[]")
-      const updatedAssignments = [...existingAssignments, newAssignment]
-      localStorage.setItem("coding_assignments", JSON.stringify(updatedAssignments))
+      // Combine date and time for due_date
+      const dueDateTime = new Date(`${assignmentData.dueDate}T${assignmentData.dueTime}`)
+
+      // Save to Supabase
+      const { error } = await supabase
+        .from('compiler_assignments')
+        .insert({
+          title: assignmentData.title,
+          faculty_name: assignmentData.facultyName || facultyProfile?.name || '',
+          faculty_id: user.id,
+          department: assignmentData.department || facultyProfile?.department || '',
+          studying_year: assignmentData.studyingYear,
+          language: assignmentData.language,
+          description: assignmentData.description,
+          instructions: assignmentData.instructions,
+          total_marks: parseInt(assignmentData.totalMarks) || 100,
+          passing_marks: parseInt(assignmentData.passingMarks) || 40,
+          due_date: dueDateTime.toISOString(),
+          questions: assignmentData.aiQuestions.length > 0 
+            ? assignmentData.aiQuestions 
+            : assignmentData.manualQuestions,
+          question_generation_method: assignmentData.aiQuestions.length > 0 ? 'ai' : 'manual',
+          status: 'published'
+        })
+
+      if (error) throw error
       
       toast({
-        title: "Assignment Created",
-        description: "Your coding assignment has been created successfully."
+        title: "Assignment Published!",
+        description: `Assignment created for ${facultyProfile?.department} - ${assignmentData.studyingYear} students.`
       })
       
       router.push('/dashboard/compiler/view-assignments')
     } catch (error) {
+      console.error("Error creating assignment:", error)
       toast({
         title: "Error",
         description: "Failed to create assignment. Please try again.",
@@ -305,14 +402,21 @@ export default function CreateCompilerAssignment() {
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700 mb-2 block">
-                        Faculty Name <span className="text-red-500">*</span>
+                        Faculty Name
                       </label>
-                      <Input
-                        value={assignmentData.facultyName}
-                        onChange={(e) => handleInputChange("facultyName", e.target.value)}
-                        className="h-12"
-                        disabled
-                      />
+                      <div className="relative">
+                        <Input
+                          value={assignmentData.facultyName || facultyProfile?.name || ""}
+                          className="h-12 bg-gray-100 cursor-not-allowed font-medium"
+                          disabled
+                        />
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            Locked
+                          </Badge>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">Auto-filled from your profile: {facultyProfile?.name || assignmentData.facultyName || "Loading..."}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -340,19 +444,21 @@ export default function CreateCompilerAssignment() {
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700 mb-2 block">
-                        Department <span className="text-red-500">*</span>
+                        Department
                       </label>
-                      <Select value={assignmentData.department} onValueChange={(value) => handleInputChange("department", value)}>
-                        <SelectTrigger className="h-12">
-                          <SelectValue placeholder="Select Department" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="CSE">Computer Science Engineering</SelectItem>
-                          <SelectItem value="AIDS">AI & Data Science</SelectItem>
-                          <SelectItem value="AIML">AI & Machine Learning</SelectItem>
-                          <SelectItem value="IT">Information Technology</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <div className="relative">
+                        <Input
+                          value={assignmentData.department || facultyProfile?.department || ""}
+                          className="h-12 bg-gray-100 cursor-not-allowed font-medium"
+                          disabled
+                        />
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            Locked
+                          </Badge>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">Auto-filled from your profile: {facultyProfile?.department || assignmentData.department || "Loading..."}</p>
                     </div>
                   </div>
                   
@@ -385,8 +491,21 @@ export default function CreateCompilerAssignment() {
                           <SelectItem value="Java">Java</SelectItem>
                           <SelectItem value="Python">Python</SelectItem>
                           <SelectItem value="C++">C++</SelectItem>
-                          <SelectItem value="JavaScript">JavaScript</SelectItem>
                           <SelectItem value="C">C</SelectItem>
+                          <SelectItem value="JavaScript">JavaScript</SelectItem>
+                          <SelectItem value="TypeScript">TypeScript</SelectItem>
+                          <SelectItem value="C#">C#</SelectItem>
+                          <SelectItem value="Go">Go</SelectItem>
+                          <SelectItem value="Rust">Rust</SelectItem>
+                          <SelectItem value="Kotlin">Kotlin</SelectItem>
+                          <SelectItem value="Swift">Swift</SelectItem>
+                          <SelectItem value="PHP">PHP</SelectItem>
+                          <SelectItem value="Ruby">Ruby</SelectItem>
+                          <SelectItem value="Scala">Scala</SelectItem>
+                          <SelectItem value="Perl">Perl</SelectItem>
+                          <SelectItem value="Bash">Bash</SelectItem>
+                          <SelectItem value="SQL">SQL</SelectItem>
+                          <SelectItem value="R">R</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -508,7 +627,7 @@ export default function CreateCompilerAssignment() {
 
                     {/* File Upload */}
                     {assignmentData.questionGenerationMethod === 'upload' && (
-                      <div className="mt-6">
+                      <div className="mt-6 space-y-4">
                         <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
                           <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                           <p className="text-gray-600 mb-2">Upload PDF or DOCX file with questions</p>
@@ -519,6 +638,10 @@ export default function CreateCompilerAssignment() {
                               const file = e.target.files?.[0]
                               if (file) {
                                 handleInputChange("uploadedFile", file)
+                                if (file.type === 'application/pdf') {
+                                  const url = URL.createObjectURL(file)
+                                  handleInputChange("pdfPreviewUrl", url)
+                                }
                                 toast({
                                   title: "File Uploaded",
                                   description: `${file.name} has been uploaded successfully.`
@@ -528,6 +651,212 @@ export default function CreateCompilerAssignment() {
                             className="max-w-xs mx-auto"
                           />
                         </div>
+                        
+                        {assignmentData.uploadedFile && (
+                          <div className="border rounded-lg p-4 bg-gray-50">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <FileText className="w-5 h-5 text-blue-600" />
+                                <span className="font-medium">{assignmentData.uploadedFile.name}</span>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  handleInputChange("uploadedFile", undefined)
+                                  handleInputChange("pdfPreviewUrl", undefined)
+                                }}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                            
+                            {assignmentData.pdfPreviewUrl && (
+                              <div className="mt-3">
+                                <p className="text-sm font-medium mb-2">Preview:</p>
+                                <iframe
+                                  src={assignmentData.pdfPreviewUrl}
+                                  className="w-full h-64 border rounded"
+                                  title="PDF Preview"
+                                />
+                              </div>
+                            )}
+                            
+                            <p className="text-xs text-gray-500 mt-2">
+                              Questions will be extracted from this file when you publish the assignment.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Manual Entry */}
+                    {assignmentData.questionGenerationMethod === 'manual' && (
+                      <div className="mt-6 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-medium">Questions</h4>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const newQuestion: ManualQuestion = {
+                                id: Date.now().toString(),
+                                title: '',
+                                description: '',
+                                marks: 10,
+                                difficulty: 'medium',
+                                sampleInput: '',
+                                sampleOutput: '',
+                                constraints: ''
+                              }
+                              setAssignmentData(prev => ({
+                                ...prev,
+                                manualQuestions: [...prev.manualQuestions, newQuestion]
+                              }))
+                            }}
+                          >
+                            + Add Question
+                          </Button>
+                        </div>
+                        
+                        {assignmentData.manualQuestions.length === 0 && (
+                          <div className="text-center py-8 text-gray-500 border rounded-lg">
+                            <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                            <p>No questions added yet. Click "Add Question" to start.</p>
+                          </div>
+                        )}
+                        
+                        {assignmentData.manualQuestions.map((question, index) => (
+                          <div key={question.id} className="border rounded-lg p-4 bg-gray-50 space-y-4">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium">Question {index + 1}</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setAssignmentData(prev => ({
+                                    ...prev,
+                                    manualQuestions: prev.manualQuestions.filter(q => q.id !== question.id)
+                                  }))
+                                }}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-sm font-medium mb-1 block">Title</label>
+                                <Input
+                                  value={question.title}
+                                  onChange={(e) => {
+                                    const updated = assignmentData.manualQuestions.map(q =>
+                                      q.id === question.id ? { ...q, title: e.target.value } : q
+                                    )
+                                    setAssignmentData(prev => ({ ...prev, manualQuestions: updated }))
+                                  }}
+                                  placeholder="e.g., Array Sum"
+                                />
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-sm font-medium mb-1 block">Marks</label>
+                                  <Input
+                                    type="number"
+                                    value={question.marks}
+                                    onChange={(e) => {
+                                      const updated = assignmentData.manualQuestions.map(q =>
+                                        q.id === question.id ? { ...q, marks: parseInt(e.target.value) || 0 } : q
+                                      )
+                                      setAssignmentData(prev => ({ ...prev, manualQuestions: updated }))
+                                    }}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-sm font-medium mb-1 block">Difficulty</label>
+                                  <Select
+                                    value={question.difficulty}
+                                    onValueChange={(value) => {
+                                      const updated = assignmentData.manualQuestions.map(q =>
+                                        q.id === question.id ? { ...q, difficulty: value as 'easy' | 'medium' | 'hard' } : q
+                                      )
+                                      setAssignmentData(prev => ({ ...prev, manualQuestions: updated }))
+                                    }}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="easy">Easy</SelectItem>
+                                      <SelectItem value="medium">Medium</SelectItem>
+                                      <SelectItem value="hard">Hard</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div>
+                              <label className="text-sm font-medium mb-1 block">Description</label>
+                              <Textarea
+                                value={question.description}
+                                onChange={(e) => {
+                                  const updated = assignmentData.manualQuestions.map(q =>
+                                    q.id === question.id ? { ...q, description: e.target.value } : q
+                                  )
+                                  setAssignmentData(prev => ({ ...prev, manualQuestions: updated }))
+                                }}
+                                placeholder="Describe the problem..."
+                                className="min-h-20"
+                              />
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-sm font-medium mb-1 block">Sample Input</label>
+                                <Textarea
+                                  value={question.sampleInput}
+                                  onChange={(e) => {
+                                    const updated = assignmentData.manualQuestions.map(q =>
+                                      q.id === question.id ? { ...q, sampleInput: e.target.value } : q
+                                    )
+                                    setAssignmentData(prev => ({ ...prev, manualQuestions: updated }))
+                                  }}
+                                  placeholder="5 10 15 20 25"
+                                  className="min-h-16 font-mono text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium mb-1 block">Sample Output</label>
+                                <Textarea
+                                  value={question.sampleOutput}
+                                  onChange={(e) => {
+                                    const updated = assignmentData.manualQuestions.map(q =>
+                                      q.id === question.id ? { ...q, sampleOutput: e.target.value } : q
+                                    )
+                                    setAssignmentData(prev => ({ ...prev, manualQuestions: updated }))
+                                  }}
+                                  placeholder="75"
+                                  className="min-h-16 font-mono text-sm"
+                                />
+                              </div>
+                            </div>
+                            
+                            <div>
+                              <label className="text-sm font-medium mb-1 block">Constraints</label>
+                              <Input
+                                value={question.constraints}
+                                onChange={(e) => {
+                                  const updated = assignmentData.manualQuestions.map(q =>
+                                    q.id === question.id ? { ...q, constraints: e.target.value } : q
+                                  )
+                                  setAssignmentData(prev => ({ ...prev, manualQuestions: updated }))
+                                }}
+                                placeholder="1 ≤ n ≤ 1000"
+                              />
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -622,16 +951,31 @@ export default function CreateCompilerAssignment() {
                   <ArrowLeft className="w-4 h-4" />
                   Previous
                 </Button>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
                   {currentStep < 3 ? (
-                    <Button 
-                      onClick={handleNext} 
-                      disabled={!canProceedToNextStep()}
-                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                    >
-                      Next
-                      <ArrowRight className="w-4 h-4" />
-                    </Button>
+                    <>
+                      {currentStep === 1 && !canProceedToNextStep() && (
+                        <div className="text-xs text-red-600 mr-2">
+                          Missing: {[
+                            !assignmentData.title.trim() && 'Title',
+                            !assignmentData.dueDate && 'Due Date',
+                            !assignmentData.dueTime && 'Due Time',
+                            !assignmentData.studyingYear && 'Year',
+                            !assignmentData.language && 'Language',
+                            !assignmentData.totalMarks.trim() && 'Total Marks',
+                            !assignmentData.passingMarks.trim() && 'Passing Marks'
+                          ].filter(Boolean).join(', ')}
+                        </div>
+                      )}
+                      <Button 
+                        onClick={handleNext} 
+                        disabled={!canProceedToNextStep()}
+                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                      >
+                        Next
+                        <ArrowRight className="w-4 h-4" />
+                      </Button>
+                    </>
                   ) : (
                     <Button onClick={handlePublish} className="bg-green-600 hover:bg-green-700 flex items-center gap-2">
                       <Save className="w-4 h-4" />

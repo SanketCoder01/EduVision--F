@@ -123,15 +123,111 @@ ALTER TABLE hackathons ALTER COLUMN status SET DEFAULT 'published';
 ALTER TABLE hackathons ALTER COLUMN department SET DEFAULT 'CSE';
 
 -- ============================================================================
--- 5. FIX LOST_FOUND_ITEMS TABLE
+-- 5. FIX LOST_FOUND_ITEMS TABLE - COMPREHENSIVE FIX
 -- ============================================================================
 
--- Ensure target_years exists
+-- Step 1: Drop all foreign key constraints first
 DO $$
 BEGIN
+  -- Drop reporter_id foreign key
+  ALTER TABLE lost_found_items DROP CONSTRAINT IF EXISTS lost_found_items_reporter_id_fkey;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Could not drop reporter_id foreign key: %', SQLERRM;
+END $$;
+
+-- Step 2: Drop NOT NULL constraints
+DO $$
+BEGIN
+  ALTER TABLE lost_found_items ALTER COLUMN reporter_id DROP NOT NULL;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Could not drop NOT NULL from reporter_id: %', SQLERRM;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE lost_found_items ALTER COLUMN department DROP NOT NULL;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Could not drop NOT NULL from department: %', SQLERRM;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE lost_found_items ALTER COLUMN item_name DROP NOT NULL;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Could not drop NOT NULL from item_name: %', SQLERRM;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE lost_found_items ALTER COLUMN item_category DROP NOT NULL;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Could not drop NOT NULL from item_category: %', SQLERRM;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE lost_found_items ALTER COLUMN location_found DROP NOT NULL;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Could not drop NOT NULL from location_found: %', SQLERRM;
+END $$;
+
+-- Step 3: Add missing columns if they don't exist
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'lost_found_items' AND column_name = 'reporter_id') THEN
+    ALTER TABLE lost_found_items ADD COLUMN reporter_id UUID;
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'lost_found_items' AND column_name = 'department') THEN
+    ALTER TABLE lost_found_items ADD COLUMN department TEXT;
+  END IF;
+  
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'lost_found_items' AND column_name = 'target_years') THEN
     ALTER TABLE lost_found_items ADD COLUMN target_years TEXT[] DEFAULT ARRAY['1st', '2nd', '3rd', '4th'];
   END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'lost_found_items' AND column_name = 'item_category') THEN
+    ALTER TABLE lost_found_items ADD COLUMN item_category TEXT DEFAULT 'electronics';
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'lost_found_items' AND column_name = 'item_name') THEN
+    ALTER TABLE lost_found_items ADD COLUMN item_name TEXT;
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'lost_found_items' AND column_name = 'location_found') THEN
+    ALTER TABLE lost_found_items ADD COLUMN location_found TEXT;
+  END IF;
+  
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'lost_found_items' AND column_name = 'status') THEN
+    ALTER TABLE lost_found_items ADD COLUMN status TEXT DEFAULT 'found';
+  END IF;
+END $$;
+
+-- Step 4: Re-add foreign key constraint (nullable)
+DO $$
+BEGIN
+  ALTER TABLE lost_found_items ADD CONSTRAINT lost_found_items_reporter_id_fkey 
+    FOREIGN KEY (reporter_id) REFERENCES faculty(id) ON DELETE CASCADE;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Could not add foreign key: %', SQLERRM;
+END $$;
+
+-- Step 5: Update existing NULL values to defaults
+DO $$
+BEGIN
+  UPDATE lost_found_items SET status = 'found' WHERE status IS NULL;
+  UPDATE lost_found_items SET item_category = 'electronics' WHERE item_category IS NULL;
+  UPDATE lost_found_items SET department = 'CSE' WHERE department IS NULL;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Could not update NULL values: %', SQLERRM;
 END $$;
 
 -- ============================================================================

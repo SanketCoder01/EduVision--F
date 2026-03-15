@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
+import { createClient } from "@supabase/supabase-js"
 import { 
   ArrowLeft,
   Eye,
@@ -21,143 +22,165 @@ import {
   Play,
   Pause,
   Square,
-  FileText
+  FileText,
+  Code,
+  Trash2,
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react"
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabase = createClient(supabaseUrl, supabaseKey)
+
 interface Exam {
-  id: number
+  id: string
   title: string
-  facultyName: string
+  faculty_name: string
+  faculty_id: string
   department: string
-  studyingYear: string
+  studying_year: string
   language: string
-  createdDate: string
-  examDate: string
-  startTime: string
-  endTime: string
-  duration: string
-  totalMarks: string
-  status: 'draft' | 'scheduled' | 'ongoing' | 'completed' | 'cancelled'
-  studentsEnrolled: number
-  submissions: number
+  created_at: string
+  start_time: string
+  end_time: string
+  duration: number
+  total_marks: number
+  passing_marks: number
+  status: string
   description: string
-  questions: number
-  securitySettings: {
-    cameraRequired: boolean
-    microphoneRequired: boolean
-    tabSwitchLimit: number
-    fullScreenRequired: boolean
-  }
+  instructions: string
+  questions: any[]
+  enable_proctoring: boolean
+  submissions_count?: number
+}
+
+interface Submission {
+  id: string
+  student_id: string
+  student_name: string
+  student_email: string
+  exam_id: string
+  code: string
+  language: string
+  output: string
+  status: string
+  marks_obtained: number
+  submitted_at: string
+  violation_count?: number
+  violation_types?: string[]
+  question_index: number
 }
 
 export default function ViewExams() {
   const router = useRouter()
   const { toast } = useToast()
+  const [exams, setExams] = useState<Exam[]>([])
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null)
+  const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [selectedSubmission, setSelectedSubmission] = useState<Submission | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [facultyId, setFacultyId] = useState<string>("")
 
-  // Mock exams data
-  const [exams, setExams] = useState<Exam[]>([
-    {
-      id: 1,
-      title: "Java Programming Final Exam",
-      facultyName: "Dr. Sarah Johnson",
-      department: "CSE",
-      studyingYear: "2nd Year",
-      language: "Java",
-      createdDate: "2024-01-10",
-      examDate: "2024-01-15",
-      startTime: "10:00 AM",
-      endTime: "01:00 PM",
-      duration: "3 hours",
-      totalMarks: "100",
-      status: "completed",
-      studentsEnrolled: 28,
-      submissions: 25,
-      description: "Comprehensive Java programming exam covering OOP concepts, data structures, and algorithms.",
-      questions: 5,
-      securitySettings: {
-        cameraRequired: true,
-        microphoneRequired: true,
-        tabSwitchLimit: 3,
-        fullScreenRequired: true
-      }
-    },
-    {
-      id: 2,
-      title: "Python Data Science Exam",
-      facultyName: "Dr. Sarah Johnson",
-      department: "CSE",
-      studyingYear: "3rd Year",
-      language: "Python",
-      createdDate: "2024-01-08",
-      examDate: "2024-01-12",
-      startTime: "02:00 PM",
-      endTime: "04:30 PM",
-      duration: "2.5 hours",
-      totalMarks: "80",
-      status: "completed",
-      studentsEnrolled: 25,
-      submissions: 23,
-      description: "Python exam focusing on data manipulation, analysis, and machine learning basics.",
-      questions: 4,
-      securitySettings: {
-        cameraRequired: true,
-        microphoneRequired: false,
-        tabSwitchLimit: 2,
-        fullScreenRequired: true
-      }
-    },
-    {
-      id: 3,
-      title: "C++ Advanced Programming",
-      facultyName: "Dr. Sarah Johnson",
-      department: "CSE",
-      studyingYear: "2nd Year",
-      language: "C++",
-      createdDate: "2024-01-12",
-      examDate: "2024-01-18",
-      startTime: "09:00 AM",
-      endTime: "12:00 PM",
-      duration: "3 hours",
-      totalMarks: "100",
-      status: "ongoing",
-      studentsEnrolled: 30,
-      submissions: 18,
-      description: "Advanced C++ concepts including templates, STL, and memory management.",
-      questions: 6,
-      securitySettings: {
-        cameraRequired: true,
-        microphoneRequired: true,
-        tabSwitchLimit: 5,
-        fullScreenRequired: true
-      }
-    },
-    {
-      id: 4,
-      title: "JavaScript Web Development",
-      facultyName: "Dr. Sarah Johnson",
-      department: "CSE",
-      studyingYear: "3rd Year",
-      language: "JavaScript",
-      createdDate: "2024-01-14",
-      examDate: "2024-01-20",
-      startTime: "11:00 AM",
-      endTime: "02:00 PM",
-      duration: "3 hours",
-      totalMarks: "90",
-      status: "scheduled",
-      studentsEnrolled: 22,
-      submissions: 0,
-      description: "Modern JavaScript development including ES6+, DOM manipulation, and async programming.",
-      questions: 5,
-      securitySettings: {
-        cameraRequired: true,
-        microphoneRequired: false,
-        tabSwitchLimit: 3,
-        fullScreenRequired: true
-      }
+  useEffect(() => {
+    loadExams()
+    
+    // Real-time subscription for exams
+    const channel = supabase
+      .channel('faculty-exams-realtime')
+      .on('postgres_changes', 
+        { event: 'INSERT', schema: 'public', table: 'compiler_exams' },
+        (payload) => {
+          const newExam = payload.new as Exam
+          if (newExam.faculty_id === facultyId) {
+            setExams(prev => [newExam, ...prev])
+            toast({
+              title: "New Exam Created",
+              description: `${newExam.title} has been scheduled`
+            })
+          }
+        }
+      )
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'compiler_exams' },
+        (payload) => {
+          const updatedExam = payload.new as Exam
+          setExams(prev => prev.map(e => e.id === updatedExam.id ? updatedExam : e))
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
     }
-  ])
+  }, [facultyId])
+
+  const loadExams = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      
+      setFacultyId(user.id)
+      
+      const { data, error } = await supabase
+        .from('compiler_exams')
+        .select('*')
+        .eq('faculty_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      
+      // Get submission counts
+      const examsWithCounts = await Promise.all((data || []).map(async (exam) => {
+        const { count } = await supabase
+          .from('student_code_submissions')
+          .select('*', { count: 'exact', head: true })
+          .eq('exam_id', exam.id)
+        
+        return { ...exam, submissions_count: count || 0 }
+      }))
+      
+      setExams(examsWithCounts)
+    } catch (error) {
+      console.error("Error loading exams:", error)
+      toast({ title: "Error", description: "Failed to load exams", variant: "destructive" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadSubmissions = async (examId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('student_code_submissions')
+        .select(`
+          id,
+          student_id,
+          code,
+          language,
+          output,
+          status,
+          marks_obtained,
+          submitted_at,
+          question_index,
+          students (name, email)
+        `)
+        .eq('exam_id', examId)
+        .order('submitted_at', { ascending: false })
+
+      if (error) throw error
+      
+      const formattedSubmissions = (data || []).map((s: any) => ({
+        ...s,
+        student_name: s.students?.name || 'Unknown',
+        student_email: s.students?.email || 'Unknown'
+      }))
+      
+      setSubmissions(formattedSubmissions)
+    } catch (error) {
+      console.error("Error loading submissions:", error)
+    }
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -170,7 +193,7 @@ export default function ViewExams() {
     }
   }
 
-  const handleExamAction = (examId: number, action: string) => {
+  const handleExamAction = async (examId: string, action: string) => {
     const exam = exams.find(e => e.id === examId)
     if (!exam) return
 
@@ -178,48 +201,66 @@ export default function ViewExams() {
       case 'edit':
         router.push(`/dashboard/compiler/edit/${examId}`)
         break
-      case 'monitor':
-        if (exam.status === 'ongoing') {
-          router.push(`/dashboard/compiler/monitor/${examId}`)
-        } else {
-          toast({
-            title: "Cannot Monitor",
-            description: "Exam is not currently ongoing",
-            variant: "destructive"
-          })
-        }
-        break
-      case 'submissions':
-        router.push(`/dashboard/compiler/view/${examId}`)
+      case 'results':
+        setSelectedExam(exam)
+        await loadSubmissions(examId)
         break
       case 'start':
-        setExams(prev => prev.map(e => 
-          e.id === examId ? { ...e, status: 'ongoing' } : e
-        ))
-        toast({
-          title: "Exam Started",
-          description: `${exam.title} has been started`
-        })
-        break
-      case 'pause':
-        setExams(prev => prev.map(e => 
-          e.id === examId ? { ...e, status: 'scheduled' } : e
-        ))
-        toast({
-          title: "Exam Paused",
-          description: `${exam.title} has been paused`
-        })
+        const { error: startError } = await supabase
+          .from('compiler_exams')
+          .update({ status: 'ongoing' })
+          .eq('id', examId)
+        if (!startError) {
+          toast({ title: "Exam Started", description: `${exam.title} is now ongoing` })
+          loadExams()
+        }
         break
       case 'end':
-        setExams(prev => prev.map(e => 
-          e.id === examId ? { ...e, status: 'completed' } : e
-        ))
-        toast({
-          title: "Exam Ended",
-          description: `${exam.title} has been completed`
-        })
+        const { error: endError } = await supabase
+          .from('compiler_exams')
+          .update({ status: 'completed' })
+          .eq('id', examId)
+        if (!endError) {
+          toast({ title: "Exam Ended", description: `${exam.title} has been completed` })
+          loadExams()
+        }
+        break
+      case 'delete':
+        if (confirm('Are you sure you want to delete this exam?')) {
+          const { error: deleteError } = await supabase
+            .from('compiler_exams')
+            .delete()
+            .eq('id', examId)
+          if (!deleteError) {
+            toast({ title: "Exam Deleted", description: `${exam.title} has been deleted` })
+            loadExams()
+          }
+        }
         break
     }
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    })
+  }
+
+  const formatTime = (dateString: string) => {
+    return new Date(dateString).toLocaleTimeString("en-US", {
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-white">
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
   }
 
   return (
@@ -264,35 +305,31 @@ export default function ViewExams() {
                     {exam.status.charAt(0).toUpperCase() + exam.status.slice(1)}
                   </Badge>
                   <div className="text-sm text-gray-500">
-                    {exam.questions} Questions
+                    {exam.questions?.length || 0} Questions
                   </div>
                 </div>
                 <CardTitle className="text-lg line-clamp-2">{exam.title}</CardTitle>
                 <CardDescription>
-                  {exam.department} - {exam.studyingYear}
+                  {exam.department} - {exam.studying_year}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-sm">
                     <Calendar className="w-4 h-4 text-gray-500" />
-                    <span>{new Date(exam.examDate).toLocaleDateString()}</span>
+                    <span>{formatDate(exam.start_time)}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Clock className="w-4 h-4 text-gray-500" />
-                    <span>{exam.startTime} - {exam.endTime}</span>
+                    <span>{formatTime(exam.start_time)} - {formatTime(exam.end_time)}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Award className="w-4 h-4 text-gray-500" />
-                    <span>{exam.totalMarks} Marks | {exam.language}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">Enrolled:</span>
-                    <span className="font-semibold">{exam.studentsEnrolled}</span>
+                    <span>{exam.total_marks} Marks | {exam.language}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-600">Submissions:</span>
-                    <span className="font-semibold text-green-600">{exam.submissions}</span>
+                    <span className="font-semibold text-green-600">{exam.submissions_count || 0}</span>
                   </div>
                   
                   {/* Action Buttons */}
@@ -319,29 +356,19 @@ export default function ViewExams() {
                       )}
                       
                       {exam.status === 'ongoing' && (
-                        <>
-                          <Button
-                            onClick={() => handleExamAction(exam.id, 'monitor')}
-                            className="bg-purple-600 hover:bg-purple-700"
-                            size="sm"
-                          >
-                            <Monitor className="w-4 h-4 mr-1" />
-                            Monitor
-                          </Button>
-                          <Button
-                            onClick={() => handleExamAction(exam.id, 'end')}
-                            className="bg-red-600 hover:bg-red-700"
-                            size="sm"
-                          >
-                            <Square className="w-4 h-4 mr-1" />
-                            End
-                          </Button>
-                        </>
+                        <Button
+                          onClick={() => handleExamAction(exam.id, 'end')}
+                          className="bg-red-600 hover:bg-red-700"
+                          size="sm"
+                        >
+                          <Square className="w-4 h-4 mr-1" />
+                          End
+                        </Button>
                       )}
                       
                       {(exam.status === 'completed' || exam.status === 'ongoing') && (
                         <Button
-                          onClick={() => handleExamAction(exam.id, 'submissions')}
+                          onClick={() => handleExamAction(exam.id, 'results')}
                           className="bg-orange-600 hover:bg-orange-700"
                           size="sm"
                         >
@@ -375,7 +402,7 @@ export default function ViewExams() {
               <DialogHeader>
                 <DialogTitle className="text-2xl">{selectedExam.title}</DialogTitle>
                 <DialogDescription className="text-lg">
-                  {selectedExam.department} - {selectedExam.studyingYear} | Faculty: {selectedExam.facultyName}
+                  {selectedExam.department} - {selectedExam.studying_year} | Faculty: {selectedExam.faculty_name}
                 </DialogDescription>
               </DialogHeader>
               
@@ -387,20 +414,16 @@ export default function ViewExams() {
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="text-center p-3 bg-blue-50 rounded-lg">
-                        <div className="text-2xl font-bold text-blue-600">{selectedExam.studentsEnrolled}</div>
-                        <div className="text-sm text-gray-600">Students Enrolled</div>
-                      </div>
                       <div className="text-center p-3 bg-green-50 rounded-lg">
-                        <div className="text-2xl font-bold text-green-600">{selectedExam.submissions}</div>
+                        <div className="text-2xl font-bold text-green-600">{selectedExam.submissions_count || 0}</div>
                         <div className="text-sm text-gray-600">Submissions</div>
                       </div>
                       <div className="text-center p-3 bg-purple-50 rounded-lg">
-                        <div className="text-2xl font-bold text-purple-600">{selectedExam.totalMarks}</div>
+                        <div className="text-2xl font-bold text-purple-600">{selectedExam.total_marks}</div>
                         <div className="text-sm text-gray-600">Total Marks</div>
                       </div>
                       <div className="text-center p-3 bg-orange-50 rounded-lg">
-                        <div className="text-2xl font-bold text-orange-600">{selectedExam.questions}</div>
+                        <div className="text-2xl font-bold text-orange-600">{selectedExam.questions?.length || 0}</div>
                         <div className="text-sm text-gray-600">Questions</div>
                       </div>
                     </div>
@@ -419,19 +442,19 @@ export default function ViewExams() {
                     <CardContent className="space-y-3">
                       <div className="flex justify-between">
                         <span className="text-gray-600">Exam Date:</span>
-                        <span className="font-semibold">{new Date(selectedExam.examDate).toLocaleDateString()}</span>
+                        <span className="font-semibold">{formatDate(selectedExam.start_time)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Start Time:</span>
-                        <span className="font-semibold">{selectedExam.startTime}</span>
+                        <span className="font-semibold">{formatTime(selectedExam.start_time)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">End Time:</span>
-                        <span className="font-semibold">{selectedExam.endTime}</span>
+                        <span className="font-semibold">{formatTime(selectedExam.end_time)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Duration:</span>
-                        <span className="font-semibold">{selectedExam.duration}</span>
+                        <span className="font-semibold">{selectedExam.duration} minutes</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Language:</span>
@@ -449,26 +472,10 @@ export default function ViewExams() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       <div className="flex justify-between items-center">
-                        <span className="text-gray-600">Camera Required:</span>
-                        <Badge className={selectedExam.securitySettings.cameraRequired ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
-                          {selectedExam.securitySettings.cameraRequired ? 'Yes' : 'No'}
+                        <span className="text-gray-600">Proctoring Enabled:</span>
+                        <Badge className={selectedExam.enable_proctoring ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                          {selectedExam.enable_proctoring ? 'Yes' : 'No'}
                         </Badge>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-600">Microphone Required:</span>
-                        <Badge className={selectedExam.securitySettings.microphoneRequired ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
-                          {selectedExam.securitySettings.microphoneRequired ? 'Yes' : 'No'}
-                        </Badge>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-600">Full Screen Required:</span>
-                        <Badge className={selectedExam.securitySettings.fullScreenRequired ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
-                          {selectedExam.securitySettings.fullScreenRequired ? 'Yes' : 'No'}
-                        </Badge>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Tab Switch Limit:</span>
-                        <span className="font-semibold">{selectedExam.securitySettings.tabSwitchLimit}</span>
                       </div>
                     </CardContent>
                   </Card>
@@ -500,27 +507,18 @@ export default function ViewExams() {
                   )}
                   
                   {selectedExam.status === 'ongoing' && (
-                    <>
-                      <Button
-                        onClick={() => handleExamAction(selectedExam.id, 'monitor')}
-                        className="bg-purple-600 hover:bg-purple-700"
-                      >
-                        <Monitor className="w-4 h-4 mr-2" />
-                        Monitor Students
-                      </Button>
-                      <Button
-                        onClick={() => handleExamAction(selectedExam.id, 'end')}
-                        className="bg-red-600 hover:bg-red-700"
-                      >
-                        <Square className="w-4 h-4 mr-2" />
-                        End Exam
-                      </Button>
-                    </>
+                    <Button
+                      onClick={() => handleExamAction(selectedExam.id, 'end')}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      <Square className="w-4 h-4 mr-2" />
+                      End Exam
+                    </Button>
                   )}
                   
                   {(selectedExam.status === 'completed' || selectedExam.status === 'ongoing') && (
                     <Button
-                      onClick={() => handleExamAction(selectedExam.id, 'submissions')}
+                      onClick={() => handleExamAction(selectedExam.id, 'results')}
                       className="bg-orange-600 hover:bg-orange-700"
                     >
                       <Users className="w-4 h-4 mr-2" />
@@ -542,6 +540,135 @@ export default function ViewExams() {
             </DialogContent>
           </Dialog>
         )}
+
+        {/* Results Modal with Submissions */}
+        <Dialog open={!!selectedExam && submissions.length > 0} onOpenChange={() => {
+          setSelectedExam(null)
+          setSubmissions([])
+        }}>
+          <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+            {selectedExam && (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-2xl">Results: {selectedExam.title}</DialogTitle>
+                  <DialogDescription>
+                    {submissions.length} submission(s) received
+                  </DialogDescription>
+                </DialogHeader>
+                
+                <div className="space-y-4">
+                  {submissions.length === 0 ? (
+                    <div className="text-center py-10">
+                      <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                      <p className="text-gray-500">No submissions yet</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left p-3">#</th>
+                            <th className="text-left p-3">Student</th>
+                            <th className="text-left p-3">Status</th>
+                            <th className="text-left p-3">Marks</th>
+                            <th className="text-left p-3">Submitted</th>
+                            <th className="text-left p-3">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {submissions.map((sub, i) => (
+                            <tr key={sub.id} className="border-b hover:bg-gray-50">
+                              <td className="p-3">{i + 1}</td>
+                              <td className="p-3">
+                                <div className="font-medium">{sub.student_name}</div>
+                                <div className="text-sm text-gray-500">{sub.student_email}</div>
+                              </td>
+                              <td className="p-3">
+                                <Badge className={sub.status === 'graded' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
+                                  {sub.status}
+                                </Badge>
+                              </td>
+                              <td className="p-3 font-semibold">{sub.marks_obtained || '-'}</td>
+                              <td className="p-3 text-sm text-gray-600">
+                                {new Date(sub.submitted_at).toLocaleString()}
+                              </td>
+                              <td className="p-3">
+                                <Button size="sm" onClick={() => setSelectedSubmission(sub)}>
+                                  <Code className="w-4 h-4 mr-1" />
+                                  View Code
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Code View Modal */}
+        <Dialog open={!!selectedSubmission} onOpenChange={() => setSelectedSubmission(null)}>
+          <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+            {selectedSubmission && (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Code Submission</DialogTitle>
+                  <DialogDescription>
+                    By {selectedSubmission.student_name} | {selectedSubmission.language}
+                  </DialogDescription>
+                </DialogHeader>
+                
+                <div className="space-y-4">
+                  {/* Code */}
+                  <div>
+                    <h4 className="font-semibold mb-2">Code:</h4>
+                    <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono">
+                      {selectedSubmission.code || 'No code submitted'}
+                    </pre>
+                  </div>
+                  
+                  {/* Output */}
+                  <div>
+                    <h4 className="font-semibold mb-2">Output:</h4>
+                    <pre className="bg-gray-100 text-gray-800 p-4 rounded-lg overflow-x-auto text-sm font-mono whitespace-pre-wrap">
+                      {selectedSubmission.output || 'No output'}
+                    </pre>
+                  </div>
+                  
+                  {/* Violations */}
+                  {(selectedSubmission.violation_count > 0 || (selectedSubmission.violation_types && selectedSubmission.violation_types.length > 0)) && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <h4 className="font-semibold text-red-800 mb-2 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4" />
+                        Violations Detected ({selectedSubmission.violation_count || selectedSubmission.violation_types?.length || 0})
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedSubmission.violation_types?.map((type: string, i: number) => (
+                          <Badge key={i} variant="outline" className="border-red-300 text-red-700 bg-red-100">
+                            {type.replace('_', ' ').toUpperCase()}
+                          </Badge>
+                        ))}
+                      </div>
+                      <p className="text-xs text-red-600 mt-2">
+                        This student triggered warnings during the exam. Please review before grading.
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Marks */}
+                  <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
+                    <span className="font-semibold">Marks Obtained:</span>
+                    <span className="text-2xl font-bold text-blue-600">{selectedSubmission.marks_obtained || 0}</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

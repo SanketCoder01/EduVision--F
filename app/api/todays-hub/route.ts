@@ -28,13 +28,14 @@ export async function GET(request: NextRequest) {
       }
 
       // Get student's today's hub data
-      const [assignments, announcements, studyGroups, events, notifications, quizzes] = await Promise.all([
+      const [assignments, announcements, studyGroups, events, notifications, quizzes, lostFoundItems] = await Promise.all([
         getStudentAssignments(department, year),
         getStudentAnnouncements(department, year),
         getStudentStudyGroups(department, year),
         getStudentEvents(department, year),
         getRecentNotifications(userId, department, year),
-        getStudentQuizzes(department, year)
+        getStudentQuizzes(department, year),
+        getStudentLostFoundItems() // No filters - ALL items visible to ALL students
       ])
 
       hubData = {
@@ -44,23 +45,26 @@ export async function GET(request: NextRequest) {
         events: events.slice(0, 3), // Latest 3
         notifications: notifications.slice(0, 5), // Latest 5
         quizzes: quizzes.slice(0, 5), // Latest 5 quizzes
+        lostFoundItems: lostFoundItems.slice(0, 5), // Latest 5 Lost & Found items
         summary: {
           total_assignments: assignments.length,
           pending_assignments: assignments.filter(a => !a.submission).length,
           unread_announcements: announcements.filter(a => !a.read).length,
           active_study_groups: studyGroups.filter(sg => sg.status === 'active').length,
           upcoming_events: events.filter(e => new Date(e.event_date) > new Date()).length,
-          active_quizzes: quizzes.filter(q => q.status === 'active').length
+          active_quizzes: quizzes.filter(q => q.status === 'active').length,
+          lost_found_items: lostFoundItems.length
         }
       }
     } else {
       // Get faculty's today's hub data
-      const [assignments, announcements, submissions, studyGroups, notifications] = await Promise.all([
+      const [assignments, announcements, submissions, studyGroups, notifications, lostFoundItems] = await Promise.all([
         getFacultyAssignments(userId),
         getFacultyAnnouncements(userId),
         getRecentSubmissions(userId),
         getFacultyStudyGroups(userId),
-        getRecentNotifications(userId)
+        getRecentNotifications(userId),
+        getFacultyLostFoundItems(userId, department)
       ])
 
       hubData = {
@@ -69,14 +73,16 @@ export async function GET(request: NextRequest) {
         submissions: submissions.slice(0, 5), // Latest 5
         studyGroups: studyGroups.slice(0, 3), // Latest 3
         notifications: notifications.slice(0, 5), // Latest 5
+        lostFoundItems: lostFoundItems.slice(0, 5), // Latest 5 Lost & Found items
         summary: {
           total_assignments: assignments.length,
-          pending_grading: submissions.filter(s => !s.grade).length,
+          pending_grading: submissions.filter((s: any) => !s.grade).length,
           total_announcements: announcements.length,
-          active_study_groups: studyGroups.filter(sg => sg.status === 'active').length,
-          recent_submissions: submissions.filter(s => 
+          active_study_groups: studyGroups.filter((sg: any) => sg.status === 'active').length,
+          recent_submissions: submissions.filter((s: any) => 
             new Date(s.submitted_at) > new Date(Date.now() - 24 * 60 * 60 * 1000)
-          ).length
+          ).length,
+          lost_found_items: lostFoundItems.length
         }
       }
     }
@@ -483,4 +489,51 @@ async function getStudentQuizzes(department: string, year: string) {
   })
 
   return filteredData
+}
+
+// Get student Lost & Found items - ALL items visible to ALL students
+async function getStudentLostFoundItems() {
+  const { data, error } = await supabaseAdmin
+    .from('lost_found_items')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  if (error) {
+    console.error('Error fetching student lost & found items:', error)
+    return []
+  }
+
+  // Return all items - visible to ALL students across all departments and years
+  return data || []
+}
+
+// Get faculty Lost & Found items
+async function getFacultyLostFoundItems(facultyId: string, department?: string) {
+  let query = supabaseAdmin
+    .from('lost_found_items')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  // Filter by reporter_id (faculty's own items) or department
+  if (department) {
+    const { data, error } = await query.or(`reporter_id.eq.${facultyId},department.eq.${department}`)
+    
+    if (error) {
+      console.error('Error fetching faculty lost & found items:', error)
+      return []
+    }
+    
+    return data || []
+  } else {
+    const { data, error } = await query.eq('reporter_id', facultyId)
+    
+    if (error) {
+      console.error('Error fetching faculty lost & found items:', error)
+      return []
+    }
+    
+    return data || []
+  }
 }

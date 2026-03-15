@@ -162,11 +162,14 @@ export default function GrievancePage() {
         is_anonymous: isAnonymous, department: facultyDepartment, target_years: targetYears,
         reporter_id: facultyId, reporter_name: isAnonymous ? "Anonymous" : facultyName,
         reporter_email: isAnonymous ? "" : facultyEmail, reporter_type: "faculty",
-        status: "pending", assigned_to_name: "", assigned_to_department: ""
+        status: "pending", 
+        assigned_to_name: "University Office", 
+        assigned_to_department: "Office Section",
+        submitted_to: "office" // Route to office instead of faculty
       })
       
       if (error) throw error
-      toast({ title: "Success", description: "Grievance submitted successfully!" })
+      toast({ title: "Success", description: "Grievance submitted to University Office successfully!" })
       setTitle(""); setCategory(""); setDescription(""); setPriority("Medium"); setIsAnonymous(false); setSelectedYears(["all"]); setActiveTab("my-grievances")
       loadGrievances()
     } catch (error: any) {

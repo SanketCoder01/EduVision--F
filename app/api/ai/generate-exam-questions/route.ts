@@ -1,4 +1,82 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { type NextRequest, NextResponse } from "next/server"
+
+// Groq API configuration
+const GROQ_API_KEY = process.env.GROQ_API_KEY || "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"
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+// Extract questions from uploaded file content
+async function extractQuestionsFromFile(fileContent: string, language: string, numQuestions: number): Promise<NextResponse> {
+  const systemPrompt = `You are an expert at extracting programming questions from documents.
+Extract coding questions from the provided text and format them as JSON.
+
+OUTPUT FORMAT - Return ONLY valid JSON:
+{
+  "questions": [
+    {
+      "id": "q1",
+      "title": "Extracted Question Title",
+      "difficulty": "easy",
+      "marks": 10,
+      "timeLimit": "15 minutes",
+      "description": "Problem statement",
+      "inputFormat": "Input description",
+      "outputFormat": "Output description",
+      "constraints": "Constraints",
+      "sampleInput": "Example input",
+      "sampleOutput": "Example output",
+      "explanation": "Explanation",
+      "testCases": [{"input": "test", "expectedOutput": "result", "isHidden": false}],
+      "conceptsTested": ["concept"],
+      "hints": ["Hint"]
+    }
+  ]
+}`
+
+  const userPrompt = `Extract up to ${numQuestions} coding questions from this document content for ${language}:
+
+${fileContent.substring(0, 4000)}
+
+Return ONLY valid JSON with extracted questions. If no questions found, return empty questions array.`
+
+  try {
+    const response = await fetch(GROQ_API_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + GROQ_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        temperature: 0.3,
+        max_tokens: 4096
+      }),
+    })
+
+    const data = await response.json()
+    let content = data.choices?.[0]?.message?.content || ""
+    
+    // Parse JSON
+    content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+    const jsonMatch = content.match(/\{[\s\S]*\}/)
+    
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0])
+      return NextResponse.json({
+        success: true,
+        questions: parsed.questions || [],
+        source: "file-extraction"
+      })
+    }
+    
+    return NextResponse.json({ success: true, questions: [], source: "file-extraction" })
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to extract questions from file" }, { status: 500 })
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,211 +86,214 @@ export async function POST(request: NextRequest) {
       topics, 
       numQuestions, 
       examDuration,
-      totalMarks 
+      totalMarks,
+      customPrompt,
+      previousQuestions = [],
+      fileContent // Added for file extraction
     } = await request.json()
 
-    // Using RapidAPI for AI question generation (similar to existing AI integrations)
-    const response = await fetch('https://chatgpt-api8.p.rapidapi.com/ask', {
-      method: 'POST',
+    if (!language) {
+      return NextResponse.json({ error: "Language is required" }, { status: 400 })
+    }
+
+    // If file content is provided, extract questions from it
+    if (fileContent) {
+      return extractQuestionsFromFile(fileContent, language, numQuestions || 3)
+    }
+
+    // Build the prompt for generating simple coding questions
+    const systemPrompt = `You are an expert programming instructor at a university. Your task is to generate SIMPLE, PRACTICAL coding questions for students.
+
+CRITICAL RULES:
+1. Generate SIMPLE coding problems that can be solved in 15-30 minutes
+2. Focus on basic programming concepts: loops, arrays, strings, functions, basic logic
+3. Avoid complex algorithms or advanced topics
+4. Each question must be CLEAR and CONCISE
+5. Problems must be executable in a standard compiler
+
+DIFFICULTY LEVELS:
+- EASY: Basic syntax, simple loops, input/output, calculations (10-15 minutes)
+- MEDIUM: Arrays, strings, functions, basic data structures (20-30 minutes)  
+- HARD: Complex logic, multiple data structures, optimization (30-45 minutes)
+
+LANGUAGE-SPECIFIC EXAMPLES:
+- C/C++: Array operations, loops, functions, pointers, structures
+- Python: Lists, dictionaries, strings, functions, basic algorithms
+- Java: Classes, methods, arrays, collections, basic OOP
+- JavaScript: Arrays, objects, string methods, basic DOM operations
+
+OUTPUT FORMAT - Return ONLY valid JSON:
+{
+  "questions": [
+    {
+      "id": "q1",
+      "title": "Clear Question Title",
+      "difficulty": "easy",
+      "marks": 10,
+      "timeLimit": "15 minutes",
+      "description": "Simple problem statement explaining what to do",
+      "inputFormat": "What input the program receives",
+      "outputFormat": "What the program should output",
+      "constraints": "Simple constraints like 1 <= n <= 100",
+      "sampleInput": "Example input",
+      "sampleOutput": "Example output",
+      "explanation": "Brief explanation",
+      "testCases": [{"input": "test", "expectedOutput": "result", "isHidden": false}],
+      "conceptsTested": ["loop", "array"],
+      "hints": ["Hint to help solve"]
+    }
+  ]
+}
+
+IMPORTANT:
+- Generate ONLY valid JSON, no markdown, no code blocks
+- Keep questions SIMPLE and PRACTICAL
+- Avoid special characters like *, #, &
+- Each question must be unique`
+
+    // Build user prompt - focus on simple coding questions
+    let userPrompt = `Generate exactly ${numQuestions || 3} SIMPLE coding questions for ${language} programming language.
+
+${customPrompt ? `USER REQUEST: ${customPrompt}
+
+Generate questions based on the user's specific request above. Make sure questions are:
+- Simple and practical
+- Related to what the user asked for
+- Solvable by students in 15-30 minutes` : `Generate a mix of easy and medium difficulty questions covering:
+- Basic input/output operations
+- Simple loops and conditionals  
+- Array/string manipulations
+- Basic function implementations`}
+
+DIFFICULTY: ${difficulty || 'mixed (easy and medium)'}
+NUMBER OF QUESTIONS: ${numQuestions || 3}
+${totalMarks ? `TOTAL MARKS: ${totalMarks}` : ''}
+${topics && topics.length > 0 ? `TOPICS: ${topics.join(', ')}` : ''}`
+
+    // Avoid repetition
+    if (previousQuestions.length > 0) {
+      userPrompt += `\n\nDO NOT repeat these previous question titles: ${previousQuestions.slice(0, 10).join(', ')}`
+    }
+
+    // Call Groq API
+    const response = await fetch(GROQ_API_URL, {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'X-RapidAPI-Key': '125374e0dcmsh59d081fe0522ae1p12043ejsn18fb0aff111b',
-        'X-RapidAPI-Host': 'chatgpt-api8.p.rapidapi.com'
+        "Authorization": "Bearer " + GROQ_API_KEY,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        query: `Generate ${numQuestions} coding exam questions for ${language} programming language.
-        
-        Requirements:
-        - Difficulty level: ${difficulty}
-        - Topics: ${topics.join(', ')}
-        - Total exam duration: ${examDuration} minutes
-        - Total marks: ${totalMarks}
-        - Each question should have: problem statement, input/output format, constraints, sample test cases
-        - Questions should be progressively challenging
-        - Include edge cases in test cases
-        
-        Format the response as JSON with this structure:
-        {
-          "questions": [
-            {
-              "id": "q1",
-              "title": "Question Title",
-              "description": "Detailed problem statement",
-              "difficulty": "easy|medium|hard",
-              "marks": 20,
-              "timeLimit": "30 minutes",
-              "inputFormat": "Input description",
-              "outputFormat": "Output description",
-              "constraints": "Constraints list",
-              "sampleInput": "Sample input",
-              "sampleOutput": "Sample output",
-              "testCases": [
-                {
-                  "input": "test input",
-                  "expectedOutput": "expected output",
-                  "isHidden": false
-                }
-              ],
-              "hints": ["Hint 1", "Hint 2"],
-              "tags": ["array", "sorting"]
-            }
-          ]
-        }`,
-        web_access: false
-      })
+        model: "openai/gpt-oss-120b",
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt
+          },
+          {
+            role: "user",
+            content: userPrompt
+          }
+        ],
+        temperature: 0.9,
+        max_completion_tokens: 8192,
+        top_p: 1,
+        stream: false
+      }),
     })
 
     if (!response.ok) {
-      throw new Error('Failed to generate questions')
+      const errorData = await response.json().catch(() => ({}))
+      console.error("Groq API error:", response.status, errorData)
+      return NextResponse.json({ 
+        error: "Failed to generate questions",
+        details: errorData 
+      }, { status: 500 })
     }
 
-    const aiResponse = await response.json()
-    
-    // Parse the AI response and extract questions
+    const data = await response.json()
+    let content = data.choices?.[0]?.message?.content || ""
+
+    // Parse JSON from response
     let questions
     try {
-      // Try to parse JSON from AI response
-      const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/)
+      // Remove any markdown code blocks if present
+      content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+      
+      // Try to find JSON object in response
+      const jsonMatch = content.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
-        questions = JSON.parse(jsonMatch[0])
+        const parsed = JSON.parse(jsonMatch[0])
+        questions = parsed.questions || parsed
       } else {
-        // Fallback: generate sample questions if AI parsing fails
-        questions = generateFallbackQuestions(language, difficulty, numQuestions, totalMarks)
+        const parsed = JSON.parse(content)
+        questions = parsed.questions || parsed
       }
     } catch (parseError) {
-      // Generate fallback questions
-      questions = generateFallbackQuestions(language, difficulty, numQuestions, totalMarks)
+      console.error("JSON parse error:", parseError)
+      console.log("Raw content:", content.substring(0, 500))
+      
+      return NextResponse.json({ 
+        error: "Failed to parse AI response",
+        rawContent: content.substring(0, 500)
+      }, { status: 500 })
     }
+
+    // Validate questions array
+    if (!Array.isArray(questions) || questions.length === 0) {
+      return NextResponse.json({ 
+        error: "No valid questions generated",
+        questions: []
+      }, { status: 500 })
+    }
+
+    // Ensure each question has required fields with proper structure
+    const validatedQuestions = questions.map((q: any, index: number) => ({
+      id: q.id || `q${index + 1}`,
+      title: q.title || `Question ${index + 1}`,
+      description: q.description || q.problemStatement || "Solve the given problem",
+      difficulty: q.difficulty || difficulty || "medium",
+      marks: q.marks || Math.floor((totalMarks || 100) / (numQuestions || 3)),
+      timeLimit: q.timeLimit || `${Math.floor((examDuration || 120) / (numQuestions || 3))} minutes`,
+      inputFormat: q.inputFormat || "See problem description",
+      outputFormat: q.outputFormat || "See problem description",
+      constraints: q.constraints || "Standard constraints apply",
+      sampleInput: q.sampleInput || "",
+      sampleOutput: q.sampleOutput || "",
+      explanation: q.explanation || "",
+      testCases: q.testCases || [{ input: q.sampleInput || "", expectedOutput: q.sampleOutput || "", isHidden: false }],
+      conceptsTested: q.conceptsTested || q.tags || [language.toLowerCase()],
+      hints: q.hints || [],
+      tags: q.conceptsTested || q.tags || [language.toLowerCase()]
+    }))
 
     return NextResponse.json({
       success: true,
-      questions: questions.questions || questions,
-      generatedAt: new Date().toISOString()
+      questions: validatedQuestions,
+      generatedAt: new Date().toISOString(),
+      source: "groq-ai"
     })
 
   } catch (error) {
-    console.error('Error generating exam questions:', error)
-    
-    // Return fallback questions on error
-    const fallbackQuestions = generateFallbackQuestions(
-      'Python', 
-      'medium', 
-      3, 
-      100
-    )
-    
-    return NextResponse.json({
-      success: true,
-      questions: fallbackQuestions.questions,
-      generatedAt: new Date().toISOString(),
-      note: 'Using fallback questions due to API error'
-    })
+    console.error("Error generating exam questions:", error)
+    return NextResponse.json({ 
+      error: "Failed to generate questions",
+      message: error instanceof Error ? error.message : "Unknown error"
+    }, { status: 500 })
   }
 }
 
-function generateFallbackQuestions(language: string, difficulty: string, numQuestions: number, totalMarks: number) {
-  const marksPerQuestion = Math.floor(totalMarks / numQuestions)
-  
-  const questionTemplates = {
-    easy: [
-      {
-        title: "Even or Odd Checker",
-        description: "Write a program to check if a given number is even or odd.",
-        inputFormat: "A single integer n",
-        outputFormat: "Print 'Even' if the number is even, 'Odd' otherwise",
-        sampleInput: "4",
-        sampleOutput: "Even",
-        constraints: "1 ≤ n ≤ 1000"
-      },
-      {
-        title: "Sum of Array Elements",
-        description: "Calculate the sum of all elements in an array.",
-        inputFormat: "First line contains n (size of array), second line contains n integers",
-        outputFormat: "Print the sum of all elements",
-        sampleInput: "3\n1 2 3",
-        sampleOutput: "6",
-        constraints: "1 ≤ n ≤ 100, 1 ≤ elements ≤ 1000"
-      }
-    ],
-    medium: [
-      {
-        title: "Fibonacci Sequence",
-        description: "Generate the nth Fibonacci number using dynamic programming.",
-        inputFormat: "A single integer n",
-        outputFormat: "Print the nth Fibonacci number",
-        sampleInput: "5",
-        sampleOutput: "5",
-        constraints: "1 ≤ n ≤ 50"
-      },
-      {
-        title: "Binary Search Implementation",
-        description: "Implement binary search to find an element in a sorted array.",
-        inputFormat: "First line: n (array size), Second line: n sorted integers, Third line: target element",
-        outputFormat: "Print the index of target element (0-based) or -1 if not found",
-        sampleInput: "5\n1 3 5 7 9\n5",
-        sampleOutput: "2",
-        constraints: "1 ≤ n ≤ 1000, elements are sorted"
-      }
-    ],
-    hard: [
-      {
-        title: "Longest Common Subsequence",
-        description: "Find the length of the longest common subsequence between two strings.",
-        inputFormat: "Two strings on separate lines",
-        outputFormat: "Print the length of LCS",
-        sampleInput: "ABCDGH\nAEDFHR",
-        sampleOutput: "3",
-        constraints: "String length ≤ 1000"
-      },
-      {
-        title: "Graph Traversal - DFS",
-        description: "Implement Depth First Search traversal for a graph.",
-        inputFormat: "First line: n (vertices), m (edges), Next m lines: edge pairs",
-        outputFormat: "Print DFS traversal starting from vertex 0",
-        sampleInput: "4 4\n0 1\n0 2\n1 2\n2 3",
-        sampleOutput: "0 1 2 3",
-        constraints: "1 ≤ n ≤ 100, 0 ≤ m ≤ n*(n-1)/2"
-      }
+export async function GET() {
+  return NextResponse.json({
+    message: "AI Exam Question Generator API",
+    status: "healthy",
+    model: "openai/gpt-oss-120b",
+    features: [
+      "unique-question-generation",
+      "no-repetition",
+      "custom-prompts",
+      "difficulty-levels",
+      "topic-based",
+      "language-specific-rules"
     ]
-  }
-
-  const templates = questionTemplates[difficulty as keyof typeof questionTemplates] || questionTemplates.medium
-  const questions = []
-
-  for (let i = 0; i < numQuestions; i++) {
-    const template = templates[i % templates.length]
-    questions.push({
-      id: `q${i + 1}`,
-      title: template.title,
-      description: template.description,
-      difficulty,
-      marks: marksPerQuestion,
-      timeLimit: `${Math.floor(120 / numQuestions)} minutes`,
-      inputFormat: template.inputFormat,
-      outputFormat: template.outputFormat,
-      constraints: template.constraints,
-      sampleInput: template.sampleInput,
-      sampleOutput: template.sampleOutput,
-      testCases: [
-        {
-          input: template.sampleInput,
-          expectedOutput: template.sampleOutput,
-          isHidden: false
-        },
-        {
-          input: "Additional test case",
-          expectedOutput: "Expected output",
-          isHidden: true
-        }
-      ],
-      hints: [
-        "Consider the problem constraints carefully",
-        "Think about edge cases",
-        "Optimize for time complexity"
-      ],
-      tags: ["programming", language.toLowerCase(), difficulty]
-    })
-  }
-
-  return { questions }
+  })
 }

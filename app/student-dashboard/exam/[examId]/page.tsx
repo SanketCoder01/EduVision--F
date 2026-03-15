@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
+import { createClient } from "@supabase/supabase-js"
 import { 
   Play,
   RotateCcw,
@@ -28,6 +29,10 @@ import {
   Terminal
 } from "lucide-react"
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabase = createClient(supabaseUrl, supabaseKey)
+
 interface Question {
   id: number
   title: string
@@ -46,9 +51,18 @@ interface ExamData {
   title: string
   language: string
   duration: number
-  questions: Question[]
-  startTime: string
-  endTime: string
+  questions: any[]
+  start_time: string
+  end_time: string
+  total_marks: number
+  description: string
+  instructions: string
+}
+
+interface Violation {
+  type: string
+  timestamp: Date
+  details?: string
 }
 
 export default function StudentExamInterface() {
@@ -60,7 +74,7 @@ export default function StudentExamInterface() {
   const [code, setCode] = useState<string[]>([])
   const [output, setOutput] = useState("")
   const [isRunning, setIsRunning] = useState(false)
-  const [timeLeft, setTimeLeft] = useState(7200) // 2 hours in seconds
+  const [timeLeft, setTimeLeft] = useState(7200)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showPermissionDialog, setShowPermissionDialog] = useState(true)
   const [cameraPermission, setCameraPermission] = useState(false)
@@ -69,60 +83,79 @@ export default function StudentExamInterface() {
   const [isMonitoring, setIsMonitoring] = useState(false)
   const [tabSwitches, setTabSwitches] = useState(0)
   const [examStarted, setExamStarted] = useState(false)
+  const [examData, setExamData] = useState<ExamData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [violations, setViolations] = useState<Violation[]>([])
+  const [studentId, setStudentId] = useState<string>('')
 
-  // Mock exam data
-  const [examData] = useState<ExamData>({
-    id: params.examId as string,
-    title: "Java Programming Exam",
-    language: "Java",
-    duration: 120,
-    startTime: "10:00 AM",
-    endTime: "12:00 PM",
-    questions: [
-      {
-        id: 1,
-        title: "Array Sum",
-        description: "Write a program to find the sum of all elements in an array.",
-        inputFormat: "First line contains n (size of array), followed by n integers.",
-        outputFormat: "Print the sum of all elements.",
-        constraints: "1 ≤ n ≤ 1000, 1 ≤ arr[i] ≤ 100",
-        sampleInput: "5\n1 2 3 4 5",
-        sampleOutput: "15",
-        marks: 20,
-        timeLimit: "30 minutes"
-      },
-      {
-        id: 2,
-        title: "String Reversal",
-        description: "Write a program to reverse a given string without using built-in functions.",
-        inputFormat: "A single line containing a string.",
-        outputFormat: "Print the reversed string.",
-        constraints: "1 ≤ length ≤ 1000",
-        sampleInput: "hello",
-        sampleOutput: "olleh",
-        marks: 25,
-        timeLimit: "25 minutes"
-      },
-      {
-        id: 3,
-        title: "Prime Number Check",
-        description: "Write a program to check if a given number is prime or not.",
-        inputFormat: "A single integer n.",
-        outputFormat: "Print 'Prime' if the number is prime, otherwise 'Not Prime'.",
-        constraints: "1 ≤ n ≤ 10^6",
-        sampleInput: "17",
-        sampleOutput: "Prime",
-        marks: 30,
-        timeLimit: "35 minutes"
-      }
-    ]
-  })
-
-  // Initialize code arrays for each question
+  // Load exam data from Supabase
   useEffect(() => {
-    const initialCode = examData.questions.map(() => getBoilerplateCode(examData.language))
-    setCode(initialCode)
-  }, [examData])
+    loadExamData()
+  }, [])
+
+  const loadExamData = async () => {
+    try {
+      const examId = params.examId as string
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (user) {
+        setStudentId(user.id)
+      }
+
+      const { data: exam, error } = await supabase
+        .from('compiler_exams')
+        .select('*')
+        .eq('id', examId)
+        .single()
+
+      if (error) throw error
+
+      if (exam) {
+        setExamData(exam)
+        setTimeLeft(exam.duration * 60) // Convert minutes to seconds
+        
+        // Initialize code for each question
+        const questions = exam.questions || []
+        const initialCode = questions.map(() => getBoilerplateCode(exam.language))
+        setCode(initialCode)
+      }
+    } catch (error) {
+      console.error('Error loading exam:', error)
+      toast({
+        title: "Error",
+        description: "Failed to load exam data",
+        variant: "destructive"
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Report violation to Supabase
+  const reportViolation = async (type: string, details?: string) => {
+    if (!examData || !studentId) return
+    
+    const violation: Violation = {
+      type,
+      timestamp: new Date(),
+      details
+    }
+    setViolations(prev => [...prev, violation])
+
+    try {
+      await supabase
+        .from('exam_violations')
+        .insert({
+          exam_id: examData.id,
+          student_id: studentId,
+          violation_type: type,
+          violation_details: details,
+          warning_count: warnings + 1
+        })
+    } catch (error) {
+      console.error('Error reporting violation:', error)
+    }
+  }
 
   // Timer countdown
   useEffect(() => {
@@ -140,32 +173,110 @@ export default function StudentExamInterface() {
     }
   }, [examStarted, timeLeft])
 
-  // Tab switch detection
+  // Tab switch detection with proper state tracking and real-time reporting
   useEffect(() => {
+    if (!examStarted || !examData) return
+
     const handleVisibilityChange = () => {
-      if (document.hidden && examStarted) {
-        setTabSwitches(prev => prev + 1)
-        setWarnings(prev => prev + 1)
-        toast({
-          title: "Warning!",
-          description: "Tab switching detected. This has been recorded.",
-          variant: "destructive"
-        })
-        
-        if (tabSwitches >= 3) {
+      if (document.hidden) {
+        reportViolation('tab_switch', 'Student switched to another tab')
+        setTabSwitches(prev => {
+          const newCount = prev + 1
+          setWarnings(w => {
+            const newWarnings = w + 1
+            if (newWarnings >= 3) {
+              toast({
+                title: "Exam Auto-Submitted",
+                description: "Too many violations detected. Exam has been submitted automatically.",
+                variant: "destructive"
+              })
+              setTimeout(() => handleSubmitExam(), 1000)
+            }
+            return newWarnings
+          })
+          
           toast({
-            title: "Exam Auto-Submitted",
-            description: "Too many tab switches detected. Exam has been submitted automatically.",
+            title: `Warning ${newCount}/3`,
+            description: "Tab switching detected. This has been recorded.",
             variant: "destructive"
           })
-          handleSubmitExam()
-        }
+          
+          return newCount
+        })
       }
     }
 
+    // Detect keyboard shortcuts (F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === 'F12' ||
+        (e.ctrlKey && e.shiftKey && e.key === 'I') ||
+        (e.ctrlKey && e.shiftKey && e.key === 'J') ||
+        (e.ctrlKey && e.key === 'U')
+      ) {
+        e.preventDefault()
+        reportViolation('dev_tools', `Attempted shortcut: ${e.key}`)
+        setWarnings(prev => {
+          const newWarnings = prev + 1
+          toast({
+            title: `Warning ${newWarnings}/3`,
+            description: "Developer tools shortcut detected. This has been recorded.",
+            variant: "destructive"
+          })
+          if (newWarnings >= 3) {
+            setTimeout(() => handleSubmitExam(), 1000)
+          }
+          return newWarnings
+        })
+      }
+    }
+
+    // Detect right-click
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault()
+      reportViolation('right_click', 'Attempted right-click')
+      setWarnings(prev => {
+        const newWarnings = prev + 1
+        toast({
+          title: `Warning ${newWarnings}/3`,
+          description: "Right-click is disabled during exam. This has been recorded.",
+          variant: "destructive"
+        })
+        if (newWarnings >= 3) {
+          setTimeout(() => handleSubmitExam(), 1000)
+        }
+        return newWarnings
+      })
+    }
+
+    // Detect window blur (switching to another window)
+    const handleBlur = () => {
+      setWarnings(prev => {
+        const newWarnings = prev + 1
+        toast({
+          title: `Warning ${newWarnings}/3`,
+          description: "Window focus lost. This has been recorded.",
+          variant: "destructive"
+        })
+        if (newWarnings >= 3) {
+          setTimeout(() => handleSubmitExam(), 1000)
+        }
+        return newWarnings
+      })
+    }
+
     document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [examStarted, tabSwitches])
+    document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('contextmenu', handleContextMenu)
+    window.addEventListener('blur', handleBlur)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('contextmenu', handleContextMenu)
+      window.removeEventListener('blur', handleBlur)
+    }
+  }, [examStarted])
 
   const getBoilerplateCode = (language: string) => {
     switch (language) {
@@ -243,23 +354,26 @@ int main() {
   }
 
   const runCode = async () => {
+    if (!examData) return
     setIsRunning(true)
     setOutput("Compiling and running your code...")
     
     // Simulate code execution
     setTimeout(() => {
       const currentCode = code[currentQuestion]
+      const questions = examData.questions || []
       if (currentCode.includes('// Your code here') || currentCode.trim() === getBoilerplateCode(examData.language).trim()) {
         setOutput("Error: Please write your solution before running.")
-      } else {
+      } else if (questions[currentQuestion]) {
         // Mock successful execution
-        setOutput(`Compilation successful!\n\nInput:\n${examData.questions[currentQuestion].sampleInput}\n\nOutput:\n${examData.questions[currentQuestion].sampleOutput}\n\nExecution time: 0.12s\nMemory used: 2.1 MB`)
+        setOutput(`Compilation successful!\n\nInput:\n${questions[currentQuestion].sampleInput || 'N/A'}\n\nOutput:\n${questions[currentQuestion].sampleOutput || 'N/A'}\n\nExecution time: 0.12s\nMemory used: 2.1 MB`)
       }
       setIsRunning(false)
     }, 2000)
   }
 
   const resetCode = () => {
+    if (!examData) return
     const newCode = [...code]
     newCode[currentQuestion] = getBoilerplateCode(examData.language)
     setCode(newCode)
@@ -271,6 +385,7 @@ int main() {
   }
 
   const saveCode = () => {
+    if (!examData) return
     // Auto-save functionality
     localStorage.setItem(`exam_${examData.id}_question_${currentQuestion}`, code[currentQuestion])
     toast({
@@ -280,7 +395,9 @@ int main() {
   }
 
   const nextQuestion = () => {
-    if (currentQuestion < examData.questions.length - 1) {
+    if (!examData) return
+    const questions = examData.questions || []
+    if (currentQuestion < questions.length - 1) {
       saveCode()
       setCurrentQuestion(currentQuestion + 1)
       setOutput("")
@@ -295,18 +412,40 @@ int main() {
     }
   }
 
-  const handleSubmitExam = () => {
-    // Save all code and submit
-    examData.questions.forEach((_, index) => {
-      localStorage.setItem(`exam_${examData.id}_question_${index}`, code[index] || '')
-    })
+  const handleSubmitExam = async () => {
+    if (!examData || !studentId) return
     
-    toast({
-      title: "Exam Submitted",
-      description: "Your exam has been submitted successfully."
-    })
+    // Submit all code to Supabase
+    const allCode = code.join('\n// --- Next Question ---\n')
     
-    router.push('/student-dashboard')
+    try {
+      await supabase
+        .from('student_code_submissions')
+        .insert({
+          exam_id: examData.id,
+          student_id: studentId,
+          code: allCode,
+          language: examData.language,
+          output: output,
+          status: 'submitted',
+          violation_count: violations.length,
+          violation_types: violations.map(v => v.type)
+        })
+      
+      toast({
+        title: "Exam Submitted",
+        description: "Your exam has been submitted successfully."
+      })
+      
+      router.push('/student-dashboard/compiler/exams')
+    } catch (error) {
+      console.error('Error submitting exam:', error)
+      toast({
+        title: "Error",
+        description: "Failed to submit exam. Please try again.",
+        variant: "destructive"
+      })
+    }
   }
 
   const formatTime = (seconds: number) => {
@@ -365,7 +504,7 @@ int main() {
         </DialogContent>
       </Dialog>
 
-      {examStarted && (
+      {examStarted && examData && (
         <>
           {/* Header */}
           <div className="bg-gray-800 border-b border-gray-700 p-4">

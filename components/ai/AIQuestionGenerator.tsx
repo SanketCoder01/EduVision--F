@@ -66,6 +66,7 @@ export default function AIQuestionGenerator({
   const { toast } = useToast()
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedQuestions, setGeneratedQuestions] = useState<GeneratedQuestion[]>([])
+  const [previousQuestionTitles, setPreviousQuestionTitles] = useState<string[]>([])
   const [showPreview, setShowPreview] = useState(false)
   
   const [config, setConfig] = useState({
@@ -73,8 +74,10 @@ export default function AIQuestionGenerator({
     numQuestions: 3,
     topics: [] as string[],
     includeHints: true,
-    includeTestCases: true
+    includeTestCases: true,
+    customPrompt: ''
   })
+  const [useCustomPrompt, setUseCustomPrompt] = useState(false)
 
   const difficultyOptions = [
     { value: 'easy', label: 'Easy', color: 'bg-green-100 text-green-800' },
@@ -99,10 +102,19 @@ export default function AIQuestionGenerator({
   }
 
   const generateQuestions = async () => {
-    if (config.topics.length === 0) {
+    if (!useCustomPrompt && config.topics.length === 0) {
       toast({
-        title: "Select Topics",
-        description: "Please select at least one topic for question generation.",
+        title: "Select Topics or Use Custom Prompt",
+        description: "Please select at least one topic or enter a custom prompt for question generation.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    if (useCustomPrompt && !config.customPrompt.trim()) {
+      toast({
+        title: "Enter Custom Prompt",
+        description: "Please enter a custom prompt for question generation.",
         variant: "destructive"
       })
       return
@@ -122,31 +134,36 @@ export default function AIQuestionGenerator({
           topics: config.topics,
           numQuestions: config.numQuestions,
           examDuration: duration,
-          totalMarks
+          totalMarks,
+          customPrompt: useCustomPrompt ? config.customPrompt : undefined,
+          previousQuestions: previousQuestionTitles // Pass previous titles to avoid repetition
         })
       })
 
-      if (!response.ok) {
-        throw new Error('Failed to generate questions')
-      }
-
       const data = await response.json()
       
-      if (data.success) {
+      if (!response.ok || data.error) {
+        throw new Error(data.error || data.message || 'Failed to generate questions')
+      }
+
+      if (data.success && data.questions) {
+        // Store titles of generated questions for future regeneration
+        const newTitles = data.questions.map((q: GeneratedQuestion) => q.title)
+        setPreviousQuestionTitles(prev => [...prev, ...newTitles])
         setGeneratedQuestions(data.questions)
         setShowPreview(true)
         toast({
           title: "Questions Generated!",
-          description: `Successfully generated ${data.questions.length} exam questions.`
+          description: `Successfully generated ${data.questions.length} unique exam questions.`
         })
       } else {
-        throw new Error('Question generation failed')
+        throw new Error('No questions generated')
       }
     } catch (error) {
       console.error('Error generating questions:', error)
       toast({
         title: "Generation Failed",
-        description: "Failed to generate questions. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to generate questions. Please try again.",
         variant: "destructive"
       })
     } finally {
@@ -229,62 +246,82 @@ ${question.sampleOutput}
             </div>
           </div>
 
-          <div>
-            <Label className="mb-3 block">Topics to Include</Label>
-            <div className="flex flex-wrap gap-2">
-              {topicOptions.map(topic => (
-                <div key={topic} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={topic}
-                    checked={config.topics.includes(topic)}
-                    onCheckedChange={() => handleTopicToggle(topic)}
-                  />
-                  <Label htmlFor={topic} className="text-sm cursor-pointer">
-                    {topic}
-                  </Label>
-                </div>
-              ))}
-            </div>
-          </div>
-
           <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="hints"
-                  checked={config.includeHints}
-                  onCheckedChange={(checked) => setConfig(prev => ({ ...prev, includeHints: !!checked }))}
-                />
-                <Label htmlFor="hints">Include hints</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="testcases"
-                  checked={config.includeTestCases}
-                  onCheckedChange={(checked) => setConfig(prev => ({ ...prev, includeTestCases: !!checked }))}
-                />
-                <Label htmlFor="testcases">Include test cases</Label>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="customPrompt"
+                checked={useCustomPrompt}
+                onCheckedChange={(checked) => setUseCustomPrompt(!!checked)}
+              />
+              <Label htmlFor="customPrompt" className="font-medium">Use custom prompt instead of topics</Label>
+            </div>
+          </div>
+
+          {useCustomPrompt ? (
+            <div>
+              <Label className="mb-2 block">Custom Prompt for AI</Label>
+              <Textarea
+                placeholder="Describe the type of questions you want AI to generate. E.g., 'Generate 3 medium difficulty questions about array manipulation and sorting algorithms with real-world scenarios'"
+                value={config.customPrompt}
+                onChange={(e) => setConfig(prev => ({ ...prev, customPrompt: e.target.value }))}
+                className="min-h-24"
+              />
+              <p className="text-xs text-gray-500 mt-1">Be specific about topics, difficulty, and question types for better results</p>
+            </div>
+          ) : (
+            <div>
+              <Label className="mb-3 block">Topics to Include</Label>
+              <div className="flex flex-wrap gap-2">
+                {topicOptions.map(topic => (
+                  <div key={topic} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={topic}
+                      checked={config.topics.includes(topic)}
+                      onCheckedChange={() => handleTopicToggle(topic)}
+                    />
+                    <Label htmlFor={topic} className="text-sm cursor-pointer">
+                      {topic}
+                    </Label>
+                  </div>
+                ))}
               </div>
             </div>
+          )}
 
-            <Button
-              onClick={generateQuestions}
-              disabled={isGenerating || config.topics.length === 0}
-              className="bg-purple-600 hover:bg-purple-700"
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Zap className="w-4 h-4 mr-2" />
-                  Generate Questions
-                </>
-              )}
-            </Button>
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="hints"
+              checked={config.includeHints}
+              onCheckedChange={(checked) => setConfig(prev => ({ ...prev, includeHints: !!checked }))}
+            />
+            <Label htmlFor="hints">Include hints</Label>
           </div>
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="testcases"
+              checked={config.includeTestCases}
+              onCheckedChange={(checked) => setConfig(prev => ({ ...prev, includeTestCases: !!checked }))}
+            />
+            <Label htmlFor="testcases">Include test cases</Label>
+          </div>
+
+          <Button
+            onClick={generateQuestions}
+            disabled={isGenerating || (!useCustomPrompt && config.topics.length === 0) || (useCustomPrompt && !config.customPrompt.trim())}
+            className="bg-purple-600 hover:bg-purple-700"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4 mr-2" />
+                Generate Questions
+              </>
+            )}
+          </Button>
         </CardContent>
       </Card>
 

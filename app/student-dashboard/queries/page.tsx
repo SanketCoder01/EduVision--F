@@ -134,15 +134,55 @@ export default function StudentQueriesPage() {
 
   const fetchAllFaculty = async () => {
     try {
-      // Fetch faculty from student's department only
-      const { data, error } = await supabase
+      console.log("Fetching faculty for department:", student?.department)
+      
+      // Department name mappings for matching (same as leave application)
+      const deptMappings: Record<string, string[]> = {
+        'cse': ['cse', 'computer science', 'computer science and engineering', 'cs', 'cs&e'],
+        'aiml': ['aiml', 'ai ml', 'artificial intelligence', 'ai & ml', 'ai-ml'],
+        'aids': ['aids', 'ai ds', 'artificial intelligence and data science', 'ai-ds'],
+        'cyber': ['cyber', 'cyber security', 'cybersecurity', 'cyber security and forensics']
+      }
+      
+      // Normalize student department
+      const studentDeptLower = student?.department?.toLowerCase().trim() || ''
+      let studentDeptKey = 'cse'
+      
+      for (const [key, values] of Object.entries(deptMappings)) {
+        if (values.some(v => studentDeptLower.includes(v))) {
+          studentDeptKey = key
+          break
+        }
+      }
+      
+      console.log("Student department normalized to:", studentDeptKey, "from:", student?.department)
+      
+      // Fetch ALL faculty first
+      const { data: allFaculty, error } = await supabase
         .from("faculty")
         .select("id, name, email, department, subject")
-        .eq("department", student.department)
         .order("name", { ascending: true })
 
       if (error) throw error
-      setFacultyList(data || [])
+      
+      // Filter faculty by department using mapping
+      const filteredFaculty = (allFaculty || []).filter(f => {
+        const facultyDeptLower = f.department?.toLowerCase().trim() || ''
+        const matches = deptMappings[studentDeptKey]?.some(v => 
+          facultyDeptLower.includes(v) || v.includes(facultyDeptLower)
+        ) || facultyDeptLower.includes(studentDeptKey) || studentDeptLower.includes(facultyDeptLower)
+        return matches
+      })
+      
+      console.log("Total faculty:", allFaculty?.length, "Filtered:", filteredFaculty.length)
+      
+      // If no matches, show all faculty as fallback
+      if (filteredFaculty.length === 0) {
+        console.log("No faculty found for department, showing all faculty")
+        setFacultyList(allFaculty || [])
+      } else {
+        setFacultyList(filteredFaculty)
+      }
     } catch (error) {
       console.error("Error fetching faculty:", error)
     }

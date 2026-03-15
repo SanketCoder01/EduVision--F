@@ -28,6 +28,7 @@ interface LeaveRequest {
   student_id: string
   student_name: string
   student_email: string
+  student_prn: string
   department: string
   year: string
   leave_type: string
@@ -35,6 +36,8 @@ interface LeaveRequest {
   end_date: string
   reason: string
   status: string
+  faculty_id: string
+  faculty_name: string
   approved_by: string
   approved_date: string
   rejection_reason: string
@@ -70,13 +73,20 @@ export default function LeaveRequestPage() {
   const [endDate, setEndDate] = useState<Date | undefined>(undefined)
   const [reason, setReason] = useState("")
   const [submitting, setSubmitting] = useState(false)
-  const [formErrors, setFormErrors] = useState<{ leaveType?: string; dates?: string; reason?: string }>({})
+  const [formErrors, setFormErrors] = useState<{ leaveType?: string; dates?: string; reason?: string; faculty?: string }>({})
+  
+  // Faculty selection states
+  const [facultyList, setFacultyList] = useState<{id: string, name: string, email: string}[]>([])
+  const [selectedFacultyId, setSelectedFacultyId] = useState<string>("")
+  const [selectedFacultyName, setSelectedFacultyName] = useState<string>("")
+  const [loadingFaculty, setLoadingFaculty] = useState(false)
 
   useEffect(() => { loadStudentData() }, [])
 
   useEffect(() => {
     if (studentDepartment && studentId) {
       loadLeaveRequests()
+      loadFacultyList()
       setupRealtimeSubscription()
     }
   }, [studentDepartment, studentId])
@@ -86,7 +96,12 @@ export default function LeaveRequestPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push("/login"); return }
       
-      const tables = ["students_cse_first", "students_cse_second", "students_cse_third", "students_cse_fourth"]
+      const tables = [
+        'students_cse_1st_year', 'students_cse_2nd_year', 'students_cse_3rd_year', 'students_cse_4th_year',
+        'students_cyber_1st_year', 'students_cyber_2nd_year', 'students_cyber_3rd_year', 'students_cyber_4th_year',
+        'students_aids_1st_year', 'students_aids_2nd_year', 'students_aids_3rd_year', 'students_aids_4th_year',
+        'students_aiml_1st_year', 'students_aiml_2nd_year', 'students_aiml_3rd_year', 'students_aiml_4th_year'
+      ]
       for (const table of tables) {
         const { data: student } = await supabase.from(table).select("id, department, year, name, email, prn").eq("email", user.email).single()
         if (student) {
@@ -96,6 +111,92 @@ export default function LeaveRequestPage() {
         }
       }
     } catch (error) { console.error("Error loading student data:", error) }
+  }
+  
+  const loadFacultyList = async () => {
+    setLoadingFaculty(true)
+    try {
+      console.log("Loading faculty for department:", studentDepartment)
+      
+      // Department name mappings for matching
+      const deptMappings: Record<string, string[]> = {
+        'cse': ['cse', 'computer science', 'computer science and engineering', 'cs', 'cs&e'],
+        'aiml': ['aiml', 'ai ml', 'artificial intelligence', 'ai & ml', 'ai-ml'],
+        'aids': ['aids', 'ai ds', 'artificial intelligence and data science', 'ai-ds'],
+        'cyber': ['cyber', 'cyber security', 'cybersecurity', 'cyber security and forensics']
+      }
+      
+      // Normalize student department
+      const studentDeptLower = studentDepartment?.toLowerCase().trim()
+      let studentDeptKey = 'cse'
+      
+      for (const [key, values] of Object.entries(deptMappings)) {
+        if (values.some(v => studentDeptLower?.includes(v))) {
+          studentDeptKey = key
+          break
+        }
+      }
+      
+      console.log("Student department normalized to:", studentDeptKey, "from:", studentDepartment)
+      
+      // Fetch all faculty
+      const { data, error } = await supabase
+        .from("faculty")
+        .select("id, name, email, department")
+        .order("name", { ascending: true })
+      
+      if (error) {
+        console.error("Error loading faculty:", error)
+        throw error
+      }
+      
+      console.log("Total faculty in database:", data?.length)
+      console.log("Faculty departments:", [...new Set(data?.map(f => f.department))])
+      
+      // Filter faculty by matching department
+      const filteredFaculty = (data || []).filter(f => {
+        const facultyDeptLower = f.department?.toLowerCase().trim()
+        
+        // Direct match
+        if (facultyDeptLower === studentDeptLower) return true
+        
+        // Check using mappings
+        for (const [key, values] of Object.entries(deptMappings)) {
+          const studentMatches = values.some(v => studentDeptLower?.includes(v))
+          const facultyMatches = values.some(v => facultyDeptLower?.includes(v))
+          if (studentMatches && facultyMatches) return true
+        }
+        
+        return false
+      })
+      
+      console.log("Filtered faculty count:", filteredFaculty.length, "for department key:", studentDeptKey)
+      
+      if (filteredFaculty.length > 0) {
+        setFacultyList(filteredFaculty.map(f => ({ id: f.id, name: f.name, email: f.email })))
+      } else {
+        // Fallback: show all faculty if no match found
+        console.log("No faculty found for department, showing all faculty as fallback")
+        setFacultyList((data || []).map(f => ({ id: f.id, name: f.name, email: f.email })))
+      }
+    } catch (error) {
+      console.error("Error loading faculty list:", error)
+      // Try alternative query without department filter
+      try {
+        const { data: allFaculty } = await supabase
+          .from("faculty")
+          .select("id, name, email")
+          .order("name", { ascending: true })
+        if (allFaculty) {
+          console.log("Fallback: loaded all faculty:", allFaculty.length)
+          setFacultyList(allFaculty)
+        }
+      } catch (fallbackError) {
+        console.error("Fallback query also failed:", fallbackError)
+      }
+    } finally {
+      setLoadingFaculty(false)
+    }
   }
 
   const loadLeaveRequests = async () => {
@@ -107,9 +208,29 @@ export default function LeaveRequestPage() {
   }
 
   const setupRealtimeSubscription = () => {
-    const channel = supabase.channel(`leave-requests-student`).on("postgres_changes", { event: "*", schema: "public", table: "student_leave_requests", filter: `student_id=eq.${studentId}` }, () => {
-      loadLeaveRequests()
-    }).subscribe()
+    const channel = supabase
+      .channel(`leave-requests-student-${studentId}`)
+      .on(
+        "postgres_changes", 
+        { event: "UPDATE", schema: "public", table: "student_leave_requests", filter: `student_id=eq.${studentId}` },
+        (payload) => {
+          const updated = payload.new as LeaveRequest
+          if (updated.status === "approved") {
+            toast({ 
+              title: "Leave Approved!", 
+              description: `Your leave request from ${format(new Date(updated.start_date), "PP")} to ${format(new Date(updated.end_date), "PP")} has been approved by ${updated.approved_by}` 
+            })
+          } else if (updated.status === "rejected") {
+            toast({ 
+              title: "Leave Rejected", 
+              description: `Your leave request has been rejected. Reason: ${updated.rejection_reason}`,
+              variant: "destructive"
+            })
+          }
+          loadLeaveRequests()
+        }
+      )
+      .subscribe()
     return () => { supabase.removeChannel(channel) }
   }
 
@@ -122,20 +243,46 @@ export default function LeaveRequestPage() {
     if (!startDate || !endDate) errors.dates = 'Please select both start and end dates'
     else if (endDate < startDate) errors.dates = 'End date cannot be before start date'
     if (!reason.trim()) errors.reason = 'Please provide a reason for your leave'
+    if (!selectedFacultyId) errors.faculty = 'Please select a faculty member to review your leave'
     
     if (Object.keys(errors).length > 0) { setFormErrors(errors); setSubmitting(false); return }
     
     try {
-      const { error } = await supabase.from("student_leave_requests").insert({
-        student_id: studentId, student_name: studentName, student_email: studentEmail,
-        department: studentDepartment, year: studentYear, leave_type: leaveTypes.find(t => t.id === selectedLeaveType)?.name || selectedLeaveType,
-        start_date: startDate!.toISOString().split('T')[0], end_date: endDate!.toISOString().split('T')[0],
-        reason, status: "pending", approved_by: "", approved_date: "", rejection_reason: "", document_url: ""
-      })
+      const insertData = {
+        student_id: studentId, 
+        student_name: studentName, 
+        student_email: studentEmail,
+        student_prn: studentPRN,
+        department: studentDepartment, 
+        year: studentYear, 
+        leave_type: leaveTypes.find(t => t.id === selectedLeaveType)?.name || selectedLeaveType,
+        start_date: startDate!.toISOString().split('T')[0], 
+        end_date: endDate!.toISOString().split('T')[0],
+        reason, 
+        status: "pending", 
+        faculty_id: selectedFacultyId,
+        faculty_name: selectedFacultyName,
+        approved_by: "", 
+        approved_date: "", 
+        rejection_reason: "", 
+        document_url: "",
+        created_at: new Date().toISOString()
+      }
       
-      if (error) throw error
-      toast({ title: "Success", description: "Leave application submitted successfully!" })
+      console.log("Submitting leave request with data:", insertData)
+      console.log("Faculty ID being sent:", selectedFacultyId)
+      
+      const { error } = await supabase.from("student_leave_requests").insert(insertData)
+      
+      if (error) {
+        console.error("Supabase insert error:", error)
+        throw error
+      }
+      
+      console.log("Leave request submitted successfully!")
+      toast({ title: "Success", description: `Leave application submitted to ${selectedFacultyName} successfully!` })
       setSelectedLeaveType(""); setStartDate(undefined); setEndDate(undefined); setReason("")
+      setSelectedFacultyId(""); setSelectedFacultyName("")
       loadLeaveRequests()
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" })
@@ -239,6 +386,7 @@ export default function LeaveRequestPage() {
                             </div>
                             <p className="text-sm text-gray-600 mt-2">{request.reason}</p>
                             <div className="flex flex-wrap gap-3 mt-3">
+                              {request.faculty_name && <div className="flex items-center text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded"><User className="h-3 w-3 mr-1" />Submitted to: {request.faculty_name}</div>}
                               {request.approved_date && <div className="flex items-center text-xs text-gray-500"><Clock className="h-3 w-3 mr-1" />{request.status === "approved" ? "Approved" : "Reviewed"}: {format(new Date(request.approved_date), "PP")}</div>}
                               {request.approved_by && <div className="flex items-center text-xs text-gray-500"><User className="h-3 w-3 mr-1" />By: {request.approved_by}</div>}
                             </div>
@@ -310,9 +458,35 @@ export default function LeaveRequestPage() {
 
                   <div className="space-y-2"><label className="text-sm font-medium text-gray-700">Reason for Leave *</label><Textarea placeholder="Provide detailed reason for your leave request" value={reason} onChange={(e) => setReason(e.target.value)} rows={4} required /></div>
 
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-700">Select Faculty for Approval *</label>
+                    <Select 
+                      value={selectedFacultyId} 
+                      onValueChange={(val) => {
+                        setSelectedFacultyId(val)
+                        const faculty = facultyList.find(f => f.id === val)
+                        if (faculty) setSelectedFacultyName(faculty.name)
+                      }}
+                      disabled={loadingFaculty}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={loadingFaculty ? "Loading faculty..." : "Select faculty from your department"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {facultyList.map(faculty => (
+                          <SelectItem key={faculty.id} value={faculty.id}>{faculty.name} ({faculty.email})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {facultyList.length === 0 && !loadingFaculty && (
+                      <p className="text-xs text-amber-600">No faculty found in your department</p>
+                    )}
+                  </div>
+
                   {formErrors.leaveType && <p className="text-sm text-red-500">{formErrors.leaveType}</p>}
                   {formErrors.dates && <p className="text-sm text-red-500">{formErrors.dates}</p>}
                   {formErrors.reason && <p className="text-sm text-red-500">{formErrors.reason}</p>}
+                  {formErrors.faculty && <p className="text-sm text-red-500">{formErrors.faculty}</p>}
 
                   <div className="p-3 border border-amber-200 rounded-lg bg-amber-50">
                     <div className="flex items-start">
@@ -333,29 +507,83 @@ export default function LeaveRequestPage() {
               <CardContent>
                 <div className="p-4 border border-gray-200 rounded-lg">
                   <div className="flex justify-between items-center mb-6">
-                    <Button variant="outline" size="sm" className="text-xs">Previous Year</Button>
+                    <Button variant="outline" size="sm" className="text-xs" onClick={() => {
+                      const cal = document.getElementById('leave-calendar')
+                      if (cal) cal.scrollIntoView({ behavior: 'smooth' })
+                    }}>Today</Button>
                     <h3 className="text-lg font-medium text-gray-900">{new Date().getFullYear()}</h3>
-                    <Button variant="outline" size="sm" className="text-xs">Next Year</Button>
+                    <div className="w-20"></div>
                   </div>
                   
-                  <div className="grid grid-cols-4 gap-4 mb-6">
-                    {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map(month => (
-                      <div key={month} className="border border-gray-200 rounded-lg p-2">
-                        <h4 className="text-sm font-medium text-center mb-2">{month}</h4>
-                        <div className="grid grid-cols-7 gap-1 text-center mb-1">{["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <div key={i} className="text-xs text-gray-500">{d}</div>)}</div>
-                        <div className="grid grid-cols-7 gap-1">{Array(31).fill(0).map((_, i) => <div key={i} className="h-6 w-6 flex items-center justify-center rounded-full text-xs">{i + 1}</div>)}</div>
-                      </div>
-                    ))}
+                  <div id="leave-calendar" className="mb-6">
+                    <CalendarComponent 
+                      mode="single"
+                      selected={undefined}
+                      className="rounded-md border"
+                      modifiers={{
+                        approved: leaveRequests
+                          .filter(r => r.status === "approved")
+                          .flatMap(r => {
+                            const dates = []
+                            const start = new Date(r.start_date)
+                            const end = new Date(r.end_date)
+                            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                              dates.push(new Date(d))
+                            }
+                            return dates
+                          }),
+                        pending: leaveRequests
+                          .filter(r => r.status === "pending")
+                          .flatMap(r => {
+                            const dates = []
+                            const start = new Date(r.start_date)
+                            const end = new Date(r.end_date)
+                            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                              dates.push(new Date(d))
+                            }
+                            return dates
+                          }),
+                        rejected: leaveRequests
+                          .filter(r => r.status === "rejected")
+                          .flatMap(r => {
+                            const dates = []
+                            const start = new Date(r.start_date)
+                            const end = new Date(r.end_date)
+                            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                              dates.push(new Date(d))
+                            }
+                            return dates
+                          })
+                      }}
+                      modifiersStyles={{
+                        approved: { backgroundColor: "#fee2e2", color: "#dc2626", borderRadius: "50%", fontWeight: "bold" },
+                        pending: { backgroundColor: "#fef3c7", color: "#d97706", borderRadius: "50%" },
+                        rejected: { backgroundColor: "#f3f4f6", color: "#6b7280", borderRadius: "50%", textDecoration: "line-through" }
+                      }}
+                    />
                   </div>
                   
                   <div className="mt-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-2">Legend:</h4>
                     <div className="flex flex-wrap gap-3">
-                      <div className="flex items-center"><div className="w-4 h-4 bg-green-100 border border-green-200 rounded mr-1"></div><span className="text-xs text-gray-600">Approved</span></div>
-                      <div className="flex items-center"><div className="w-4 h-4 bg-yellow-100 border border-yellow-200 rounded mr-1"></div><span className="text-xs text-gray-600">Pending</span></div>
-                      <div className="flex items-center"><div className="w-4 h-4 bg-red-100 border border-red-200 rounded mr-1"></div><span className="text-xs text-gray-600">Rejected</span></div>
+                      <div className="flex items-center"><div className="w-4 h-4 bg-red-100 border border-red-300 rounded-full mr-1"></div><span className="text-xs text-gray-600">Approved (Red)</span></div>
+                      <div className="flex items-center"><div className="w-4 h-4 bg-yellow-100 border border-yellow-300 rounded-full mr-1"></div><span className="text-xs text-gray-600">Pending</span></div>
+                      <div className="flex items-center"><div className="w-4 h-4 bg-gray-100 border border-gray-300 rounded-full mr-1"></div><span className="text-xs text-gray-600">Rejected</span></div>
                     </div>
                   </div>
+                  
+                  {leaveRequests.filter(r => r.status === "approved").length > 0 && (
+                    <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <h4 className="text-sm font-medium text-red-800 mb-2">Approved Leave Dates:</h4>
+                      <div className="space-y-1">
+                        {leaveRequests.filter(r => r.status === "approved").map(r => (
+                          <div key={r.id} className="text-xs text-red-700">
+                            • {format(new Date(r.start_date), "PP")} to {format(new Date(r.end_date), "PP")} ({r.leave_type})
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
                 <div className="mt-6 p-4 border border-purple-200 rounded-lg bg-purple-50">

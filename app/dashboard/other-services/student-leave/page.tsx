@@ -26,6 +26,7 @@ interface LeaveApplication {
   student_id: string
   student_name: string
   student_email: string
+  student_prn: string
   department: string
   year: string
   leave_type: string
@@ -33,6 +34,8 @@ interface LeaveApplication {
   end_date: string
   reason: string
   status: string
+  faculty_id: string
+  faculty_name: string
   approved_by: string
   approved_date: string
   rejection_reason: string
@@ -81,15 +84,62 @@ export default function StudentLeaveManagement() {
   const loadApplications = async () => {
     setLoading(true)
     try {
-      const { data } = await supabase.from("student_leave_requests").select("*").eq("department", facultyDepartment).order("created_at", { ascending: false })
+      console.log("=== Loading leave applications for faculty ===")
+      console.log("Faculty ID:", facultyId)
+      console.log("Faculty Department:", facultyDepartment)
+      
+      // Only show leave requests assigned to this specific faculty
+      const { data, error } = await supabase
+        .from("student_leave_requests")
+        .select("*")
+        .eq("faculty_id", facultyId)
+        .order("created_at", { ascending: false })
+      
+      if (error) {
+        console.error("Error loading applications:", error)
+      }
+      
+      console.log("Query result - data length:", data?.length || 0)
+      console.log("Query result - data:", data)
+      
       if (data) setApplications(data)
     } catch (error) { console.error("Error loading applications:", error) } finally { setLoading(false) }
   }
 
   const setupRealtimeSubscription = () => {
-    const channel = supabase.channel(`leave-applications-faculty`).on("postgres_changes", { event: "*", schema: "public", table: "student_leave_requests", filter: `department=eq.${facultyDepartment}` }, () => {
-      loadApplications()
-    }).subscribe()
+    console.log("=== Setting up real-time subscription ===")
+    console.log("Channel name:", `leave-applications-faculty-${facultyId}`)
+    console.log("Filter:", `faculty_id=eq.${facultyId}`)
+    
+    const channel = supabase
+      .channel(`leave-applications-faculty-${facultyId}`)
+      .on(
+        "postgres_changes", 
+        { event: "INSERT", schema: "public", table: "student_leave_requests", filter: `faculty_id=eq.${facultyId}` },
+        (payload) => {
+          const newApp = payload.new as LeaveApplication
+          console.log("=== NEW LEAVE REQUEST RECEIVED ===")
+          console.log("Payload:", payload)
+          console.log("New app data:", newApp)
+          toast({ 
+            title: "New Leave Request", 
+            description: `${newApp.student_name} submitted a ${newApp.leave_type} request` 
+          })
+          loadApplications()
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "student_leave_requests", filter: `faculty_id=eq.${facultyId}` },
+        (payload) => {
+          console.log("Leave request updated:", payload)
+          loadApplications()
+        }
+      )
+      .subscribe((status) => {
+        console.log("=== Subscription status ===")
+        console.log("Status:", status)
+      })
     return () => { supabase.removeChannel(channel) }
   }
 

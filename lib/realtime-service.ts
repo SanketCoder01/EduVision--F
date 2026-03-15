@@ -13,8 +13,8 @@ import { supabase } from './supabase'
 // Types
 export interface RealtimePayload {
   eventType: 'INSERT' | 'UPDATE' | 'DELETE'
-  new: any
-  old: any
+  new: Record<string, any>
+  old: Record<string, any>
   schema: string
   table: string
   commit_timestamp: string
@@ -82,9 +82,9 @@ class RealtimeService {
         },
         (payload) => {
           // Filter on client side for department (case-insensitive) and year
-          const { new: newRecord } = payload
+          const newRecord = payload.new as Record<string, any>
           const recordDept = (newRecord?.department || '').toLowerCase().trim()
-          const recordYears = newRecord?.target_years || []
+          const recordYears: string[] = newRecord?.target_years || []
           
           // Check department match (case-insensitive)
           const deptMatches = recordDept === normalizedDept
@@ -131,9 +131,10 @@ class RealtimeService {
           filter: `department=eq.${filter.department}`
         },
         (payload) => {
-          const { new: newRecord } = payload
-          if (newRecord?.target_years && Array.isArray(newRecord.target_years)) {
-            if (newRecord.target_years.includes(filter.year)) {
+          const newRecord = payload.new as Record<string, any>
+          const targetYears: string[] = newRecord?.target_years || []
+          if (targetYears && Array.isArray(targetYears)) {
+            if (targetYears.includes(filter.year)) {
               callback(payload as RealtimePayload)
             }
           } else {
@@ -171,10 +172,10 @@ class RealtimeService {
           filter: `department=eq.${filter.department}`
         },
         (payload) => {
-          const { new: newRecord } = payload
+          const newRecord = payload.new as Record<string, any>
           // Check year field or target_years
           if (newRecord?.year === filter.year || 
-              (newRecord?.target_years && newRecord.target_years.includes(filter.year))) {
+              (newRecord?.target_years && Array.isArray(newRecord.target_years) && newRecord.target_years.includes(filter.year))) {
             callback(payload as RealtimePayload)
           }
         }
@@ -209,9 +210,10 @@ class RealtimeService {
           filter: `department=eq.${filter.department}`
         },
         (payload) => {
-          const { new: newRecord } = payload
-          if (newRecord?.target_years && Array.isArray(newRecord.target_years)) {
-            if (newRecord.target_years.includes(filter.year)) {
+          const newRecord = payload.new as Record<string, any>
+          const targetYears: string[] = newRecord?.target_years || []
+          if (targetYears && Array.isArray(targetYears)) {
+            if (targetYears.includes(filter.year)) {
               callback(payload as RealtimePayload)
             }
           } else {
@@ -258,9 +260,9 @@ class RealtimeService {
           table: 'announcements'
         },
         (payload) => {
-          const { new: newRecord } = payload
+          const newRecord = payload.new as Record<string, any>
           const recordDept = (newRecord?.department || '').toLowerCase().trim()
-          const recordYears = newRecord?.target_years || []
+          const recordYears: string[] = newRecord?.target_years || []
           
           // University-wide announcements (no department)
           if (!newRecord?.department) {
@@ -339,7 +341,7 @@ class RealtimeService {
           table: 'timetables'
         },
         (payload) => {
-          const { new: newRecord } = payload
+          const newRecord = payload.new as Record<string, any>
           const recordDept = (newRecord?.department || '').toLowerCase().trim()
           const filterDept = filter.department.toLowerCase().trim()
           const recordYear = newRecord?.year || ''
@@ -381,9 +383,10 @@ class RealtimeService {
           filter: `department=eq.${filter.department}`
         },
         (payload) => {
-          const { new: newRecord } = payload
-          if (newRecord?.target_years && Array.isArray(newRecord.target_years)) {
-            if (newRecord.target_years.includes(filter.year)) {
+          const newRecord = payload.new as Record<string, any>
+          const targetYears: string[] = newRecord?.target_years || []
+          if (targetYears && Array.isArray(targetYears)) {
+            if (targetYears.includes(filter.year)) {
               callback(payload as RealtimePayload)
             }
           } else {
@@ -420,9 +423,10 @@ class RealtimeService {
           filter: `department=eq.${filter.department}`
         },
         (payload) => {
-          const { new: newRecord } = payload
-          if (newRecord?.target_years && Array.isArray(newRecord.target_years)) {
-            if (newRecord.target_years.includes(filter.year)) {
+          const newRecord = payload.new as Record<string, any>
+          const targetYears: string[] = newRecord?.target_years || []
+          if (targetYears && Array.isArray(targetYears)) {
+            if (targetYears.includes(filter.year)) {
               callback(payload as RealtimePayload)
             }
           } else {
@@ -475,21 +479,24 @@ class RealtimeService {
   }
 
   /**
-   * Subscribe to LOST & FOUND items
+   * Subscribe to LOST & FOUND items - Broadcast to ALL students
+   * Faculty posts item -> ALL students see immediately
    */
   subscribeToLostFound(callback: (payload: RealtimePayload) => void): Subscription {
-    const channelName = `lost-found-${Date.now()}`
+    const channelName = `lost-found-all-${Date.now()}`
     
     const channel = supabase
       .channel(channelName)
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
           table: 'lost_found_items'
         },
         (payload) => {
+          // Broadcast to ALL students - no filtering
+          console.log('Lost & Found item posted, notifying all students:', payload.new)
           callback(payload as RealtimePayload)
         }
       )
@@ -760,6 +767,7 @@ class RealtimeService {
       onStudyMaterial?: (payload: RealtimePayload) => void
       onStudyGroup?: (payload: RealtimePayload) => void
       onGrievance?: (payload: RealtimePayload) => void
+      onLostFound?: (payload: RealtimePayload) => void
     }
   ): { subscriptions: Subscription[]; unsubscribe: () => void } {
     const subscriptions: Subscription[] = []
@@ -790,6 +798,9 @@ class RealtimeService {
     }
     if (callbacks.onGrievance && filter.studentId) {
       subscriptions.push(this.subscribeToGrievances(filter.studentId, callbacks.onGrievance))
+    }
+    if (callbacks.onLostFound) {
+      subscriptions.push(this.subscribeToLostFound(callbacks.onLostFound))
     }
 
     return {
