@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
@@ -29,8 +29,10 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { realtimeService, RealtimePayload } from "@/lib/realtime-service"
 import { SupabaseRealtimeService } from "@/lib/supabase-realtime"
 import { supabase } from "@/lib/supabase"
+import { toast } from "@/hooks/use-toast"
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -49,43 +51,62 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadUserData = async () => {
       try {
-        const facultyData = localStorage.getItem("facultySession")
-        const currentUserData = localStorage.getItem("currentUser")
+        // Get user from Supabase Auth
+        const { data: { user }, error } = await supabase.auth.getUser()
         
-        let user = null
-        if (facultyData) {
-          user = JSON.parse(facultyData)
-        } else if (currentUserData) {
-          const userData = JSON.parse(currentUserData)
-          if (userData.userType === "faculty") {
-            user = userData
-          }
+        if (error || !user) {
+          router.push('/login?type=faculty')
+          return
         }
         
-        if (user) {
-          // Fetch latest registration status from Supabase
-          const { data: faculty, error } = await supabase
-            .from('faculty')
-            .select('registration_completed')
-            .eq('email', user.email)
-            .single()
-          
-          if (faculty) {
-            setRegistrationCompleted(faculty.registration_completed || false)
-          }
-          
-          setCurrentUser(user)
-          await loadRealTimeData(user)
+        // Fetch faculty profile from database
+        const { data: faculty, error: facultyError } = await supabase
+          .from('faculty')
+          .select('*')
+          .eq('email', user.email)
+          .maybeSingle()
+        
+        if (!faculty) {
+          router.push('/complete-profile')
+          return
+        }
+        
+        // Check if profile is complete
+        const isComplete = faculty.department && faculty.college_name
+        setRegistrationCompleted(isComplete)
+        
+        if (!isComplete) {
+          router.push('/complete-profile')
+          return
+        }
+        
+        setCurrentUser(faculty)
+        await loadRealTimeData(faculty)
+        
+        // Check if user just completed profile (came from complete-profile)
+        const urlParams = new URLSearchParams(window.location.search)
+        if (urlParams.get('welcome') === 'true') {
+          // Show welcome message for new faculty
+          setTimeout(() => {
+            toast({
+              title: `Welcome to EduVision, ${faculty.name || faculty.full_name}! 🎉`,
+              description: "Your faculty profile has been successfully completed. Start managing your classes and assignments.",
+              duration: 5000,
+            })
+          }, 1000)
         }
       } catch (error) {
         console.error("Error loading user data:", error)
+        router.push('/login?type=faculty')
       } finally {
         setIsLoading(false)
       }
     }
 
     loadUserData()
-  }, [])
+  }, [router])
+
+  const subscriptionsRef = useRef<{ unsubscribe: () => void } | null>(null)
 
   const loadRealTimeData = async (user: any) => {
     try {
@@ -164,12 +185,62 @@ export default function DashboardPage() {
         completionRate: totalSubmissions > 0 ? Math.round((completedSubmissions / totalSubmissions) * 100) : 0,
       })
       
-      // Set up real-time subscriptions
-      const unsubscribe = SupabaseRealtimeService.subscribeToTable('assignments', () => {
-        loadRealTimeData(user)
-      })
+      // Set up real-time subscriptions using centralized service
+      if (subscriptionsRef.current) {
+        subscriptionsRef.current.unsubscribe()
+      }
       
-      return unsubscribe
+      subscriptionsRef.current = realtimeService.subscribeToAllFacultyUpdates(
+        { facultyId: user.id, department: user.department },
+        {
+          onSubmission: (payload: RealtimePayload) => {
+            console.log('New submission:', payload)
+            loadRealTimeData(user)
+            toast({
+              title: "New Submission",
+              description: `A student has submitted an assignment.`,
+            })
+          },
+          onQuizAttempt: (payload: RealtimePayload) => {
+            console.log('New quiz attempt:', payload)
+            loadRealTimeData(user)
+            toast({
+              title: "New Quiz Attempt",
+              description: `A student has submitted a quiz.`,
+            })
+          },
+          onQuery: (payload: RealtimePayload) => {
+            console.log('New student query:', payload)
+            loadRealTimeData(user)
+            toast({
+              title: "New Student Query",
+              description: `A student has asked a question.`,
+            })
+          },
+          onGrievance: (payload: RealtimePayload) => {
+            console.log('Grievance update:', payload)
+            loadRealTimeData(user)
+            toast({
+              title: "Grievance Update",
+              description: `A new grievance has been filed.`,
+            })
+          },
+          onEventRegistration: (payload: RealtimePayload) => {
+            console.log('New event registration:', payload)
+            loadRealTimeData(user)
+            toast({
+              title: "Event Registration",
+              description: `A student has registered for an event.`,
+            })
+          },
+        }
+      )
+      
+      return () => {
+        if (subscriptionsRef.current) {
+          subscriptionsRef.current.unsubscribe()
+        }
+      }
     } catch (error) {
       console.error("Error loading real-time data:", error)
     }

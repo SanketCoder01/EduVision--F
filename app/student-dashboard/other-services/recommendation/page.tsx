@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { 
   AlertCircle,
   Award,
+  Building,
   Calendar,
   Check,
   CheckCircle,

@@ -1,13 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   BookOpen,
   Download,
   FileText,
   Search,
-  Filter,
   Eye,
   Calendar,
   User,
@@ -22,15 +21,18 @@ import {
   ArrowLeft,
   ExternalLink,
   FolderOpen,
+  Sparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { useToast } from "@/components/ui/use-toast"
+import { useToast } from "@/hooks/use-toast"
+import { supabase } from "@/lib/supabase"
 
 export default function StudentStudyMaterialsPage() {
   const { toast } = useToast()
+  const subscriptionsRef = useRef<{ unsubscribe: () => void } | null>(null)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [studyMaterials, setStudyMaterials] = useState<any[]>([])
   const [searchTerm, setSearchTerm] = useState("")
@@ -40,142 +42,156 @@ export default function StudentStudyMaterialsPage() {
   const [currentSubject, setCurrentSubject] = useState<string>("")
 
   useEffect(() => {
-    const studentSession = localStorage.getItem("studentSession")
-    const currentUserData = localStorage.getItem("currentUser")
-
-    let user = null
-    if (studentSession) {
-      try {
-        user = JSON.parse(studentSession)
-        setCurrentUser(user)
-      } catch (error) {
-        console.error("Error parsing student session:", error)
+    fetchStudentData()
+    
+    return () => {
+      if (subscriptionsRef.current) {
+        subscriptionsRef.current.unsubscribe()
       }
-    } else if (currentUserData) {
-      try {
-        user = JSON.parse(currentUserData)
-        setCurrentUser(user)
-      } catch (error) {
-        console.error("Error parsing current user data:", error)
-      }
-    }
-
-    // Load study materials from localStorage
-    const savedMaterials = localStorage.getItem("studyMaterials")
-    if (savedMaterials) {
-      try {
-        const materials = JSON.parse(savedMaterials)
-        // Filter materials for current user's department and year
-        const userMaterials = materials.filter((material: any) => 
-          material.department === user?.department &&
-          material.year === user?.year
-        )
-        setStudyMaterials(userMaterials)
-      } catch (error) {
-        console.error("Error parsing study materials:", error)
-      }
-    } else {
-      // Enhanced sample data with more subjects
-      const sampleMaterials = [
-        {
-          id: "1",
-          title: "Data Structures - Lecture Notes",
-          subject: "Data Structures",
-          type: "PDF",
-          description: "Complete lecture notes covering arrays, linked lists, stacks, and queues",
-          uploadedBy: "Dr. Smith",
-          uploadedAt: "2024-01-15",
-          size: 2500000,
-          department: user?.department || "Computer Science Engineering",
-          year: user?.year || "first",
-          fileUrl: "/sample-files/data-structures-notes.pdf"
-        },
-        {
-          id: "2", 
-          title: "Database Design Tutorial",
-          subject: "Database Management",
-          type: "Video",
-          description: "Step-by-step tutorial on database design principles",
-          uploadedBy: "Prof. Johnson",
-          uploadedAt: "2024-01-10",
-          size: 15000000,
-          department: user?.department || "Computer Science Engineering",
-          year: user?.year || "first",
-          fileUrl: "/sample-files/database-tutorial.mp4"
-        },
-        {
-          id: "3",
-          title: "Programming Exercises",
-          subject: "Java Programming",
-          type: "Document",
-          description: "Practice problems and solutions for Java programming",
-          uploadedBy: "Dr. Brown",
-          uploadedAt: "2024-01-08",
-          size: 1200000,
-          department: user?.department || "Computer Science Engineering", 
-          year: user?.year || "first",
-          fileUrl: "/sample-files/java-exercises.docx"
-        },
-        {
-          id: "4",
-          title: "Network Protocols Guide",
-          subject: "Computer Networks",
-          type: "PDF",
-          description: "Comprehensive guide to TCP/IP, HTTP, and other network protocols",
-          uploadedBy: "Prof. Wilson",
-          uploadedAt: "2024-01-12",
-          size: 3200000,
-          department: user?.department || "Computer Science Engineering",
-          year: user?.year || "first",
-          fileUrl: "/sample-files/network-protocols.pdf"
-        },
-        {
-          id: "5",
-          title: "Python Basics Tutorial",
-          subject: "Python Programming",
-          type: "Video",
-          description: "Introduction to Python programming with examples",
-          uploadedBy: "Dr. Davis",
-          uploadedAt: "2024-01-09",
-          size: 12000000,
-          department: user?.department || "Computer Science Engineering",
-          year: user?.year || "first",
-          fileUrl: "/sample-files/python-basics.mp4"
-        },
-        {
-          id: "6",
-          title: "Operating System Concepts",
-          subject: "Operating Systems",
-          type: "PDF",
-          description: "Process management, memory management, and file systems",
-          uploadedBy: "Prof. Miller",
-          uploadedAt: "2024-01-11",
-          size: 4100000,
-          department: user?.department || "Computer Science Engineering",
-          year: user?.year || "first",
-          fileUrl: "/sample-files/os-concepts.pdf"
-        },
-        {
-          id: "7",
-          title: "Web Development Lab Manual",
-          subject: "Web Development",
-          type: "Document",
-          description: "HTML, CSS, JavaScript lab exercises and projects",
-          uploadedBy: "Dr. Taylor",
-          uploadedAt: "2024-01-13",
-          size: 2800000,
-          department: user?.department || "Computer Science Engineering",
-          year: user?.year || "first",
-          fileUrl: "/sample-files/web-dev-manual.docx"
-        }
-      ]
-      setStudyMaterials(sampleMaterials)
-      localStorage.setItem("studyMaterials", JSON.stringify(sampleMaterials))
     }
   }, [])
 
+  useEffect(() => {
+    if (currentUser) {
+      fetchStudyMaterials()
+      setupRealtimeSubscriptions()
+    }
+  }, [currentUser])
+
+  const fetchStudentData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Try to find student in department tables
+      const departments = ['cse', 'cyber', 'aids', 'aiml']
+      const years = ['1st', '2nd', '3rd', '4th']
+      
+      for (const dept of departments) {
+        for (const year of years) {
+          const { data } = await supabase
+            .from(`students_${dept}_${year}_year`)
+            .select('*')
+            .eq('email', user.email)
+            .single()
+          
+          if (data) {
+            // Normalize department to lowercase for consistent matching
+            const normalizedData = {
+              ...data,
+              department: data.department?.toLowerCase() || dept,
+              year: data.year || year
+            }
+            console.log('Student found:', normalizedData)
+            setCurrentUser(normalizedData)
+            return
+          }
+        }
+      }
+      
+      console.log('No student found for email:', user.email)
+    } catch (error) {
+      console.error('Error fetching student data:', error)
+    }
+  }
+
+  const fetchStudyMaterials = async () => {
+    if (!currentUser) return
+    
+    try {
+      console.log('Fetching materials for:', currentUser.department, currentUser.year)
+      
+      const { data, error } = await supabase
+        .from('study_materials')
+        .select('*')
+        .ilike('department', currentUser.department) // Case-insensitive match
+        .eq('year', currentUser.year)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Supabase error:', error)
+        throw error
+      }
+      
+      console.log('Materials fetched:', data?.length || 0)
+      setStudyMaterials(data || [])
+    } catch (error) {
+      console.error('Error fetching study materials:', error)
+      setStudyMaterials([])
+    }
+  }
+
+  const setupRealtimeSubscriptions = () => {
+    if (!currentUser) return
+    
+    // Clean up previous subscriptions
+    if (subscriptionsRef.current) {
+      subscriptionsRef.current.unsubscribe()
+    }
+    
+    const deptLower = currentUser.department?.toLowerCase()
+    
+    // Subscribe to study materials with department + year filtering
+    const channel = supabase
+      .channel('student-study-materials')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'study_materials'
+        },
+        (payload) => {
+          const newMaterial = payload.new as any
+          // Filter by department (case-insensitive) and year
+          if (newMaterial.department?.toLowerCase() === deptLower && 
+              newMaterial.year === currentUser.year) {
+            console.log('New study material:', newMaterial)
+            setStudyMaterials(prev => [newMaterial, ...prev])
+            
+            toast({
+              title: "New Study Material Uploaded",
+              description: `${newMaterial.title} for ${newMaterial.subject || 'General'}`,
+            })
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'study_materials'
+        },
+        (payload) => {
+          const updatedMaterial = payload.new as any
+          // Filter by department (case-insensitive) and year
+          if (updatedMaterial.department?.toLowerCase() === deptLower && 
+              updatedMaterial.year === currentUser.year) {
+            console.log('Study material updated:', updatedMaterial)
+            
+            // Update the material in state
+            setStudyMaterials(prev => 
+              prev.map(m => m.id === updatedMaterial.id ? updatedMaterial : m)
+            )
+            
+            // Show notification if summary was added
+            if (updatedMaterial.has_summary && !payload.old?.has_summary) {
+              toast({
+                title: "AI Summary Available",
+                description: `Summary added for "${updatedMaterial.title}"`,
+              })
+            }
+          }
+        }
+      )
+      .subscribe()
+    
+    subscriptionsRef.current = channel
+  }
+
   const getFileIcon = (type: string) => {
-    switch (type.toLowerCase()) {
+    switch (type?.toLowerCase()) {
       case "pdf": return <FileText className="h-6 w-6 text-red-600" />
       case "video": return <FileVideo className="h-6 w-6 text-purple-600" />
       case "image": return <Image className="h-6 w-6 text-green-600" />
@@ -185,7 +201,7 @@ export default function StudentStudyMaterialsPage() {
   }
 
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes'
+    if (!bytes || bytes === 0) return '0 Bytes'
     const k = 1024
     const sizes = ['Bytes', 'KB', 'MB', 'GB']
     const i = Math.floor(Math.log(bytes) / Math.log(k))
@@ -193,13 +209,13 @@ export default function StudentStudyMaterialsPage() {
   }
 
   const subjects = [...new Set(studyMaterials.map(material => material.subject))]
-  const types = [...new Set(studyMaterials.map(material => material.type))]
+  const types = [...new Set(studyMaterials.map(material => material.file_type))]
 
   const filteredMaterials = studyMaterials.filter(material => {
     const matchesSearch = material.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         material.description.toLowerCase().includes(searchTerm.toLowerCase())
+                         (material.description?.toLowerCase() || '').includes(searchTerm.toLowerCase())
     const matchesSubject = !selectedSubject || selectedSubject === "all" || material.subject === selectedSubject
-    const matchesType = !selectedType || selectedType === "all" || material.type === selectedType
+    const matchesType = !selectedType || selectedType === "all" || material.file_type === selectedType
     
     return matchesSearch && matchesSubject && matchesType
   })
@@ -209,9 +225,7 @@ export default function StudentStudyMaterialsPage() {
   }
 
   const handleViewMaterial = (material: any) => {
-    // Open material in new tab
-    const viewUrl = material.fileUrl || `#view-${material.id}`
-    window.open(viewUrl, '_blank')
+    window.open(material.file_url, '_blank')
     
     toast({
       title: "Opening Material",
@@ -220,17 +234,16 @@ export default function StudentStudyMaterialsPage() {
   }
 
   const handleDownloadMaterial = (material: any) => {
-    // Simulate download
     const link = document.createElement('a')
-    link.href = material.fileUrl || `#download-${material.id}`
-    link.download = `${material.title}.${material.type.toLowerCase()}`
+    link.href = material.file_url
+    link.download = material.file_name
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
     
     toast({
       title: "Download Started",
-      description: `Downloading ${material.title}`,
+      description: `Downloading ${material.file_name}`,
     })
   }
 
@@ -260,6 +273,16 @@ export default function StudentStudyMaterialsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Back Button */}
+      <Button 
+        variant="ghost" 
+        className="mb-4"
+        onClick={() => window.history.back()}
+      >
+        <ArrowLeft className="h-4 w-4 mr-2" />
+        Back to Dashboard
+      </Button>
+      
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -287,10 +310,9 @@ export default function StudentStudyMaterialsPage() {
                 Back to Subjects
               </Button>
             )}
-            <Button variant="secondary" size="sm">
-              <Star className="h-4 w-4 mr-2" />
-              Favorites
-            </Button>
+            <Badge variant="secondary" className="text-purple-900">
+              {studyMaterials.length} Materials
+            </Badge>
           </div>
         </div>
       </motion.div>
@@ -330,41 +352,41 @@ export default function StudentStudyMaterialsPage() {
 
       {/* Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow-lg">
-          <div className="p-6 text-center">
+        <Card>
+          <CardContent className="p-6 text-center">
             <div className="text-2xl font-bold text-purple-600 mb-2">
               {studyMaterials.length}
             </div>
             <p className="text-sm text-gray-600">Total Materials</p>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
         
-        <div className="bg-white rounded-lg shadow-lg">
-          <div className="p-6 text-center">
+        <Card>
+          <CardContent className="p-6 text-center">
             <div className="text-2xl font-bold text-blue-600 mb-2">
               {subjects.length}
             </div>
             <p className="text-sm text-gray-600">Subjects</p>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
         
-        <div className="bg-white rounded-lg shadow-lg">
-          <div className="p-6 text-center">
+        <Card>
+          <CardContent className="p-6 text-center">
             <div className="text-2xl font-bold text-green-600 mb-2">
-              {studyMaterials.filter(m => m.type === "PDF").length}
+              {studyMaterials.filter(m => m.file_type === "PDF").length}
             </div>
             <p className="text-sm text-gray-600">PDF Documents</p>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
         
-        <div className="bg-white rounded-lg shadow-lg">
-          <div className="p-6 text-center">
-            <div className="text-2xl font-bold text-orange-600 mb-2">
-              {studyMaterials.filter(m => m.type === "Video").length}
+        <Card>
+          <CardContent className="p-6 text-center">
+            <div className="text-2xl font-bold text-purple-600 mb-2">
+              {studyMaterials.filter(m => m.has_summary).length}
             </div>
-            <p className="text-sm text-gray-600">Video Materials</p>
-          </div>
-        </div>
+            <p className="text-sm text-gray-600">AI Summarized</p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Subject View or Materials List */}
@@ -375,61 +397,70 @@ export default function StudentStudyMaterialsPage() {
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
-            className="bg-white rounded-lg shadow-lg"
           >
-            <div className="p-6 pb-0">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <FolderOpen className="h-5 w-5" />
-                Browse by Subject ({subjects.length} subjects)
-              </h3>
-            </div>
-            <div className="p-6 pt-2">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {subjects.map((subject) => {
-                  const subjectMaterials = getSubjectMaterials(subject)
-                  return (
-                    <motion.div
-                      key={subject}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      whileHover={{ scale: 1.02 }}
-                      className="border rounded-lg p-4 hover:shadow-md transition-all cursor-pointer"
-                      onClick={() => {
-                        setCurrentSubject(subject)
-                        setViewMode('materials')
-                        setSelectedSubject(subject)
-                      }}
-                    >
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="text-2xl">{getSubjectIcon(subject)}</div>
-                        <div className="flex-1">
-                          <h4 className="font-medium text-gray-900">{subject}</h4>
-                          <p className="text-sm text-gray-500">
-                            {subjectMaterials.length} material{subjectMaterials.length !== 1 ? 's' : ''}
-                          </p>
-                        </div>
-                        <ChevronRight className="h-5 w-5 text-gray-400" />
-                      </div>
-                      
-                      <div className="flex items-center gap-2 text-xs text-gray-500">
-                        <div className="flex items-center gap-1">
-                          <FileText className="h-3 w-3" />
-                          {subjectMaterials.filter(m => m.type === 'PDF').length} PDFs
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <FileVideo className="h-3 w-3" />
-                          {subjectMaterials.filter(m => m.type === 'Video').length} Videos
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <File className="h-3 w-3" />
-                          {subjectMaterials.filter(m => m.type === 'Document').length} Docs
-                        </div>
-                      </div>
-                    </motion.div>
-                  )
-                })}
-              </div>
-            </div>
+            {subjects.length === 0 ? (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <BookOpen className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                  <h3 className="text-lg font-semibold mb-2">No Study Materials Yet</h3>
+                  <p className="text-gray-500">Your faculty hasn't uploaded any study materials for your department and year.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FolderOpen className="h-5 w-5" />
+                    Browse by Subject ({subjects.length} subjects)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {subjects.map((subject) => {
+                      const subjectMaterials = getSubjectMaterials(subject)
+                      return (
+                        <motion.div
+                          key={subject}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          whileHover={{ scale: 1.02 }}
+                          className="border rounded-lg p-4 hover:shadow-md transition-all cursor-pointer"
+                          onClick={() => {
+                            setCurrentSubject(subject)
+                            setViewMode('materials')
+                            setSelectedSubject(subject)
+                          }}
+                        >
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="text-2xl">{getSubjectIcon(subject)}</div>
+                            <div className="flex-1">
+                              <h4 className="font-medium text-gray-900">{subject}</h4>
+                              <p className="text-sm text-gray-500">
+                                {subjectMaterials.length} material{subjectMaterials.length !== 1 ? 's' : ''}
+                              </p>
+                            </div>
+                            <ChevronRight className="h-5 w-5 text-gray-400" />
+                          </div>
+                          
+                          <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <div className="flex items-center gap-1">
+                              <FileText className="h-3 w-3" />
+                              {subjectMaterials.filter(m => m.file_type === 'PDF').length} PDFs
+                            </div>
+                            {subjectMaterials.some(m => m.has_summary) && (
+                              <Badge className="bg-purple-100 text-purple-800 text-xs">
+                                <Sparkles className="h-3 w-3 mr-1" />
+                                AI Summary
+                              </Badge>
+                            )}
+                          </div>
+                        </motion.div>
+                      )
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </motion.div>
         ) : (
           <motion.div
@@ -437,78 +468,112 @@ export default function StudentStudyMaterialsPage() {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
-            className="bg-white rounded-lg shadow-lg"
           >
-            <div className="p-6 pb-0">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <Folder className="h-5 w-5" />
-                {currentSubject} Materials ({filteredMaterials.length})
-              </h3>
-            </div>
-            <div className="p-6 pt-2">
-              {filteredMaterials.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <BookOpen className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                  <p>No study materials found</p>
-                  <p className="text-sm">Try adjusting your search or filters</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {filteredMaterials.map((material) => (
-                    <motion.div
-                      key={material.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start gap-4 flex-1">
-                          <div className="p-2 bg-gray-100 rounded-lg">
-                            {getFileIcon(material.type)}
-                          </div>
-                          <div className="flex-1">
-                            <h4 className="font-medium text-gray-900 mb-1">{material.title}</h4>
-                            <p className="text-sm text-gray-600 mb-2">{material.description}</p>
-                            <div className="flex items-center gap-4 text-xs text-gray-500">
-                              <Badge variant="secondary" className="text-xs">
-                                {material.type}
-                              </Badge>
-                              <span className="flex items-center gap-1">
-                                <User className="h-3 w-3" />
-                                {material.uploadedBy}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Calendar className="h-3 w-3" />
-                                {new Date(material.uploadedAt).toLocaleDateString()}
-                              </span>
-                              <span>{formatFileSize(material.size)}</span>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Folder className="h-5 w-5" />
+                  {currentSubject} Materials ({filteredMaterials.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {filteredMaterials.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <BookOpen className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                    <p>No study materials found</p>
+                    <p className="text-sm">Try adjusting your search or filters</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {filteredMaterials.map((material) => (
+                      <motion.div
+                        key={material.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-4 flex-1">
+                            <div className="p-2 bg-gray-100 rounded-lg">
+                              {getFileIcon(material.file_type)}
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="font-medium text-gray-900">{material.title}</h4>
+                                {material.has_summary && (
+                                  <Badge className="bg-purple-100 text-purple-800">
+                                    <Sparkles className="h-3 w-3 mr-1" />
+                                    AI Summary
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-600 mb-2">{material.description}</p>
+                              <div className="flex items-center gap-4 text-xs text-gray-500">
+                                <Badge variant="secondary" className="text-xs">
+                                  {material.file_type}
+                                </Badge>
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {new Date(material.created_at).toLocaleDateString()}
+                                </span>
+                                <span>{formatFileSize(material.file_size)}</span>
+                                <span>{material.file_name}</span>
+                              </div>
+                              
+                              {/* Show AI Summary if available */}
+                              {material.has_summary && material.summary && (
+                                <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <Sparkles className="h-4 w-4 text-purple-600" />
+                                    <span className="text-xs font-medium text-purple-700">AI Generated Summary</span>
+                                  </div>
+                                  <p className="text-xs text-gray-700 whitespace-pre-line">{material.summary}</p>
+                                </div>
+                              )}
                             </div>
                           </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Button 
+                              variant="default" 
+                              size="sm"
+                              className="bg-blue-600 hover:bg-blue-700"
+                              onClick={() => handleViewMaterial(material)}
+                            >
+                              <FileText className="h-4 w-4 mr-2" />
+                              View Original PDF
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleDownloadMaterial(material)}
+                            >
+                              <Download className="h-4 w-4 mr-2" />
+                              Download Original
+                            </Button>
+                            {material.has_summary && material.summary_url && (
+                              <Button 
+                                variant="default" 
+                                size="sm"
+                                className="bg-purple-600 hover:bg-purple-700"
+                                onClick={() => {
+                                  const a = document.createElement('a')
+                                  a.href = material.summary_url
+                                  a.download = material.summary_file_name || 'summary.txt'
+                                  a.click()
+                                }}
+                              >
+                                <Sparkles className="h-4 w-4 mr-2" />
+                                Download AI Summary
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => handleViewMaterial(material)}
-                          >
-                            <ExternalLink className="h-4 w-4 mr-2" />
-                            View
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => handleDownloadMaterial(material)}
-                          >
-                            <Download className="h-4 w-4 mr-2" />
-                            Download
-                          </Button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-            </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </motion.div>
         )}
       </AnimatePresence>

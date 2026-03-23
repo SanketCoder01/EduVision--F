@@ -1,19 +1,20 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { Calendar, Clock, Users, CheckCircle, AlertCircle, BookOpen, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { useToast } from "@/components/ui/use-toast"
+import { supabase } from "@/lib/supabase"
+import { useToast } from "@/hooks/use-toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { realtimeService, RealtimePayload } from "@/lib/realtime-service"
 import { SupabaseAttendanceService } from "@/lib/supabase-attendance"
-import { supabase } from "@/lib/supabase"
 
 export default function StudentAttendancePage() {
   const router = useRouter()
@@ -28,8 +29,16 @@ export default function StudentAttendancePage() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [attendanceStats, setAttendanceStats] = useState<any>(null)
 
+  const subscriptionsRef = useRef<{ unsubscribe: () => void } | null>(null)
+
   useEffect(() => {
     initializeAttendanceData()
+    
+    return () => {
+      if (subscriptionsRef.current) {
+        subscriptionsRef.current.unsubscribe()
+      }
+    }
   }, [])
 
   const initializeAttendanceData = async () => {
@@ -61,6 +70,7 @@ export default function StudentAttendancePage() {
         if (studentData) {
           setCurrentUser(studentData)
           await loadAttendanceData(studentData)
+          setupRealtimeSubscriptions(studentData)
         }
       }
     } catch (error) {
@@ -113,6 +123,29 @@ export default function StudentAttendancePage() {
     } catch (error) {
       console.error('Error loading attendance data:', error)
     }
+  }
+
+  const setupRealtimeSubscriptions = (student: any) => {
+    // Clean up previous subscriptions
+    if (subscriptionsRef.current) {
+      subscriptionsRef.current.unsubscribe()
+    }
+    
+    // Subscribe to attendance sessions with department + year filtering
+    subscriptionsRef.current = realtimeService.subscribeToAttendanceSessions(
+      { department: student.department, year: student.year },
+      (payload: RealtimePayload) => {
+        console.log('Attendance session update:', payload)
+        loadAttendanceData(student)
+        
+        if (payload.eventType === 'INSERT' && payload.new.is_active) {
+          toast({
+            title: "New Attendance Session",
+            description: `Attendance session for ${payload.new.subject} is now active.`,
+          })
+        }
+      }
+    )
   }
 
   const handleMarkPresent = async (session: any) => {

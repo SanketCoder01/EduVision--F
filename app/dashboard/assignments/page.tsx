@@ -407,13 +407,7 @@ export default function AssignmentsPage() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem asChild>
-                          <Link href={`/dashboard/assignments/${assignment.id}`}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Details
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/dashboard/assignments/manage/${assignment.id}`}>
+                          <Link href={`/dashboard/assignments/edit/${assignment.id}`}>
                             <Edit className="h-4 w-4 mr-2" />
                             Edit
                           </Link>

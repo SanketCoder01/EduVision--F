@@ -63,7 +63,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [user, setUser] = useState<any>(null)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [notifications, setNotifications] = useState(0)
-  const [registrationCompleted, setRegistrationCompleted] = useState<boolean | null>(null)
+  const [registrationCompleted, setRegistrationCompleted] = useState<boolean | null>(true)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -80,76 +80,53 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const checkRegistrationStatus = async () => {
     try {
-      // Check for faculty login
-      const facultySession = localStorage.getItem("facultySession")
-      const currentUser = localStorage.getItem("currentUser")
-
-      let facultyData = null
-
-      if (facultySession) {
-        try {
-          facultyData = JSON.parse(facultySession)
-        } catch (error) {
-          console.error("Error parsing faculty session:", error)
-          router.push("/login?type=faculty")
-          return
-        }
-      } else if (currentUser) {
-        try {
-          const userData = JSON.parse(currentUser)
-          if (userData.userType === "faculty") {
-            facultyData = userData
-          } else {
-            router.push("/login?type=faculty")
-            return
-          }
-        } catch (error) {
-          console.error("Error parsing user data:", error)
-          router.push("/login?type=faculty")
-          return
-        }
-      } else {
+      // Get authenticated user from Supabase Auth
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      
+      if (authError || !user) {
+        console.error('Auth error:', authError)
         router.push("/login?type=faculty")
         return
       }
 
-      if (facultyData) {
-        // Fetch latest faculty data from Supabase
-        const { data: faculty, error } = await supabase
-          .from('faculty')
-          .select('*')
-          .eq('email', facultyData.email)
-          .single()
+      // Fetch faculty profile from database
+      const { data: faculty, error } = await supabase
+        .from('faculty')
+        .select('*')
+        .eq('email', user.email)
+        .maybeSingle()
 
-        if (error) {
-          console.error('Error fetching faculty:', error)
-          setUser(facultyData)
-          setRegistrationCompleted(true) // Default to true if error
-        } else {
-          setUser(faculty)
-          setRegistrationCompleted(faculty.registration_completed || false)
-          
-          // Update local storage with latest data
-          localStorage.setItem('facultySession', JSON.stringify(faculty))
-          localStorage.setItem('currentUser', JSON.stringify({ ...faculty, userType: 'faculty' }))
-          
-          // Redirect to registration if not completed and not already on registration page
-          if (!faculty.registration_completed && pathname !== '/dashboard/complete-registration') {
-            router.push('/dashboard/complete-registration')
-          }
-        }
+      if (error) {
+        console.error('Error fetching faculty:', error)
+      }
+
+      if (!faculty) {
+        // No faculty record, redirect to complete profile
+        router.push('/faculty-complete-profile')
+        return
+      }
+
+      setUser(faculty)
+      
+      // Check if profile has required fields (department and college_name are mandatory)
+      const hasRequiredFields = faculty.department && faculty.college_name
+      setRegistrationCompleted(hasRequiredFields)
+      
+      if (!hasRequiredFields) {
+        // Redirect to complete profile page
+        router.push('/faculty-complete-profile')
+        return
       }
     } catch (error) {
       console.error('Error checking registration:', error)
+      router.push("/login?type=faculty")
     } finally {
       setLoading(false)
     }
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem("facultySession")
-    localStorage.removeItem("currentUser")
-    localStorage.removeItem("userType")
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
     toast({
       title: "Logged out successfully",
       description: "You have been logged out of your account.",
@@ -351,7 +328,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <DropdownMenuContent align="end" className="w-56">
             <div className="flex items-center justify-start gap-2 p-2">
               <div className="flex flex-col space-y-1 leading-none">
-                <p className="font-medium">{user?.name || user?.full_name || "Faculty Member"}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium">{user?.name || user?.full_name || "Faculty Member"}</p>
+                  <Badge className="bg-purple-600 text-white text-xs">Faculty</Badge>
+                </div>
                 <p className="w-[200px] truncate text-sm text-muted-foreground">{user?.email}</p>
                 {user?.department && <p className="text-xs text-blue-600">{user.department.toUpperCase()}</p>}
               </div>

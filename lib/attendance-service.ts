@@ -1,4 +1,7 @@
 // Attendance Service for auto-closing sessions and managing attendance records
+// Uses Supabase for data persistence
+
+import { supabase } from './supabase'
 
 interface AttendanceRecord {
   id: string;
@@ -49,100 +52,129 @@ class AttendanceService {
     }, 60000); // 60 seconds
   }
 
-  private checkAndCloseExpiredSessions() {
+  private async checkAndCloseExpiredSessions() {
     try {
-      const records = JSON.parse(localStorage.getItem("faculty_attendance_records") || "[]");
-      const now = new Date();
-      let hasUpdates = false;
-
-      const updatedRecords = records.map((record: AttendanceRecord) => {
-        if (record.status === "active" && record.autoCloseAt) {
-          const closeTime = new Date(record.autoCloseAt);
-          
-          if (now >= closeTime) {
-            // Auto-close the attendance session
-            const closedRecord: AttendanceRecord = {
-              ...record,
-              status: "completed" as const,
-              closedAt: now.toISOString(),
-              autoClosedBy: "system"
-            };
-
-            // Generate attendance report for absent students
-            this.generateAbsentStudentsList(closedRecord);
-            hasUpdates = true;
-            
-            return closedRecord;
-          }
+      const now = new Date().toISOString();
+      
+      // Fetch active sessions that have expired
+      const { data: expiredSessions, error } = await supabase
+        .from('attendance_sessions')
+        .select('*')
+        .eq('status', 'active')
+        .lt('auto_close_at', now)
+      
+      if (error) {
+        console.error('Error fetching expired sessions:', error)
+        return
+      }
+      
+      if (expiredSessions && expiredSessions.length > 0) {
+        for (const session of expiredSessions) {
+          await this.closeSessionInDatabase(session.id, 'system')
         }
-        return record;
-      });
-
-      if (hasUpdates) {
-        localStorage.setItem("faculty_attendance_records", JSON.stringify(updatedRecords));
-        
-        // Notify about auto-closed sessions
-        this.notifyAutoClosedSessions(updatedRecords.filter((r: AttendanceRecord) => r.autoClosedBy === "system"));
       }
     } catch (error) {
       console.error("Error in auto-close check:", error);
     }
   }
 
-  private generateAbsentStudentsList(record: AttendanceRecord) {
+  private async closeSessionInDatabase(sessionId: string, closedBy: string) {
     try {
-      // Get all students for the class
-      const classes = JSON.parse(localStorage.getItem("study_classes") || "[]");
-      const targetClass = classes.find((cls: any) => cls.id === record.className);
+      // Update session status
+      const { error: updateError } = await supabase
+        .from('attendance_sessions')
+        .update({
+          status: 'completed',
+          closed_at: new Date().toISOString(),
+          auto_closed_by: closedBy
+        })
+        .eq('id', sessionId)
       
-      if (targetClass && targetClass.students) {
-        const presentStudentIds = record.students?.map((s: any) => s.studentId) || [];
-        const absentStudents = targetClass.students.filter((student: any) => 
-          !presentStudentIds.includes(student.id)
-        ).map((student: any) => ({
-          studentId: student.id,
-          studentName: student.name,
-          status: "absent",
-          markedAt: record.autoCloseAt,
-          autoMarked: true
-        }));
-
-        // Update the record with absent students
-        const updatedRecord = {
-          ...record,
-          students: [...(record.students || []), ...absentStudents],
-          absentCount: absentStudents.length,
-          presentCount: record.students?.length || 0
-        };
-
-        // Save updated record
-        const allRecords = JSON.parse(localStorage.getItem("faculty_attendance_records") || "[]");
-        const updatedRecords = allRecords.map((r: AttendanceRecord) => 
-          r.id === record.id ? updatedRecord : r
-        );
-        localStorage.setItem("faculty_attendance_records", JSON.stringify(updatedRecords));
+      if (updateError) {
+        console.error('Error closing session:', updateError)
+        return
       }
+      
+      // Mark absent students
+      await this.markAbsentStudents(sessionId)
+      
+      // Create notification
+      await this.createNotification(sessionId, closedBy)
     } catch (error) {
-      console.error("Error generating absent students list:", error);
+      console.error('Error in closeSessionInDatabase:', error)
     }
   }
 
-  private notifyAutoClosedSessions(closedSessions: AttendanceRecord[]) {
-    if (closedSessions.length > 0) {
-      // Create notifications for faculty
-      const notifications = closedSessions.map(session => ({
-        id: `auto_close_${session.id}_${Date.now()}`,
-        type: "attendance_closed",
-        title: "Attendance Session Auto-Closed",
-        message: `${session.className || session.subject || 'Attendance session'} has been automatically closed`,
-        attendanceId: session.id,
-        createdAt: new Date().toISOString(),
-        read: false
-      }));
+  private async markAbsentStudents(sessionId: string) {
+    try {
+      // Get session details
+      const { data: session, error: sessionError } = await supabase
+        .from('attendance_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .single()
+      
+      if (sessionError || !session) return
+      
+      // Get students who are present
+      const { data: presentRecords } = await supabase
+        .from('attendance_records')
+        .select('student_id')
+        .eq('session_id', sessionId)
+        .eq('status', 'present')
+      
+      const presentStudentIds = (presentRecords || []).map(r => r.student_id)
+      
+      // Get all students in the class from student_list_entries
+      const { data: classStudents } = await supabase
+        .from('student_list_entries')
+        .select('id, name')
+        .eq('student_list_id', session.student_list_id)
+      
+      if (classStudents) {
+        const absentStudents = classStudents.filter(s => !presentStudentIds.includes(s.id))
+        
+        // Mark absent students
+        for (const student of absentStudents) {
+          await supabase
+            .from('attendance_records')
+            .insert({
+              session_id: sessionId,
+              student_id: student.id,
+              status: 'absent',
+              marked_at: new Date().toISOString(),
+              auto_marked: true
+            })
+        }
+      }
+    } catch (error) {
+      console.error('Error marking absent students:', error)
+    }
+  }
 
-      const existingNotifications = JSON.parse(localStorage.getItem("faculty_notifications") || "[]");
-      const updatedNotifications = [...existingNotifications, ...notifications];
-      localStorage.setItem("faculty_notifications", JSON.stringify(updatedNotifications));
+  private async createNotification(sessionId: string, closedBy: string) {
+    try {
+      const { data: session } = await supabase
+        .from('attendance_sessions')
+        .select('*, faculty:faculty_id(name)')
+        .eq('id', sessionId)
+        .single()
+      
+      if (session) {
+        await supabase
+          .from('notifications')
+          .insert({
+            type: 'attendance_closed',
+            title: 'Attendance Session Auto-Closed',
+            message: `${session.subject || 'Attendance session'} has been automatically closed`,
+            user_id: session.faculty_id,
+            data: { session_id: sessionId, auto_closed: true },
+            created_at: new Date().toISOString(),
+            read: false
+          })
+      }
+    } catch (error) {
+      console.error('Error creating notification:', error)
     }
   }
 
@@ -154,63 +186,57 @@ class AttendanceService {
   }
 
   // Manual method to close attendance session
-  public closeAttendanceSession(attendanceId: string) {
+  public async closeAttendanceSession(attendanceId: string): Promise<boolean> {
     try {
-      const records = JSON.parse(localStorage.getItem("faculty_attendance_records") || "[]");
-      const updatedRecords = records.map((record: any) => {
-        if (record.id === attendanceId && record.status === "active") {
-          const closedRecord = {
-            ...record,
-            status: "completed",
-            closedAt: new Date().toISOString(),
-            autoClosedBy: "manual"
-          };
-          
-          this.generateAbsentStudentsList(closedRecord);
-          return closedRecord;
-        }
-        return record;
-      });
-
-      localStorage.setItem("faculty_attendance_records", JSON.stringify(updatedRecords));
-      return true;
+      await this.closeSessionInDatabase(attendanceId, 'manual')
+      return true
     } catch (error) {
       console.error("Error closing attendance session:", error);
       return false;
     }
   }
 
-  // Export attendance data to XLSX format
-  public exportToXLSX(attendanceId: string) {
+  // Export attendance data to CSV format
+  public async exportToCSV(sessionId: string): Promise<boolean> {
     try {
-      const records = JSON.parse(localStorage.getItem("faculty_attendance_records") || "[]");
-      const record = records.find((r: any) => r.id === attendanceId);
+      const { data: session, error: sessionError } = await supabase
+        .from('attendance_sessions')
+        .select('*, faculty:faculty_id(name)')
+        .eq('id', sessionId)
+        .single()
       
-      if (!record) {
-        throw new Error("Attendance record not found");
+      if (sessionError || !session) {
+        throw new Error("Attendance session not found");
       }
 
-      // Create CSV content (can be opened in Excel)
+      const { data: records } = await supabase
+        .from('attendance_records')
+        .select('*, student:student_id(name, prn)')
+        .eq('session_id', sessionId)
+
+      const presentCount = records?.filter(r => r.status === 'present').length || 0
+      const totalCount = records?.length || 0
+
+      // Create CSV content
       const csvContent = [
         ["Attendance Report"],
-        ["Subject", record.subject],
-        ["Department", record.department],
-        ["Year", record.studyingYear],
-        ["Date", new Date(record.date).toLocaleDateString()],
-        ["Time", record.timing],
-        ["Location", `Floor ${record.floor}, Room ${record.classroom}`],
-        ["Total Students", record.totalStudents],
-        ["Present", record.presentCount || 0],
-        ["Absent", record.absentCount || 0],
-        ["Attendance Rate", `${record.totalStudents > 0 ? ((record.presentCount || 0) / record.totalStudents * 100).toFixed(1) : 0}%`],
+        ["Subject", session.subject || ''],
+        ["Department", session.department],
+        ["Year", session.year],
+        ["Date", new Date(session.date).toLocaleDateString()],
+        ["Time", session.start_time + ' - ' + session.end_time],
+        ["Location", session.location || ''],
+        ["Total Students", totalCount],
+        ["Present", presentCount],
+        ["Absent", totalCount - presentCount],
         [],
-        ["Student Name", "Student ID", "Status", "Marked At", "Face Verified"],
-        ...(record.students || []).map((student: any) => [
-          student.studentName,
-          student.studentId,
-          student.status,
-          new Date(student.markedAt).toLocaleString(),
-          student.faceVerified ? "Yes" : "No"
+        ["Student Name", "PRN", "Status", "Marked At", "Face Verified"],
+        ...(records || []).map((record: any) => [
+          record.student?.name || 'Unknown',
+          record.student?.prn || 'N/A',
+          record.status,
+          record.marked_at ? new Date(record.marked_at).toLocaleString() : 'N/A',
+          record.face_verified ? "Yes" : "No"
         ])
       ].map(row => row.join(",")).join("\n");
 
@@ -219,7 +245,7 @@ class AttendanceService {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `attendance_${record.subject.replace(/\s+/g, "_")}_${new Date(record.date).toISOString().split('T')[0]}.csv`;
+      link.download = `attendance_${session.subject?.replace(/\s+/g, "_") || 'session'}_${new Date(session.date).toISOString().split('T')[0]}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -227,20 +253,32 @@ class AttendanceService {
 
       return true;
     } catch (error) {
-      console.error("Error exporting to XLSX:", error);
+      console.error("Error exporting to CSV:", error);
       return false;
     }
   }
 
   // Export attendance data to PDF format
-  public exportToPDF(attendanceId: string) {
+  public async exportToPDF(sessionId: string): Promise<boolean> {
     try {
-      const records = JSON.parse(localStorage.getItem("faculty_attendance_records") || "[]");
-      const record = records.find((r: any) => r.id === attendanceId);
+      const { data: session, error: sessionError } = await supabase
+        .from('attendance_sessions')
+        .select('*, faculty:faculty_id(name)')
+        .eq('id', sessionId)
+        .single()
       
-      if (!record) {
-        throw new Error("Attendance record not found");
+      if (sessionError || !session) {
+        throw new Error("Attendance session not found");
       }
+
+      const { data: records } = await supabase
+        .from('attendance_records')
+        .select('*, student:student_id(name, prn)')
+        .eq('session_id', sessionId)
+
+      const presentCount = records?.filter(r => r.status === 'present').length || 0
+      const absentCount = records?.filter(r => r.status === 'absent').length || 0
+      const totalCount = records?.length || 0
 
       // Create HTML content for PDF
       const htmlContent = `
@@ -265,19 +303,19 @@ class AttendanceService {
         <body>
           <div class="header">
             <h1>Attendance Report</h1>
-            <h2>${record.subject}</h2>
+            <h2>${session.subject || 'Attendance Session'}</h2>
           </div>
           
           <table class="info-table">
-            <tr><td><strong>Department:</strong></td><td>${record.department}</td></tr>
-            <tr><td><strong>Year:</strong></td><td>${record.studyingYear}</td></tr>
-            <tr><td><strong>Date:</strong></td><td>${new Date(record.date).toLocaleDateString()}</td></tr>
-            <tr><td><strong>Time:</strong></td><td>${record.timing}</td></tr>
-            <tr><td><strong>Location:</strong></td><td>Floor ${record.floor}, Room ${record.classroom}</td></tr>
-            <tr><td><strong>Total Students:</strong></td><td>${record.totalStudents}</td></tr>
-            <tr><td><strong>Present:</strong></td><td>${record.presentCount || 0}</td></tr>
-            <tr><td><strong>Absent:</strong></td><td>${record.absentCount || 0}</td></tr>
-            <tr><td><strong>Attendance Rate:</strong></td><td>${record.totalStudents > 0 ? ((record.presentCount || 0) / record.totalStudents * 100).toFixed(1) : 0}%</td></tr>
+            <tr><td><strong>Department:</strong></td><td>${session.department}</td></tr>
+            <tr><td><strong>Year:</strong></td><td>${session.year}</td></tr>
+            <tr><td><strong>Date:</strong></td><td>${new Date(session.date).toLocaleDateString()}</td></tr>
+            <tr><td><strong>Time:</strong></td><td>${session.start_time} - ${session.end_time}</td></tr>
+            <tr><td><strong>Location:</strong></td><td>${session.location || 'N/A'}</td></tr>
+            <tr><td><strong>Total Students:</strong></td><td>${totalCount}</td></tr>
+            <tr><td><strong>Present:</strong></td><td>${presentCount}</td></tr>
+            <tr><td><strong>Absent:</strong></td><td>${absentCount}</td></tr>
+            <tr><td><strong>Attendance Rate:</strong></td><td>${totalCount > 0 ? ((presentCount / totalCount) * 100).toFixed(1) : 0}%</td></tr>
           </table>
 
           <h3>Student Details</h3>
@@ -285,20 +323,20 @@ class AttendanceService {
             <thead>
               <tr>
                 <th>Student Name</th>
-                <th>Student ID</th>
+                <th>PRN</th>
                 <th>Status</th>
                 <th>Marked At</th>
                 <th>Face Verified</th>
               </tr>
             </thead>
             <tbody>
-              ${(record.students || []).map((student: any) => `
+              ${(records || []).map((record: any) => `
                 <tr>
-                  <td>${student.studentName}</td>
-                  <td>${student.studentId}</td>
-                  <td class="${student.status}">${student.status.toUpperCase()}</td>
-                  <td>${new Date(student.markedAt).toLocaleString()}</td>
-                  <td>${student.faceVerified ? "Yes" : "No"}</td>
+                  <td>${record.student?.name || 'Unknown'}</td>
+                  <td>${record.student?.prn || 'N/A'}</td>
+                  <td class="${record.status}">${record.status.toUpperCase()}</td>
+                  <td>${record.marked_at ? new Date(record.marked_at).toLocaleString() : 'N/A'}</td>
+                  <td>${record.face_verified ? "Yes" : "No"}</td>
                 </tr>
               `).join("")}
             </tbody>
@@ -330,3 +368,5 @@ class AttendanceService {
 if (typeof window !== "undefined") {
   AttendanceService.getInstance();
 }
+
+export default AttendanceService

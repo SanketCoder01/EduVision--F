@@ -28,12 +28,14 @@ export async function GET(request: NextRequest) {
       }
 
       // Get student's today's hub data
-      const [assignments, announcements, studyGroups, events, notifications] = await Promise.all([
+      const [assignments, announcements, studyGroups, events, notifications, quizzes, lostFoundItems] = await Promise.all([
         getStudentAssignments(department, year),
         getStudentAnnouncements(department, year),
         getStudentStudyGroups(department, year),
         getStudentEvents(department, year),
-        getRecentNotifications(userId)
+        getRecentNotifications(userId, department, year),
+        getStudentQuizzes(department, year),
+        getStudentLostFoundItems() // No filters - ALL items visible to ALL students
       ])
 
       hubData = {
@@ -42,22 +44,27 @@ export async function GET(request: NextRequest) {
         studyGroups: studyGroups.slice(0, 3), // Latest 3
         events: events.slice(0, 3), // Latest 3
         notifications: notifications.slice(0, 5), // Latest 5
+        quizzes: quizzes.slice(0, 5), // Latest 5 quizzes
+        lostFoundItems: lostFoundItems.slice(0, 5), // Latest 5 Lost & Found items
         summary: {
           total_assignments: assignments.length,
           pending_assignments: assignments.filter(a => !a.submission).length,
           unread_announcements: announcements.filter(a => !a.read).length,
           active_study_groups: studyGroups.filter(sg => sg.status === 'active').length,
-          upcoming_events: events.filter(e => new Date(e.event_date) > new Date()).length
+          upcoming_events: events.filter(e => new Date(e.event_date) > new Date()).length,
+          active_quizzes: quizzes.filter(q => q.status === 'active').length,
+          lost_found_items: lostFoundItems.length
         }
       }
     } else {
       // Get faculty's today's hub data
-      const [assignments, announcements, submissions, studyGroups, notifications] = await Promise.all([
+      const [assignments, announcements, submissions, studyGroups, notifications, lostFoundItems] = await Promise.all([
         getFacultyAssignments(userId),
         getFacultyAnnouncements(userId),
         getRecentSubmissions(userId),
         getFacultyStudyGroups(userId),
-        getRecentNotifications(userId)
+        getRecentNotifications(userId),
+        getFacultyLostFoundItems(userId, department)
       ])
 
       hubData = {
@@ -66,14 +73,16 @@ export async function GET(request: NextRequest) {
         submissions: submissions.slice(0, 5), // Latest 5
         studyGroups: studyGroups.slice(0, 3), // Latest 3
         notifications: notifications.slice(0, 5), // Latest 5
+        lostFoundItems: lostFoundItems.slice(0, 5), // Latest 5 Lost & Found items
         summary: {
           total_assignments: assignments.length,
-          pending_grading: submissions.filter(s => !s.grade).length,
+          pending_grading: submissions.filter((s: any) => !s.grade).length,
           total_announcements: announcements.length,
-          active_study_groups: studyGroups.filter(sg => sg.status === 'active').length,
-          recent_submissions: submissions.filter(s => 
+          active_study_groups: studyGroups.filter((sg: any) => sg.status === 'active').length,
+          recent_submissions: submissions.filter((s: any) => 
             new Date(s.submitted_at) > new Date(Date.now() - 24 * 60 * 60 * 1000)
-          ).length
+          ).length,
+          lost_found_items: lostFoundItems.length
         }
       }
     }
@@ -87,6 +96,30 @@ export async function GET(request: NextRequest) {
 
 // Helper functions
 async function getStudentAssignments(department: string, year: string) {
+  // Normalize department for comparison
+  const normalizedDept = department.toLowerCase().trim()
+  
+  // Create year mapping for flexible matching
+  const yearMapping: { [key: string]: string[] } = {
+    '1': ['1', 'first', 'First', '1st'],
+    '2': ['2', 'second', 'Second', '2nd'], 
+    '3': ['3', 'third', 'Third', '3rd'],
+    '4': ['4', 'fourth', 'Fourth', '4th'],
+    '1st': ['1', 'first', 'First', '1st'],
+    '2nd': ['2', 'second', 'Second', '2nd'],
+    '3rd': ['3', 'third', 'Third', '3rd'],
+    '4th': ['4', 'fourth', 'Fourth', '4th'],
+    'first': ['1', 'first', 'First', '1st'],
+    'second': ['2', 'second', 'Second', '2nd'],
+    'third': ['3', 'third', 'Third', '3rd'],
+    'fourth': ['4', 'fourth', 'Fourth', '4th']
+  }
+  
+  const possibleYearValues = yearMapping[year.toLowerCase()] || [year]
+  
+  console.log('DEBUG Today\'s Hub: Fetching assignments for dept:', department, 'year:', year)
+  console.log('DEBUG Today\'s Hub: Normalized dept:', normalizedDept, 'Possible years:', possibleYearValues)
+  
   const { data, error } = await supabaseAdmin
     .from('assignments')
     .select(`
@@ -96,36 +129,47 @@ async function getStudentAssignments(department: string, year: string) {
     `)
     .eq('status', 'published')
     .order('created_at', { ascending: false })
-    .limit(20)
+    .limit(50)
 
   if (error) {
     console.error('Error fetching student assignments:', error)
     return []
   }
 
-  // Create year mapping for flexible matching
-  const yearMapping = {
-    '1': ['1', 'first', 'First', '1st'],
-    '2': ['2', 'second', 'Second', '2nd'], 
-    '3': ['3', 'third', 'Third', '3rd'],
-    '4': ['4', 'fourth', 'Fourth', '4th']
-  }
-  
-  const possibleYearValues = yearMapping[year as keyof typeof yearMapping] || [year]
+  console.log('DEBUG Today\'s Hub: Total published assignments:', data?.length)
+  console.log('DEBUG Today\'s Hub: All assignments:', data?.map((a: any) => ({
+    title: a.title,
+    dept: a.department,
+    years: a.target_years
+  })))
   
   // Filter assignments that are either:
-  // 1. For all departments (no department specified)
-  // 2. For student's department
+  // 1. For all departments (no department specified or 'all')
+  // 2. For student's department (case-insensitive)
   // 3. For all years (no target_years specified)
   // 4. For student's year (flexible matching)
   const filteredData = (data || []).filter(assignment => {
-    const isDeptMatch = !assignment.department || assignment.department === department || assignment.department === 'all'
-    const isYearMatch = !assignment.target_years || assignment.target_years.length === 0 || 
-                       assignment.target_years.some((targetYear: string) => 
-                         possibleYearValues.includes(targetYear) || targetYear === 'all'
-                       )
+    const assignmentDept = (assignment.department || '').toLowerCase().trim()
+    const isDeptMatch = !assignment.department || 
+                        assignment.department === 'all' || 
+                        assignmentDept === normalizedDept ||
+                        assignmentDept === department.toUpperCase()
+    
+    const isYearMatch = !assignment.target_years || 
+                        assignment.target_years.length === 0 || 
+                        assignment.target_years.some((targetYear: string) => 
+                          possibleYearValues.includes(targetYear.toLowerCase()) || 
+                          targetYear.toLowerCase() === 'all'
+                        )
+    
+    console.log('DEBUG Today\'s Hub: Assignment', assignment.title, 
+                '- dept match:', isDeptMatch, '(assignment:', assignmentDept, 'vs student:', normalizedDept, ')',
+                '- year match:', isYearMatch, '(years:', assignment.target_years, ')')
+    
     return isDeptMatch && isYearMatch
   })
+
+  console.log('DEBUG Today\'s Hub: Filtered assignments:', filteredData.length)
 
   return filteredData
 }
@@ -307,13 +351,74 @@ async function getFacultyStudyGroups(facultyId: string) {
   return data || []
 }
 
-async function getRecentNotifications(userId: string) {
-  const { data, error } = await supabaseAdmin
+async function getRecentNotifications(userId: string, department?: string, year?: string) {
+  // Build query for notifications
+  let query = supabaseAdmin
     .from('notifications')
     .select('*')
-    .eq('user_id', userId)
     .order('created_at', { ascending: false })
-    .limit(10)
+    .limit(20)
+
+  // If department and year provided, filter by them as well
+  if (department && year) {
+    // Year mapping for flexible matching
+    const yearMapping: { [key: string]: string[] } = {
+      '1': ['1', 'first', 'First', '1st'],
+      '2': ['2', 'second', 'Second', '2nd'], 
+      '3': ['3', 'third', 'Third', '3rd'],
+      '4': ['4', 'fourth', 'Fourth', '4th'],
+      '1st': ['1', 'first', 'First', '1st'],
+      '2nd': ['2', 'second', 'Second', '2nd'],
+      '3rd': ['3', 'third', 'Third', '3rd'],
+      '4th': ['4', 'fourth', 'Fourth', '4th'],
+      'first': ['1', 'first', 'First', '1st'],
+      'second': ['2', 'second', 'Second', '2nd'],
+      'third': ['3', 'third', 'Third', '3rd'],
+      'fourth': ['4', 'fourth', 'Fourth', '4th']
+    }
+    
+    const possibleYearValues = yearMapping[year.toLowerCase()] || [year]
+    const normalizedDept = department.toLowerCase().trim()
+    
+    const { data, error } = await query
+    
+    if (error) {
+      console.error('Error fetching notifications:', error)
+      return []
+    }
+    
+    // Filter notifications that match:
+    // 1. User-specific notifications (user_id matches)
+    // 2. Department-wide notifications (department matches, no specific user)
+    // 3. Year-specific notifications (target_year matches)
+    // 4. Global notifications (no department/year filter)
+    const filteredData = (data || []).filter((notification: any) => {
+      // User-specific notification
+      if (notification.user_id === userId) return true
+      
+      // Global notification (no filters)
+      if (!notification.department && !notification.target_year) return true
+      
+      // Department match
+      const notifDept = (notification.department || '').toLowerCase().trim()
+      const deptMatch = !notification.department || 
+                        notification.department === 'all' ||
+                        notifDept === normalizedDept
+      
+      // Year match
+      const yearMatch = !notification.target_year ||
+                        possibleYearValues.includes(notification.target_year.toLowerCase()) ||
+                        notification.target_year.toLowerCase() === 'all'
+      
+      return deptMatch && yearMatch
+    })
+    
+    console.log('DEBUG: Fetched notifications for dept:', department, 'year:', year, '- found:', filteredData.length)
+    return filteredData
+  }
+
+  // Fallback: just filter by user_id
+  const { data, error } = await query.eq('user_id', userId)
 
   if (error) {
     console.error('Error fetching recent notifications:', error)
@@ -321,4 +426,114 @@ async function getRecentNotifications(userId: string) {
   }
 
   return data || []
+}
+
+// Get student quizzes based on department and year
+async function getStudentQuizzes(department: string, year: string) {
+  const normalizedDept = department.toLowerCase().trim()
+  
+  // Year mapping for flexible matching
+  const yearMapping: { [key: string]: string[] } = {
+    '1': ['1', 'first', 'First', '1st'],
+    '2': ['2', 'second', 'Second', '2nd'], 
+    '3': ['3', 'third', 'Third', '3rd'],
+    '4': ['4', 'fourth', 'Fourth', '4th'],
+    '1st': ['1', 'first', 'First', '1st'],
+    '2nd': ['2', 'second', 'Second', '2nd'],
+    '3rd': ['3', 'third', 'Third', '3rd'],
+    '4th': ['4', 'fourth', 'Fourth', '4th'],
+    'first': ['1', 'first', 'First', '1st'],
+    'second': ['2', 'second', 'Second', '2nd'],
+    'third': ['3', 'third', 'Third', '3rd'],
+    'fourth': ['4', 'fourth', 'Fourth', '4th']
+  }
+  
+  const possibleYearValues = yearMapping[year.toLowerCase()] || [year.toLowerCase()]
+  
+  const { data, error } = await supabaseAdmin
+    .from('quizzes')
+    .select('*')
+    .eq('department', normalizedDept)
+    .eq('is_published', true)
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  if (error) {
+    console.error('Error fetching student quizzes:', error)
+    return []
+  }
+
+  // Filter quizzes where target_years contains the student's year
+  const filteredData = (data || []).filter((quiz: any) => {
+    if (!quiz.target_years || quiz.target_years.length === 0) return true
+    return quiz.target_years.some((targetYear: string) => 
+      possibleYearValues.includes(targetYear.toLowerCase())
+    )
+  }).map((quiz: any) => {
+    // Determine quiz status
+    const now = new Date()
+    const startTime = new Date(quiz.start_time)
+    const endTime = new Date(quiz.end_time)
+    
+    let status = 'upcoming'
+    if (now >= startTime && now <= endTime) {
+      status = 'active'
+    } else if (now > endTime) {
+      status = 'ended'
+    }
+    
+    return {
+      ...quiz,
+      status
+    }
+  })
+
+  return filteredData
+}
+
+// Get student Lost & Found items - ALL items visible to ALL students
+async function getStudentLostFoundItems() {
+  const { data, error } = await supabaseAdmin
+    .from('lost_found_items')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  if (error) {
+    console.error('Error fetching student lost & found items:', error)
+    return []
+  }
+
+  // Return all items - visible to ALL students across all departments and years
+  return data || []
+}
+
+// Get faculty Lost & Found items
+async function getFacultyLostFoundItems(facultyId: string, department?: string) {
+  let query = supabaseAdmin
+    .from('lost_found_items')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  // Filter by reporter_id (faculty's own items) or department
+  if (department) {
+    const { data, error } = await query.or(`reporter_id.eq.${facultyId},department.eq.${department}`)
+    
+    if (error) {
+      console.error('Error fetching faculty lost & found items:', error)
+      return []
+    }
+    
+    return data || []
+  } else {
+    const { data, error } = await query.eq('reporter_id', facultyId)
+    
+    if (error) {
+      console.error('Error fetching faculty lost & found items:', error)
+      return []
+    }
+    
+    return data || []
+  }
 }

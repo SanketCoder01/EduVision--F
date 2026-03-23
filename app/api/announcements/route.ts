@@ -75,6 +75,17 @@ export async function POST(request: NextRequest) {
       target_audience = 'students'
     } = body
 
+    console.log('DEBUG API: Received announcement data:', {
+      title,
+      faculty_id,
+      department,
+      target_years,
+      poster_url: body.poster_url,
+      date: body.date,
+      time: body.time,
+      venue: body.venue
+    })
+
     // Validate required fields
     if (!title || !content || !faculty_id) {
       return NextResponse.json({ 
@@ -93,10 +104,17 @@ export async function POST(request: NextRequest) {
         target_years,
         priority,
         target_audience,
+        poster_url: body.poster_url || null,
+        date: body.date || null,
+        time: body.time || null,
+        venue: body.venue || null,
         created_at: new Date().toISOString()
       })
       .select()
       .single()
+
+    console.log('DEBUG API: Inserted announcement:', announcement)
+    console.log('DEBUG API: Insert error:', error)
 
     if (error) {
       return NextResponse.json({ 

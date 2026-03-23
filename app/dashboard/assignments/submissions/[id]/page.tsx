@@ -32,7 +32,8 @@ import {
   TrendingUp,
   Eye,
   Star,
-  Award
+  Award,
+  Sparkles
 } from "lucide-react"
 
 interface Submission {
@@ -48,7 +49,7 @@ interface Submission {
   plagiarism_score?: number
   is_late?: boolean
   submission_text?: string
-  files: Array<{
+  files?: Array<{
     id?: string
     file_name: string
     file_url?: string
@@ -83,7 +84,7 @@ export default function AssignmentSubmissionsPage() {
   const handleAutoGrade = async (submission: Submission) => {
     setIsAutoGrading(true)
     try {
-      // Call auto-grading API
+      // Call auto-grading API with files
       const response = await fetch('/api/ai/auto-grade', {
         method: 'POST',
         headers: {
@@ -91,6 +92,7 @@ export default function AssignmentSubmissionsPage() {
         },
         body: JSON.stringify({
           submission_text: submission.submission_text,
+          submission_files: submission.files || [],
           assignment_questions: assignment.questions,
           max_marks: assignment.max_marks,
           assignment_type: assignment.assignment_type
@@ -114,6 +116,22 @@ export default function AssignmentSubmissionsPage() {
         
         if (updateError) throw updateError
         
+        // Create notification for student
+        const student = students.find(s => s.id === submission.student_id)
+        if (student && assignment) {
+          await supabase.from('notifications').insert([{
+            type: "grade",
+            title: "Assignment Graded",
+            message: `Your assignment "${assignment.title}" has been auto-graded: ${result.grade}/${assignment.max_marks}`,
+            assignment_id: assignment.id,
+            student_id: student.id,
+            faculty_id: assignment.faculty_id,
+            department: assignment.department,
+            created_at: new Date().toISOString(),
+            read: false
+          }])
+        }
+        
         // Update local state
         const updatedSubmissions = submissions.map(sub => 
           sub.id === submission.id 
@@ -122,16 +140,97 @@ export default function AssignmentSubmissionsPage() {
         )
         setSubmissions(updatedSubmissions)
         
-        toast.success(`Auto-grading complete: ${result.grade}/${assignment.max_marks} marks`)
+        toast.success(`Auto-graded: ${result.grade}/${assignment.max_marks} marks`)
       } else {
         throw new Error('Auto-grading failed')
       }
     } catch (error) {
       console.error('Error auto-grading:', error)
-      toast.error("Failed to auto-grade assignment. Please grade manually.")
+      toast.error("Failed to auto-grade. Please grade manually.")
     } finally {
       setIsAutoGrading(false)
     }
+  }
+
+  // Batch auto-grade all ungraded submissions
+  const handleBatchAutoGrade = async () => {
+    const ungradedSubmissions = submissions.filter(s => s.status !== 'graded')
+    
+    if (ungradedSubmissions.length === 0) {
+      toast.info("No ungraded submissions to grade")
+      return
+    }
+    
+    setIsAutoGrading(true)
+    let graded = 0
+    let failed = 0
+    
+    toast.info(`Starting batch auto-grading for ${ungradedSubmissions.length} submissions...`)
+    
+    for (const submission of ungradedSubmissions) {
+      try {
+        const response = await fetch('/api/ai/auto-grade', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            submission_text: submission.submission_text,
+            submission_files: submission.files || [],
+            assignment_questions: assignment.questions,
+            max_marks: assignment.max_marks,
+            assignment_type: assignment.assignment_type,
+            batch_mode: true
+          })
+        })
+        
+        if (response.ok) {
+          const result = await response.json()
+          
+          await supabase
+            .from('assignment_submissions')
+            .update({
+              grade: result.grade,
+              feedback: result.feedback,
+              status: 'graded',
+              graded_at: new Date().toISOString(),
+              auto_graded: true
+            })
+            .eq('id', submission.id)
+          
+          // Notify student
+          const student = students.find(s => s.id === submission.student_id)
+          if (student && assignment) {
+            await supabase.from('notifications').insert([{
+              type: "grade",
+              title: "Assignment Graded",
+              message: `Your assignment "${assignment.title}" has been auto-graded: ${result.grade}/${assignment.max_marks}`,
+              assignment_id: assignment.id,
+              student_id: student.id,
+              faculty_id: assignment.faculty_id,
+              department: assignment.department,
+              created_at: new Date().toISOString(),
+              read: false
+            }])
+          }
+          
+          graded++
+        } else {
+          failed++
+        }
+      } catch (error) {
+        console.error('Error grading submission:', submission.id, error)
+        failed++
+      }
+      
+      // Small delay between requests to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+    
+    // Reload submissions
+    const submissionsData = await loadSubmissionsData(params.id as string)
+    setSubmissions(submissionsData)
+    
+    setIsAutoGrading(false)
+    toast.success(`Batch grading complete: ${graded} graded, ${failed} failed`)
   }
 
   const loadAssignmentData = async () => {
@@ -152,11 +251,7 @@ export default function AssignmentSubmissionsPage() {
       
       if (assignmentError) {
         console.error('Error loading assignment:', assignmentError)
-        toast({
-          title: "Error",
-          description: "Assignment not found.",
-          variant: "destructive"
-        })
+        toast.error("Error", { description: "Assignment not found." })
         router.push('/dashboard/assignments')
         return null
       }
@@ -190,7 +285,13 @@ export default function AssignmentSubmissionsPage() {
         return []
       }
       
-      return submissionsData || []
+      // Map the data to include files array properly
+      const mappedData = (submissionsData || []).map((sub: any) => ({
+        ...sub,
+        files: sub.submission_files || []
+      }))
+      
+      return mappedData
     } catch (error) {
       console.error('Error loading submissions:', error)
       return []
@@ -211,11 +312,7 @@ export default function AssignmentSubmissionsPage() {
         }
       } catch (error) {
         console.error("Error loading data:", error)
-        toast({
-          title: "Error",
-          description: "Failed to load assignment data",
-          variant: "destructive",
-        })
+        toast.error("Error", { description: "Failed to load assignment data" })
       } finally {
         setLoading(false)
       }
@@ -308,6 +405,22 @@ export default function AssignmentSubmissionsPage() {
 
   const handleSubmitGrade = async () => {
     if (!selectedSubmission || !grade) return
+    
+    // Validate grade is not greater than max_marks
+    const gradeNum = parseFloat(grade)
+    if (gradeNum > assignment.max_marks) {
+      toast.error("Invalid Grade", { 
+        description: `Grade cannot exceed maximum marks (${assignment.max_marks}). Please enter a value equal to or less than ${assignment.max_marks}.` 
+      })
+      return
+    }
+    
+    if (gradeNum < 0) {
+      toast.error("Invalid Grade", { 
+        description: "Grade cannot be negative. Please enter a value 0 or greater." 
+      })
+      return
+    }
     
     setIsSubmitting(true)
     try {
@@ -498,6 +611,25 @@ export default function AssignmentSubmissionsPage() {
               </CardDescription>
             </div>
             <div className="mt-4 md:mt-0 flex gap-2">
+              {submissions.filter(s => s.status !== 'graded').length > 0 && (
+                <Button
+                  onClick={handleBatchAutoGrade}
+                  disabled={isAutoGrading}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  {isAutoGrading ? (
+                    <div className="flex items-center gap-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Grading...
+                    </div>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Auto-Grade All ({submissions.filter(s => s.status !== 'graded').length})
+                    </>
+                  )}
+                </Button>
+              )}
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -662,40 +794,46 @@ export default function AssignmentSubmissionsPage() {
               <div>
                 <h3 className="font-medium mb-1">Submitted Files</h3>
                 <div className="space-y-2">
-                  {selectedSubmission.files.map((file, index) => (
-                    <div key={index} className="flex items-center justify-between rounded border p-3">
-                      <div className="flex items-center space-x-3">
-                        <FileText className="h-5 w-5 text-muted-foreground" />
-                        <div>
-                          <p className="text-sm font-medium">{file.file_name}</p>
-                          <p className="text-xs text-muted-foreground">{formatFileSize(file.file_size)}</p>
+                  {selectedSubmission.files && selectedSubmission.files.length > 0 ? (
+                    selectedSubmission.files.map((file, index) => (
+                      <div key={index} className="flex items-center justify-between rounded border p-3">
+                        <div className="flex items-center space-x-3">
+                          <FileText className="h-5 w-5 text-muted-foreground" />
+                          <div>
+                            <p className="text-sm font-medium">{file.file_name}</p>
+                            <p className="text-xs text-muted-foreground">{formatFileSize(file.file_size)}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => window.open(file.file_url, '_blank')}
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            View
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => {
+                              if (file.file_url) {
+                                const link = document.createElement('a')
+                                link.href = file.file_url
+                                link.download = file.file_name
+                                link.click()
+                              }
+                            }}
+                          >
+                            <Download className="h-4 w-4 mr-2" />
+                            Download
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => window.open(file.file_url, '_blank')}
-                        >
-                          <Eye className="h-4 w-4 mr-2" />
-                          View
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => {
-                            const link = document.createElement('a')
-                            link.href = file.file_url
-                            link.download = file.file_name
-                            link.click()
-                          }}
-                        >
-                          <Download className="h-4 w-4 mr-2" />
-                          Download
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No files submitted</p>
+                  )}
                 </div>
               </div>
               

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { ArrowLeft, Calendar, Clock, MapPin, Users, Download, FileText, CheckCircle, XCircle } from "lucide-react"
-import { AttendanceService } from "@/lib/attendance-service"
+import AttendanceService from "@/lib/attendance-service"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"

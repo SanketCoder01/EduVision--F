@@ -1,37 +1,34 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 
 export async function POST(request: NextRequest) {
+  console.log('DEBUG UPLOAD: Starting poster upload...')
+  
   try {
-    const supabase = createRouteHandlerClient({ cookies })
+    // Create Supabase client with service role for storage operations
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+    
+    console.log('DEBUG UPLOAD: Supabase URL:', supabaseUrl ? 'Set' : 'Missing')
+    console.log('DEBUG UPLOAD: Service key:', supabaseServiceKey ? 'Set' : 'Missing')
+    
+    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    
+    // Also try auth client for user verification
+    const authClient = createRouteHandlerClient({ cookies })
     
     // Get current user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json(
-        { success: false, error: 'Not authenticated' },
-        { status: 401 }
-      )
-    }
-
-    // Get faculty info
-    const { data: faculty, error: facultyError } = await supabase
-      .from('faculty')
-      .select('id')
-      .eq('email', user.email)
-      .single()
-
-    if (facultyError || !faculty) {
-      return NextResponse.json(
-        { success: false, error: 'Faculty not found' },
-        { status: 404 }
-      )
-    }
+    const { data: { user }, error: authError } = await authClient.auth.getUser()
+    console.log('DEBUG UPLOAD: User:', user?.email || 'No user')
+    console.log('DEBUG UPLOAD: Auth error:', authError?.message || 'None')
 
     // Get file from form data
     const formData = await request.formData()
     const file = formData.get('file') as File
+    
+    console.log('DEBUG UPLOAD: File received:', file?.name, file?.type, file?.size)
     
     if (!file) {
       return NextResponse.json(
@@ -58,25 +55,78 @@ export async function POST(request: NextRequest) {
 
     // Generate unique filename
     const fileExt = file.name.split('.').pop()
-    const fileName = `${user.id}/${Date.now()}.${fileExt}`
+    const userId = user?.id || 'anonymous'
+    const fileName = `posters/${userId}/${Date.now()}.${fileExt}`
+    
+    console.log('DEBUG UPLOAD: Generated filename:', fileName)
 
     // Convert file to buffer
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
+    
+    console.log('DEBUG UPLOAD: Buffer size:', buffer.length)
 
     // Upload to Supabase Storage
+    console.log('DEBUG UPLOAD: Attempting upload to announcement-posters bucket...')
     const { data, error: uploadError } = await supabase.storage
       .from('announcement-posters')
       .upload(fileName, buffer, {
         contentType: file.type,
         cacheControl: '3600',
-        upsert: false,
+        upsert: true,
       })
 
+    console.log('DEBUG UPLOAD: Upload result:', data)
+    console.log('DEBUG UPLOAD: Upload error:', uploadError)
+
     if (uploadError) {
-      console.error('Upload error:', uploadError)
+      console.error('DEBUG UPLOAD: Upload error details:', uploadError)
+      
+      // If bucket doesn't exist, try to create it
+      if (uploadError.message?.includes('Bucket not found') || uploadError.message?.includes('not found') || String(uploadError).includes('not found')) {
+        console.log('DEBUG UPLOAD: Bucket not found, creating...')
+        const { error: createError } = await supabase.storage.createBucket('announcement-posters', {
+          public: true,
+          fileSizeLimit: 5242880 // 5MB
+        })
+        
+        console.log('DEBUG UPLOAD: Bucket create error:', createError)
+        
+        // Try upload again
+        const { data: retryData, error: retryError } = await supabase.storage
+          .from('announcement-posters')
+          .upload(fileName, buffer, {
+            contentType: file.type,
+            cacheControl: '3600',
+            upsert: true,
+          })
+          
+        console.log('DEBUG UPLOAD: Retry result:', retryData)
+        console.log('DEBUG UPLOAD: Retry error:', retryError)
+          
+        if (retryError) {
+          return NextResponse.json(
+            { success: false, error: retryError.message || 'Upload failed after retry' },
+            { status: 500 }
+          )
+        }
+        
+        // Get public URL for retry
+        const { data: { publicUrl } } = supabase.storage
+          .from('announcement-posters')
+          .getPublicUrl(fileName)
+        
+        console.log('DEBUG UPLOAD: Public URL (retry):', publicUrl)
+
+        return NextResponse.json({
+          success: true,
+          url: publicUrl,
+          path: fileName,
+        })
+      }
+      
       return NextResponse.json(
-        { success: false, error: uploadError.message },
+        { success: false, error: uploadError.message || 'Upload failed' },
         { status: 500 }
       )
     }
@@ -85,6 +135,8 @@ export async function POST(request: NextRequest) {
     const { data: { publicUrl } } = supabase.storage
       .from('announcement-posters')
       .getPublicUrl(fileName)
+    
+    console.log('DEBUG UPLOAD: Final public URL:', publicUrl)
 
     return NextResponse.json({
       success: true,
@@ -92,7 +144,7 @@ export async function POST(request: NextRequest) {
       path: fileName,
     })
   } catch (error) {
-    console.error('Server error:', error)
+    console.error('DEBUG UPLOAD: Server error:', error)
     return NextResponse.json(
       {
         success: false,

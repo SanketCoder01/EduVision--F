@@ -1,14 +1,15 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import { realtimeService, RealtimePayload } from '@/lib/realtime-service'
 import { supabase } from '@/lib/supabase'
-import { Search, Filter, Bell, Calendar, ChevronRight, Star, AlertCircle, Info } from "lucide-react"
+import { Search, Bell, Calendar, ChevronRight, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useToast } from "@/hooks/use-toast"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
@@ -29,6 +30,7 @@ interface Announcement {
 }
 
 export default function StudentAnnouncementsPage() {
+  const { toast } = useToast()
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [filteredAnnouncements, setFilteredAnnouncements] = useState<Announcement[]>([])
   const [searchTerm, setSearchTerm] = useState("")
@@ -37,24 +39,17 @@ export default function StudentAnnouncementsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null)
 
+  const subscriptionsRef = useRef<{ unsubscribe: () => void } | null>(null)
+  const [student, setStudent] = useState<any>(null)
+
   // Fetch announcements from Supabase
   useEffect(() => {
     fetchAnnouncements()
     
-    // Subscribe to real-time updates
-    const channel = supabase
-      .channel('announcements_changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'announcements'
-      }, () => {
-        fetchAnnouncements()
-      })
-      .subscribe()
-
     return () => {
-      supabase.removeChannel(channel)
+      if (subscriptionsRef.current) {
+        subscriptionsRef.current.unsubscribe()
+      }
     }
   }, [])
 
@@ -94,21 +89,40 @@ export default function StudentAnnouncementsPage() {
       if (error) throw error
 
       // Filter announcements based on student's department and year
+      const yearMapping: { [key: string]: string } = {
+        '1': 'first', '2': 'second', '3': 'third', '4': 'fourth',
+        '1st': 'first', '2nd': 'second', '3rd': 'third', '4th': 'fourth',
+        'first': 'first', 'second': 'second', 'third': 'third', 'fourth': 'fourth'
+      }
+      const normalizedStudentYear = yearMapping[student.year?.toLowerCase()?.trim() || ''] || student.year?.toLowerCase()
+      const normalizedStudentDept = student.department?.toLowerCase()?.trim()
+      
       const announcements = allAnnouncements?.filter(announcement => {
+        const recordDept = announcement.department?.toLowerCase()?.trim()
+        const recordYears = announcement.target_years || []
+        
         // University-wide announcements (no department specified)
         if (!announcement.department) return true
         
-        // Check if announcement is for student's department
-        if (announcement.department === student.department) {
+        // Check if announcement is for student's department (case-insensitive)
+        if (recordDept === normalizedStudentDept) {
           // If no target years specified, it's for all years in the department
-          if (!announcement.target_years || announcement.target_years.length === 0) return true
+          if (!recordYears || recordYears.length === 0) return true
           
-          // Check if student's year is in the target years
-          if (announcement.target_years.includes(student.year)) return true
+          // Check if student's year is in the target years (case-insensitive)
+          const yearMatches = recordYears.some((y: string) => {
+            const normalizedRecordYear = yearMapping[y?.toLowerCase()?.trim() || ''] || y?.toLowerCase()
+            return normalizedRecordYear === normalizedStudentYear
+          })
+          if (yearMatches) return true
         }
         
         return false
       }) || []
+
+      if (student) {
+        setupRealtimeSubscriptions(student)
+      }
 
       // Map to interface format
       const mapped = announcements?.map(a => ({
@@ -136,10 +150,33 @@ export default function StudentAnnouncementsPage() {
     }
   }
 
+  const setupRealtimeSubscriptions = (studentData: any) => {
+    // Clean up previous subscriptions
+    if (subscriptionsRef.current) {
+      subscriptionsRef.current.unsubscribe()
+    }
+    
+    // Use centralized realtime service with department + year filtering
+    subscriptionsRef.current = realtimeService.subscribeToAnnouncements(
+      { department: studentData.department, year: studentData.year },
+      (payload: RealtimePayload) => {
+        console.log('Announcement update:', payload)
+        fetchAnnouncements()
+        
+        if (payload.eventType === 'INSERT') {
+          toast({
+            title: "New Announcement",
+            description: payload.new.title,
+          })
+        }
+      }
+    )
+  }
+
   useEffect(() => {
     let filtered = announcements
 
-    // Filter by search term
+    // Filter by search term only
     if (searchTerm) {
       filtered = filtered.filter(
         (announcement) =>
@@ -149,22 +186,8 @@ export default function StudentAnnouncementsPage() {
       )
     }
 
-    // Filter by priority
-    if (filterPriority !== "all") {
-      filtered = filtered.filter((announcement) => announcement.priority === filterPriority)
-    }
-
-    // Filter by department
-    if (filterDepartment !== "all") {
-      filtered = filtered.filter(
-        (announcement) =>
-          announcement.department.toLowerCase().includes(filterDepartment.toLowerCase()) ||
-          announcement.department === "All Departments",
-      )
-    }
-
     setFilteredAnnouncements(filtered)
-  }, [searchTerm, filterPriority, filterDepartment, announcements])
+  }, [searchTerm, announcements])
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -250,7 +273,7 @@ export default function StudentAnnouncementsPage() {
         </Badge>
       </motion.div>
 
-      {/* Search and Filters */}
+      {/* Search Only - removed priority and department filters */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -266,31 +289,6 @@ export default function StudentAnnouncementsPage() {
             className="pl-10"
           />
         </div>
-        <Select value={filterPriority} onValueChange={setFilterPriority}>
-          <SelectTrigger className="w-full sm:w-40">
-            <Filter className="h-4 w-4 mr-2" />
-            <SelectValue placeholder="Priority" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Priorities</SelectItem>
-            <SelectItem value="urgent">Urgent</SelectItem>
-            <SelectItem value="high">High</SelectItem>
-            <SelectItem value="normal">Normal</SelectItem>
-            <SelectItem value="low">Low</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={filterDepartment} onValueChange={setFilterDepartment}>
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue placeholder="Department" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Departments</SelectItem>
-            <SelectItem value="computer science">Computer Science</SelectItem>
-            <SelectItem value="information technology">Information Technology</SelectItem>
-            <SelectItem value="mechanical">Mechanical Engineering</SelectItem>
-            <SelectItem value="electrical">Electrical Engineering</SelectItem>
-          </SelectContent>
-        </Select>
       </motion.div>
 
       {/* Announcements List */}
@@ -319,13 +317,7 @@ export default function StudentAnnouncementsPage() {
                     <div className="p-6 flex-1">
                       <div className="flex justify-between items-start mb-4">
                         <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="text-xl font-semibold text-gray-900">{announcement.title}</h3>
-                            <Badge className={`${getPriorityColor(announcement.priority)} flex items-center gap-1`}>
-                              {getPriorityIcon(announcement.priority)}
-                              {announcement.priority.charAt(0).toUpperCase() + announcement.priority.slice(1)}
-                            </Badge>
-                          </div>
+                          <h3 className="text-xl font-semibold text-gray-900">{announcement.title}</h3>
                           <p className="text-gray-600 line-clamp-2 mb-3">{announcement.content}</p>
                           {(announcement.date || announcement.time || announcement.venue) && (
                             <div className="flex flex-wrap gap-3 text-sm text-gray-500 mb-3">
@@ -383,16 +375,7 @@ export default function StudentAnnouncementsPage() {
                             </DialogTrigger>
                             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                               <DialogHeader>
-                                <DialogTitle className="flex items-center gap-2">
-                                  {selectedAnnouncement?.title}
-                                  <Badge
-                                    className={`${getPriorityColor(selectedAnnouncement?.priority || "normal")} flex items-center gap-1`}
-                                  >
-                                    {getPriorityIcon(selectedAnnouncement?.priority || "normal")}
-                                    {(selectedAnnouncement?.priority || "normal").charAt(0).toUpperCase() +
-                                      (selectedAnnouncement?.priority || "normal").slice(1)}
-                                  </Badge>
-                                </DialogTitle>
+                                <DialogTitle className="text-xl font-semibold">{selectedAnnouncement?.title}</DialogTitle>
                               </DialogHeader>
                               <div className="space-y-4">
                                 {selectedAnnouncement?.poster_url && (
@@ -467,7 +450,7 @@ export default function StudentAnnouncementsPage() {
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-12">
           <Bell className="h-16 w-16 text-gray-300 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No announcements found</h3>
-          <p className="text-gray-500">Try adjusting your search or filter criteria.</p>
+          <p className="text-gray-500"></p>
         </motion.div>
       )}
     </div>

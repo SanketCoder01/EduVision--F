@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import {
@@ -27,13 +27,13 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useRealtimeData } from "@/components/realtime/RealtimeDataProvider"
-import { supabase } from "@/lib/supabase-realtime"
+import { realtimeService, RealtimePayload } from "@/lib/realtime-service"
+import { supabase } from "@/lib/supabase"
 import { toast } from "@/hooks/use-toast"
 
 interface FacultyHubItem {
   id: string
-  type: "assignment" | "announcement" | "event" | "study_group" | "attendance" | "submission" | "query"
+  type: "assignment" | "announcement" | "event" | "study_group" | "attendance" | "submission" | "query" | "quiz"
   title: string
   description: string
   author: string
@@ -59,28 +59,18 @@ export default function FacultyTodaysHubPage() {
   useEffect(() => {
     const loadUserData = async () => {
       try {
-        const facultyData = localStorage.getItem("facultySession")
-        const currentUserData = localStorage.getItem("currentUser")
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
+        if (authError || !user) { router.push('/login?type=faculty'); return }
         
-        let user = null
-        if (facultyData) {
-          user = JSON.parse(facultyData)
-        } else if (currentUserData) {
-          user = JSON.parse(currentUserData)
-        }
-        
-        if (user) {
-          setCurrentUser(user)
-          await loadTodaysHubData(user)
-          setupRealtimeSubscriptions(user)
-        }
+        const { data: faculty } = await supabase.from('faculty').select('*').eq('email', user.email).maybeSingle()
+        if (faculty) {
+          setCurrentUser(faculty)
+          await loadTodaysHubData(faculty)
+          setupRealtimeSubscriptions(faculty)
+        } else { router.push('/complete-profile') }
       } catch (error) {
         console.error("Error loading user data:", error)
-        toast({
-          title: "Error",
-          description: "Failed to load user data. Please refresh the page.",
-          variant: "destructive"
-        })
+        toast({ title: "Error", description: "Failed to load user data.", variant: "destructive" })
       } finally {
         setIsLoading(false)
       }
@@ -198,6 +188,27 @@ export default function FacultyTodaysHubPage() {
         })
       })
       
+      // Process Lost & Found items
+      data.lostFoundItems?.forEach((item: any) => {
+        items.push({
+          id: item.id,
+          type: "announcement",
+          title: `Lost & Found: ${item.item_name}`,
+          description: `${item.item_category} - ${item.location_found}`,
+          author: item.reporter_id === user.id ? "You" : item.department,
+          time: getRelativeTime(item.created_at),
+          urgent: item.status === 'lost',
+          department: item.department,
+          redirectUrl: `/dashboard/other-services/lost-found`,
+          metadata: {
+            category: item.item_category,
+            location: item.location_found,
+            status: item.status
+          },
+          status: item.status
+        })
+      })
+      
       // Sort by creation time (newest first)
       items.sort((a, b) => {
         const timeA = new Date(a.time.includes('ago') ? Date.now() : a.time).getTime()
@@ -220,93 +231,66 @@ export default function FacultyTodaysHubPage() {
     }
   }
   
+  const subscriptionsRef = useRef<{ unsubscribe: () => void } | null>(null)
+  
   const setupRealtimeSubscriptions = (user: any) => {
-    // Subscribe to assignments changes
-    const assignmentsChannel = supabase
-      .channel('faculty_assignments')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'assignments',
-          filter: `faculty_id=eq.${user.id}`
-        },
-        (payload) => {
-          console.log('Assignment change:', payload)
+    // Clean up previous subscriptions
+    if (subscriptionsRef.current) {
+      subscriptionsRef.current.unsubscribe()
+    }
+    
+    // Use centralized realtime service for faculty notifications
+    subscriptionsRef.current = realtimeService.subscribeToAllFacultyUpdates(
+      { facultyId: user.id, department: user.department },
+      {
+        onSubmission: (payload: RealtimePayload) => {
+          console.log('New submission:', payload)
           loadTodaysHubData(user)
-          
-          if (payload.eventType === 'INSERT') {
-            toast({
-              title: "Assignment Created",
-              description: `Assignment "${payload.new.title}" has been created.`,
-            })
-          }
-        }
-      )
-      .subscribe()
-
-    // Subscribe to announcements changes
-    const announcementsChannel = supabase
-      .channel('faculty_announcements')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'announcements',
-          filter: `faculty_id=eq.${user.id}`
+          toast({
+            title: "New Submission",
+            description: `A student has submitted "${payload.new.assignment?.title || 'an assignment'}".`,
+          })
         },
-        (payload) => {
-          console.log('Announcement change:', payload)
+        onQuizAttempt: (payload: RealtimePayload) => {
+          console.log('New quiz attempt:', payload)
           loadTodaysHubData(user)
-          
-          if (payload.eventType === 'INSERT') {
-            toast({
-              title: "Announcement Posted",
-              description: `Announcement "${payload.new.title}" has been posted.`,
-            })
-          }
-        }
-      )
-      .subscribe()
-
-    // Subscribe to assignment submissions
-    const submissionsChannel = supabase
-      .channel('assignment_submissions')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'assignment_submissions'
+          toast({
+            title: "New Quiz Attempt",
+            description: `A student has submitted a quiz.`,
+          })
         },
-        async (payload) => {
-          // Check if this submission is for faculty's assignment
-          const { data: assignment } = await supabase
-            .from('assignments')
-            .select('faculty_id, title')
-            .eq('id', payload.new.assignment_id)
-            .single()
-          
-          if (assignment?.faculty_id === user.id) {
-            console.log('New submission for faculty:', payload)
-            loadTodaysHubData(user)
-            
-            toast({
-              title: "New Submission",
-              description: `A student has submitted "${assignment.title}".`,
-            })
-          }
-        }
-      )
-      .subscribe()
+        onQuery: (payload: RealtimePayload) => {
+          console.log('New student query:', payload)
+          loadTodaysHubData(user)
+          toast({
+            title: "New Student Query",
+            description: `A student has asked a question.`,
+          })
+        },
+        onGrievance: (payload: RealtimePayload) => {
+          console.log('Grievance update:', payload)
+          loadTodaysHubData(user)
+          toast({
+            title: "Grievance Update",
+            description: `A new grievance has been filed.`,
+          })
+        },
+        onEventRegistration: (payload: RealtimePayload) => {
+          console.log('New event registration:', payload)
+          loadTodaysHubData(user)
+          toast({
+            title: "Event Registration",
+            description: `A student has registered for an event.`,
+          })
+        },
+      }
+    )
 
     // Cleanup function
     return () => {
-      supabase.removeChannel(assignmentsChannel)
-      supabase.removeChannel(announcementsChannel)
-      supabase.removeChannel(submissionsChannel)
+      if (subscriptionsRef.current) {
+        subscriptionsRef.current.unsubscribe()
+      }
     }
   }
 

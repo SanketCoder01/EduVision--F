@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import {
@@ -27,7 +27,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { supabase } from "@/lib/supabase-realtime"
+import { realtimeService, RealtimePayload } from "@/lib/realtime-service"
+import { supabase } from "@/lib/supabase"
 import { toast } from "@/hooks/use-toast"
 
 interface Assignment {
@@ -62,7 +63,7 @@ interface Student {
 
 interface TodaysHubItem {
   id: string
-  type: "assignment" | "announcement" | "event" | "study_group" | "attendance"
+  type: "assignment" | "announcement" | "event" | "study_group" | "attendance" | "quiz"
   title: string
   description: string
   author: string
@@ -88,35 +89,48 @@ export default function StudentTodaysHubPage() {
   useEffect(() => {
     const loadUserData = async () => {
       try {
-        const studentData = localStorage.getItem("studentSession")
-        const currentUserData = localStorage.getItem("currentUser")
-        const userSession = localStorage.getItem("user_session")
+        // Get user from Supabase Auth
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
+        if (authError || !user) { router.push('/login?type=student'); return }
         
-        let user = null
-        if (studentData) {
-          user = JSON.parse(studentData)
-        } else if (currentUserData) {
-          user = JSON.parse(currentUserData)
-        } else if (userSession) {
-          const sessionUser = JSON.parse(userSession)
-          // Check if this is a student user
-          if (sessionUser.department && sessionUser.year) {
-            user = sessionUser
+        // Find student in department-year tables
+        const departments = ['cse', 'cyber', 'aids', 'aiml']
+        const years = ['1st', '2nd', '3rd', '4th']
+        let studentData = null
+        
+        for (const dept of departments) {
+          for (const year of years) {
+            const { data } = await supabase
+              .from(`students_${dept}_${year}_year`)
+              .select('*')
+              .eq('email', user.email)
+              .maybeSingle()
+            if (data) { 
+              // Normalize department to lowercase and convert year format
+              const yearMapping: { [key: string]: string } = {
+                '1st': '1', '2nd': '2', '3rd': '3', '4th': '4'
+              }
+              studentData = { 
+                ...data, 
+                department: dept.toLowerCase(), 
+                year: yearMapping[year] || year.replace('st', '').replace('nd', '').replace('rd', '').replace('th', '')
+              }
+              break 
+            }
           }
+          if (studentData) break
         }
         
-        if (user) {
-          setCurrentUser(user)
-          await loadTodaysHubData(user)
-          setupRealtimeSubscriptions(user)
+        if (studentData) {
+          setCurrentUser(studentData)
+          await loadTodaysHubData(studentData)
+          setupRealtimeSubscriptions(studentData)
+        } else {
+          router.push('/complete-profile')
         }
       } catch (error) {
         console.error("Error loading user data:", error)
-        toast({
-          title: "Error",
-          description: "Failed to load user data. Please refresh the page.",
-          variant: "destructive"
-        })
+        toast({ title: "Error", description: "Failed to load user data.", variant: "destructive" })
       }
     }
 
@@ -243,6 +257,76 @@ export default function StudentTodaysHubPage() {
         })
       })
 
+      // Process notifications
+      data.notifications?.forEach((notification: any) => {
+        items.push({
+          id: notification.id,
+          type: notification.type || "announcement",
+          title: notification.title,
+          description: notification.message || notification.description || "No description available",
+          author: notification.sender_name || "System",
+          time: getRelativeTime(notification.created_at),
+          urgent: notification.priority === 'urgent' || notification.priority === 'high',
+          department: notification.department || "All Departments",
+          redirectUrl: notification.redirect_url || `/student-dashboard`,
+          metadata: {
+            read: notification.read,
+            data: notification.data
+          }
+        })
+      })
+
+      // Process quizzes
+      data.quizzes?.forEach((quiz: any) => {
+        const startTime = new Date(quiz.start_time)
+        const endTime = new Date(quiz.end_time)
+        const now = new Date()
+        const isActive = now >= startTime && now <= endTime
+        const isUrgent = isActive || (startTime.getTime() - now.getTime() < 24 * 60 * 60 * 1000)
+
+        items.push({
+          id: quiz.id,
+          type: "quiz",
+          title: `Quiz: ${quiz.title}`,
+          description: `${quiz.subject} - ${quiz.total_marks} marks, ${quiz.duration_minutes} min`,
+          author: quiz.faculty_name || "Faculty",
+          time: getRelativeTime(quiz.created_at),
+          urgent: isUrgent,
+          department: quiz.department,
+          redirectUrl: `/student-dashboard/quiz`,
+          metadata: {
+            subject: quiz.subject,
+            totalMarks: quiz.total_marks,
+            duration: quiz.duration_minutes,
+            status: quiz.status,
+            startTime: quiz.start_time,
+            endTime: quiz.end_time
+          },
+          status: quiz.status
+        })
+      })
+
+      // Process Lost & Found items
+      data.lostFoundItems?.forEach((item: any) => {
+        items.push({
+          id: item.id,
+          type: "event",
+          title: `Lost & Found: ${item.item_name}`,
+          description: `${item.item_category} - ${item.location_found}`,
+          author: item.department,
+          time: getRelativeTime(item.created_at),
+          urgent: item.status === 'lost',
+          department: item.department,
+          redirectUrl: `/student-dashboard/other-services/lost-found`,
+          metadata: {
+            category: item.item_category,
+            location: item.location_found,
+            status: item.status
+          },
+          status: item.status
+        })
+      })
+
       // Sort by creation time (newest first)
       items.sort((a, b) => {
         const timeA = new Date(a.time.includes('ago') ? Date.now() : a.time).getTime()
@@ -266,96 +350,106 @@ export default function StudentTodaysHubPage() {
   }
 
 
+  const subscriptionsRef = useRef<{ unsubscribe: () => void } | null>(null)
+  
   const setupRealtimeSubscriptions = (user: Student) => {
-    // Subscribe to assignments changes for student's department and year
-    const assignmentsChannel = supabase
-      .channel('student_assignments')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'assignments'
-        },
-        (payload) => {
-          // Check if assignment is relevant to student
-          const assignment = payload.new as Assignment || payload.old as Assignment
-          if (assignment && assignment.department === user.department && 
-              assignment.target_years && assignment.target_years.includes(user.year)) {
-            console.log('Relevant assignment change:', payload)
-            loadTodaysHubData(user)
-            
-            if (payload.eventType === 'INSERT' && payload.new.status === 'published') {
-              toast({
-                title: "New Assignment",
-                description: `Assignment "${payload.new.title}" has been published.`,
-              })
-            }
+    // Clean up previous subscriptions
+    if (subscriptionsRef.current) {
+      subscriptionsRef.current.unsubscribe()
+    }
+    
+    // Use centralized realtime service with department + year filtering
+    subscriptionsRef.current = realtimeService.subscribeToAllStudentUpdates(
+      { department: user.department, year: user.year, studentId: user.id },
+      {
+        onAssignment: (payload: RealtimePayload) => {
+          console.log('Relevant assignment change:', payload)
+          loadTodaysHubData(user)
+          if (payload.eventType === 'INSERT') {
+            toast({
+              title: "New Assignment",
+              description: `Assignment "${payload.new.title}" has been published.`,
+            })
           }
-        }
-      )
-      .subscribe()
-
-    // Subscribe to announcements changes
-    const announcementsChannel = supabase
-      .channel('student_announcements')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'announcements'
         },
-        (payload) => {
-          const announcement = payload.new as Announcement || payload.old as Announcement
-          if (announcement && (!announcement.department || announcement.department === user.department)) {
-            console.log('Relevant announcement change:', payload)
-            loadTodaysHubData(user)
-            
-            if (payload.eventType === 'INSERT') {
-              toast({
-                title: "New Announcement",
-                description: `"${payload.new.title}" has been posted.`,
-              })
-            }
+        onAnnouncement: (payload: RealtimePayload) => {
+          console.log('Relevant announcement change:', payload)
+          loadTodaysHubData(user)
+          if (payload.eventType === 'INSERT') {
+            toast({
+              title: "New Announcement",
+              description: `"${payload.new.title}" has been posted.`,
+            })
           }
-        }
-      )
-      .subscribe()
-
-    // Subscribe to study groups changes
-    const studyGroupsChannel = supabase
-      .channel('student_study_groups')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'study_groups'
         },
-        (payload) => {
-          const group = payload.new as StudyGroup || payload.old as StudyGroup
-          if (group && group.department === user.department && 
-              group.target_years && group.target_years.includes(user.year)) {
-            console.log('Relevant study group change:', payload)
-            loadTodaysHubData(user)
-            
-            if (payload.eventType === 'INSERT') {
-              toast({
-                title: "New Study Group",
-                description: `Study group "${payload.new.name}" has been created.`,
-              })
-            }
+        onStudyGroup: (payload: RealtimePayload) => {
+          console.log('Relevant study group change:', payload)
+          loadTodaysHubData(user)
+          if (payload.eventType === 'INSERT') {
+            toast({
+              title: "New Study Group",
+              description: `Study group "${payload.new.name}" has been created.`,
+            })
           }
-        }
-      )
-      .subscribe()
+        },
+        onEvent: (payload: RealtimePayload) => {
+          console.log('Relevant event change:', payload)
+          loadTodaysHubData(user)
+          if (payload.eventType === 'INSERT') {
+            toast({
+              title: "New Event",
+              description: `Event "${payload.new.title}" has been scheduled.`,
+            })
+          }
+        },
+        onAttendance: (payload: RealtimePayload) => {
+          console.log('Relevant attendance session change:', payload)
+          loadTodaysHubData(user)
+          if (payload.eventType === 'INSERT') {
+            toast({
+              title: "Attendance Session Active",
+              description: `Attendance session "${payload.new.title}" is now active.`,
+            })
+          }
+        },
+        onStudyMaterial: (payload: RealtimePayload) => {
+          console.log('Relevant study material change:', payload)
+          loadTodaysHubData(user)
+          if (payload.eventType === 'INSERT') {
+            toast({
+              title: "New Study Material",
+              description: `Study material "${payload.new.title}" has been uploaded.`,
+            })
+          }
+        },
+        onTimetable: (payload: RealtimePayload) => {
+          console.log('Relevant timetable change:', payload)
+          loadTodaysHubData(user)
+          if (payload.eventType === 'INSERT') {
+            toast({
+              title: "Timetable Updated",
+              description: `New timetable entry has been added.`,
+            })
+          }
+        },
+        onLostFound: (payload: RealtimePayload) => {
+          console.log('Relevant lost & found change:', payload)
+          loadTodaysHubData(user)
+          if (payload.eventType === 'INSERT') {
+            toast({
+              title: "New Lost & Found Item",
+              description: `${payload.new?.item_name || 'A new item'} has been posted.`,
+            })
+          }
+        },
+      }
+    )
 
     // Cleanup function
     return () => {
-      supabase.removeChannel(assignmentsChannel)
-      supabase.removeChannel(announcementsChannel)
-      supabase.removeChannel(studyGroupsChannel)
+      if (subscriptionsRef.current) {
+        subscriptionsRef.current.unsubscribe()
+      }
     }
   }
 

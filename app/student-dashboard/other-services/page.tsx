@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import Link from "next/link"
 import {
   FileText,
@@ -28,7 +29,8 @@ import {
   Code,
   FileEdit,
   Coffee,
-  Library
+  Library,
+  X
 } from "lucide-react"
 
 const services = [
@@ -40,7 +42,14 @@ const services = [
     color: "bg-blue-100 text-blue-700",
     badge: "Popular",
     badgeColor: "bg-blue-100 text-blue-700",
-    href: "/student-dashboard/other-services/certificate"
+    href: "/student-dashboard/other-services/certificate",
+    learnPoints: [
+      "Request bonafide certificates for bank accounts, visa applications",
+      "Apply for transfer certificates when leaving the institution",
+      "Get internship letters for company requirements",
+      "Track certificate status in real-time",
+      "Typical processing time: 3-5 working days"
+    ]
   },
   {
     id: 2,
@@ -50,7 +59,14 @@ const services = [
     color: "bg-green-100 text-green-700",
     badge: "ERP Only",
     badgeColor: "bg-green-100 text-green-700",
-    href: "/student-dashboard/other-services/leave"
+    href: "/student-dashboard/other-services/leave",
+    learnPoints: [
+      "Submit leave applications at least 3 days in advance",
+      "Medical leaves require doctor's certificate",
+      "Emergency leaves need parent/guardian notification",
+      "Track approval status from faculty and warden",
+      "Maximum 10 leaves per semester allowed"
+    ]
   },
   {
     id: 3,
@@ -58,7 +74,14 @@ const services = [
     description: "Report hostel, classroom, lab, or mess issues for resolution",
     icon: Wrench,
     color: "bg-purple-100 text-purple-700",
-    href: "/student-dashboard/other-services/maintenance"
+    href: "/student-dashboard/other-services/maintenance",
+    learnPoints: [
+      "Report electrical, plumbing, or furniture issues",
+      "Upload photos as evidence for faster resolution",
+      "Priority levels: Low, Medium, High, Critical",
+      "Expected resolution: 24-72 hours based on priority",
+      "Escalate unresolved complaints after 3 days"
+    ]
   },
   {
     id: 4,
@@ -66,7 +89,14 @@ const services = [
     description: "Submit sensitive complaints with anonymous mode support",
     icon: AlertTriangle,
     color: "bg-red-100 text-red-700",
-    href: "/student-dashboard/other-services/grievance"
+    href: "/student-dashboard/other-services/grievance",
+    learnPoints: [
+      "Submit academic, infrastructure, or faculty grievances",
+      "Anonymous mode available for sensitive issues",
+      "Track grievance status and resolution progress",
+      "Assigned to concerned department within 24 hours",
+      "Escalation to higher authorities if unresolved"
+    ]
   },
   {
     id: 5,
@@ -82,7 +112,14 @@ const services = [
     description: "Post lost items or report found items for matching",
     icon: HelpCircle,
     color: "bg-indigo-100 text-indigo-700",
-    href: "/student-dashboard/other-services/lost-found"
+    href: "/student-dashboard/other-services/lost-found",
+    learnPoints: [
+      "Report lost items with description and location",
+      "Upload photos for easier identification",
+      "Browse found items reported by others",
+      "Claim items after verification process",
+      "Items unclaimed for 30 days are donated"
+    ]
   },
   {
     id: 7,
@@ -126,7 +163,14 @@ const services = [
     color: "bg-violet-100 text-violet-700",
     badge: "New",
     badgeColor: "bg-violet-100 text-violet-700",
-    href: "/student-dashboard/other-services/hackathon"
+    href: "/student-dashboard/other-services/hackathon",
+    learnPoints: [
+      "Browse hackathons for your department and year",
+      "Register teams with 2-5 members",
+      "Store project files and resources in team workspace",
+      "Real-time updates when new hackathons are posted",
+      "Download posters and view prize details"
+    ]
   },
   {
     id: 15,
@@ -140,6 +184,13 @@ const services = [
 
 export default function OtherServicesPage() {
   const [activeTab, setActiveTab] = useState("all")
+  const [learnDialogOpen, setLearnDialogOpen] = useState(false)
+  const [selectedService, setSelectedService] = useState<any>(null)
+
+  const openLearnDialog = (service: any) => {
+    setSelectedService(service)
+    setLearnDialogOpen(true)
+  }
 
   const filteredServices = activeTab === "all" ? services : services.filter(service => service.badge)
 
@@ -165,24 +216,64 @@ export default function OtherServicesPage() {
           <TabsContent value="all" className="mt-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredServices.map((service) => (
-                <ServiceCard key={service.id} service={service} />
+                <ServiceCard key={service.id} service={service} onLearnMore={() => openLearnDialog(service)} />
               ))}
             </div>
           </TabsContent>
           <TabsContent value="featured" className="mt-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredServices.map((service) => (
-                <ServiceCard key={service.id} service={service} />
+                <ServiceCard key={service.id} service={service} onLearnMore={() => openLearnDialog(service)} />
               ))}
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Learn More Dialog */}
+        <Dialog open={learnDialogOpen} onOpenChange={setLearnDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                {selectedService && (
+                  <>
+                    <div className={`p-2 rounded-lg ${selectedService.color}`}>
+                      <selectedService.icon className="h-5 w-5" />
+                    </div>
+                    {selectedService.title}
+                  </>
+                )}
+              </DialogTitle>
+              <DialogDescription>{selectedService?.description}</DialogDescription>
+            </DialogHeader>
+            
+            {selectedService?.learnPoints && (
+              <div className="mt-4">
+                <h4 className="font-medium text-sm text-gray-700 mb-3">Key Features:</h4>
+                <ul className="space-y-2">
+                  {selectedService.learnPoints.map((point: string, index: number) => (
+                    <li key={index} className="flex items-start gap-2 text-sm text-gray-600">
+                      <div className={`w-1.5 h-1.5 rounded-full mt-2 flex-shrink-0 ${selectedService.color.replace('bg-', 'bg-').replace('text-', 'bg-').split(' ')[0]}`} />
+                      {point}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={() => setLearnDialogOpen(false)}>Close</Button>
+              <Link href={selectedService?.href || '#'}>
+                <Button onClick={() => setLearnDialogOpen(false)}>Access Service</Button>
+              </Link>
+            </div>
+          </DialogContent>
+        </Dialog>
       </motion.div>
     </div>
   )
 }
 
-function ServiceCard({ service }: { service: any }) {
+function ServiceCard({ service, onLearnMore }: { service: any; onLearnMore: () => void }) {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
@@ -208,7 +299,7 @@ function ServiceCard({ service }: { service: any }) {
         <CardContent className="pb-2">
           <Separator className="my-2" />
           <div className="flex justify-between items-center mt-2">
-            <Button variant="ghost" size="sm" className="text-sm">
+            <Button variant="ghost" size="sm" className="text-sm" onClick={onLearnMore}>
               Learn More
             </Button>
             <Link href={service.href || '#'}>

@@ -1,507 +1,568 @@
 "use client"
 
-import React, { useState } from "react"
-import { motion } from "framer-motion"
-import { 
-  Brain, 
-  Upload, 
-  FileText, 
-  Zap, 
-  Settings, 
-  Download,
-  Plus,
-  Trash2,
-  Eye,
-  RefreshCw,
-  CheckCircle,
-  AlertCircle
-} from "lucide-react"
+import { useState, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Slider } from "@/components/ui/slider"
-import { Switch } from "@/components/ui/switch"
-import { Progress } from "@/components/ui/progress"
-import { toast } from "@/hooks/use-toast"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Badge } from "@/components/ui/badge"
+import { Textarea } from "@/components/ui/textarea"
+import { useToast } from "@/hooks/use-toast"
+import { 
+  Sparkles, 
+  Loader2, 
+  CheckCircle, 
+  Upload,
+  FileText,
+  Trash2,
+  Plus,
+  Download,
+  Copy,
+  Eye,
+  EyeOff
+} from "lucide-react"
 
-interface GeneratedQuestion {
+interface QuizQuestion {
   id: string
   type: 'mcq' | 'true_false' | 'fill_blank' | 'descriptive'
   question: string
-  options?: string[]
+  options?: Record<string, string>
   correctAnswer: string
-  explanation: string
-  difficulty: 'easy' | 'medium' | 'hard'
-  topic: string
-  confidence: number
+  points: number
+  difficulty: string
+  explanation?: string
 }
 
-const AIQuestionGenerator = () => {
-  const [activeTab, setActiveTab] = useState<'upload' | 'text' | 'generated'>('upload')
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [generationProgress, setGenerationProgress] = useState(0)
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
-  const [textContent, setTextContent] = useState('')
-  const [generatedQuestions, setGeneratedQuestions] = useState<GeneratedQuestion[]>([])
-  const [selectedQuestions, setSelectedQuestions] = useState<string[]>([])
+interface AIQuestionGeneratorProps {
+  onQuestionsGenerated?: (questions: QuizQuestion[]) => void
+  defaultDifficulty?: string
+}
 
-  const [generationSettings, setGenerationSettings] = useState({
-    questionCount: 10,
-    difficulty: 'mixed',
-    questionTypes: ['mcq', 'true_false', 'fill_blank', 'descriptive'],
-    subject: 'Data Structures',
-    topics: ['Arrays', 'Linked Lists', 'Stacks', 'Queues'],
-    includeExplanations: true,
-    adaptiveDifficulty: false
+export default function AIQuestionGenerator({ 
+  onQuestionsGenerated,
+  defaultDifficulty = 'medium'
+}: AIQuestionGeneratorProps) {
+  const { toast } = useToast()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [generatedQuestions, setGeneratedQuestions] = useState<QuizQuestion[]>([])
+  const [showPreview, setShowPreview] = useState(true)
+  
+  const [config, setConfig] = useState({
+    difficulty: defaultDifficulty,
+    numQuestions: 20,
+    questionTypes: ['mcq'] as string[],
+    prompt: '',
+    uploadedFile: null as File | null
   })
 
-  const mockGeneratedQuestions: GeneratedQuestion[] = [
-    {
-      id: '1',
-      type: 'mcq',
-      question: 'What is the time complexity of inserting an element at the beginning of an array?',
-      options: ['O(1)', 'O(n)', 'O(log n)', 'O(n²)'],
-      correctAnswer: 'O(n)',
-      explanation: 'Inserting at the beginning requires shifting all existing elements one position to the right, which takes O(n) time.',
-      difficulty: 'medium',
-      topic: 'Arrays',
-      confidence: 0.92
-    },
-    {
-      id: '2',
-      type: 'true_false',
-      question: 'A linked list allows constant time insertion at any position.',
-      correctAnswer: 'False',
-      explanation: 'While insertion at the head is O(1), insertion at any arbitrary position requires O(n) time to traverse to that position.',
-      difficulty: 'medium',
-      topic: 'Linked Lists',
-      confidence: 0.88
-    },
-    {
-      id: '3',
-      type: 'fill_blank',
-      question: 'In a stack, elements are removed in _____ order.',
-      correctAnswer: 'LIFO (Last In First Out)',
-      explanation: 'Stack follows LIFO principle where the last element added is the first one to be removed.',
-      difficulty: 'easy',
-      topic: 'Stacks',
-      confidence: 0.95
-    },
-    {
-      id: '4',
-      type: 'descriptive',
-      question: 'Explain the difference between stack and queue data structures with examples.',
-      correctAnswer: 'Stack follows LIFO principle (like a stack of plates), while queue follows FIFO principle (like a line of people). Stack operations: push/pop at top. Queue operations: enqueue at rear, dequeue at front.',
-      explanation: 'This tests understanding of fundamental data structure principles and real-world analogies.',
-      difficulty: 'medium',
-      topic: 'Data Structures',
-      confidence: 0.85
-    }
+  const questionTypeOptions = [
+    { value: 'mcq', label: 'Multiple Choice', icon: '📝' },
+    { value: 'true_false', label: 'True/False', icon: '✅' },
+    { value: 'fill_blank', label: 'Fill in Blanks', icon: '📋' },
+    { value: 'descriptive', label: 'Descriptive', icon: '📖' }
   ]
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || [])
-    setUploadedFiles(prev => [...prev, ...files])
-    toast({
-      title: "Files uploaded",
-      description: `${files.length} file(s) uploaded successfully`,
-    })
+  const difficultyOptions = [
+    { value: 'easy', label: 'Easy', color: 'bg-green-100 text-green-800' },
+    { value: 'medium', label: 'Medium', color: 'bg-yellow-100 text-yellow-800' },
+    { value: 'hard', label: 'Hard', color: 'bg-red-100 text-red-800' }
+  ]
+
+  const handleQuestionTypeToggle = (type: string) => {
+    setConfig(prev => ({
+      ...prev,
+      questionTypes: prev.questionTypes.includes(type)
+        ? prev.questionTypes.filter(t => t !== type)
+        : [...prev.questionTypes, type]
+    }))
   }
 
-  const removeFile = (index: number) => {
-    setUploadedFiles(prev => prev.filter((_, i) => i !== index))
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setConfig(prev => ({ ...prev, uploadedFile: file }))
+      toast({
+        title: "File Uploaded",
+        description: `${file.name} ready for processing`
+      })
+    }
+  }
+
+  const removeFile = () => {
+    setConfig(prev => ({ ...prev, uploadedFile: null }))
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
   }
 
   const generateQuestions = async () => {
-    setIsGenerating(true)
-    setGenerationProgress(0)
-    
-    // Simulate AI generation process
-    const progressInterval = setInterval(() => {
-      setGenerationProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(progressInterval)
-          return 100
-        }
-        return prev + 10
-      })
-    }, 300)
-
-    // Simulate API call delay
-    setTimeout(() => {
-      setGeneratedQuestions(mockGeneratedQuestions)
-      setIsGenerating(false)
-      setActiveTab('generated')
+    if (config.questionTypes.length === 0) {
       toast({
-        title: "Questions generated successfully!",
-        description: `Generated ${mockGeneratedQuestions.length} questions using AI`,
+        title: "Select Question Types",
+        description: "Please select at least one question type",
+        variant: "destructive"
       })
-    }, 3000)
-  }
-
-  const toggleQuestionSelection = (questionId: string) => {
-    setSelectedQuestions(prev => 
-      prev.includes(questionId) 
-        ? prev.filter(id => id !== questionId)
-        : [...prev, questionId]
-    )
-  }
-
-  const selectAllQuestions = () => {
-    setSelectedQuestions(generatedQuestions.map(q => q.id))
-  }
-
-  const deselectAllQuestions = () => {
-    setSelectedQuestions([])
-  }
-
-  const addSelectedToQuiz = () => {
-    const selected = generatedQuestions.filter(q => selectedQuestions.includes(q.id))
-    toast({
-      title: "Questions added to quiz",
-      description: `${selected.length} questions added to your quiz`,
-    })
-    // Here you would typically add to parent component's question list
-  }
-
-  const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 0.9) return 'text-green-600'
-    if (confidence >= 0.8) return 'text-blue-600'
-    if (confidence >= 0.7) return 'text-yellow-600'
-    return 'text-red-600'
-  }
-
-  const getDifficultyColor = (difficulty: string) => {
-    switch (difficulty) {
-      case 'easy': return 'bg-green-100 text-green-800'
-      case 'medium': return 'bg-yellow-100 text-yellow-800'
-      case 'hard': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
+      return
     }
+
+    if (!config.prompt.trim() && !config.uploadedFile) {
+      toast({
+        title: "Input Required",
+        description: "Please enter a topic/prompt or upload a file",
+        variant: "destructive"
+      })
+      return
+    }
+
+    setIsGenerating(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('prompt', config.prompt)
+      formData.append('questionTypes', JSON.stringify(config.questionTypes))
+      formData.append('difficulty', config.difficulty)
+      formData.append('numQuestions', config.numQuestions.toString())
+      
+      if (config.uploadedFile) {
+        formData.append('file', config.uploadedFile)
+      }
+
+      const response = await fetch('/api/ai/generate-quiz-questions', {
+        method: 'POST',
+        body: formData
+      })
+
+      const data = await response.json()
+      
+      console.log('API Response:', data)
+      console.log('Questions count:', data.questions?.length)
+
+      if (data.success && data.questions && data.questions.length > 0) {
+        console.log('Setting generated questions:', data.questions)
+        setGeneratedQuestions(data.questions)
+        setShowPreview(true)
+        
+        toast({
+          title: "Questions Generated!",
+          description: data.note 
+            ? `Generated ${data.questions.length} questions (using fallback due to API limits)`
+            : `Successfully generated ${data.questions.length} questions`
+        })
+      } else {
+        console.error('No questions in response:', data)
+        throw new Error('No questions received from server')
+      }
+    } catch (error) {
+      console.error('Error generating questions:', error)
+      toast({
+        title: "Generation Failed",
+        description: "Failed to generate questions. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const useGeneratedQuestions = () => {
+    if (onQuestionsGenerated) {
+      onQuestionsGenerated(generatedQuestions)
+    }
+    toast({
+      title: "Questions Added",
+      description: `${generatedQuestions.length} questions added to your quiz`
+    })
+    setGeneratedQuestions([])
+    setConfig(prev => ({
+      ...prev,
+      prompt: '',
+      uploadedFile: null,
+      numQuestions: 20
+    }))
+  }
+
+  const removeQuestion = (id: string) => {
+    setGeneratedQuestions(prev => prev.filter(q => q.id !== id))
+  }
+
+  const updateQuestion = (id: string, field: string, value: any) => {
+    setGeneratedQuestions(prev => prev.map(q => {
+      if (q.id === id) {
+        if (field.startsWith('option_')) {
+          const optionKey = field.replace('option_', '')
+          return {
+            ...q,
+            options: { ...q.options, [optionKey]: value }
+          }
+        }
+        return { ...q, [field]: value }
+      }
+      return q
+    }))
+  }
+
+  const regenerateQuestion = async (id: string) => {
+    const question = generatedQuestions.find(q => q.id === id)
+    if (!question) return
+
+    toast({
+      title: "Regenerating...",
+      description: "Using AI to regenerate this question"
+    })
+
+    // Call API to regenerate single question
+    try {
+      const response = await fetch('/api/ai/generate-quiz-questions', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt: config.prompt,
+          questionTypes: [question.type],
+          difficulty: question.difficulty,
+          numQuestions: 1
+        })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.questions && data.questions.length > 0) {
+          const newQ = data.questions[0]
+          setGeneratedQuestions(prev => prev.map(q => 
+            q.id === id ? { ...newQ, id } : q
+          ))
+          toast({
+            title: "Regenerated!",
+            description: "Question has been regenerated with AI"
+          })
+        }
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to regenerate question",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const copyQuestion = (question: QuizQuestion) => {
+    let text = question.question
+    if (question.options) {
+      text += '\n' + Object.entries(question.options).map(([k, v]) => `${k}. ${v}`).join('\n')
+    }
+    text += `\nAnswer: ${question.correctAnswer}`
+    
+    navigator.clipboard.writeText(text)
+    toast({
+      title: "Copied!",
+      description: "Question copied to clipboard"
+    })
+  }
+
+  const exportQuestions = () => {
+    const data = JSON.stringify(generatedQuestions, null, 2)
+    const blob = new Blob([data], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `quiz-questions-${Date.now()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    
+    toast({
+      title: "Exported!",
+      description: "Questions exported as JSON"
+    })
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
-            <Brain className="w-6 h-6 text-white" />
-          </div>
+      {/* Configuration Panel */}
+      <Card className="border-purple-200 bg-gradient-to-br from-purple-50 to-blue-50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-purple-600" />
+            AI Question Generator
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Prompt Input */}
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">AI Question Generator</h2>
-            <p className="text-gray-600">Generate questions from your content using AI</p>
+            <Label>Topic / Prompt</Label>
+            <Textarea
+              placeholder="Enter topic, subject matter, or specific content for questions..."
+              value={config.prompt}
+              onChange={(e) => setConfig(prev => ({ ...prev, prompt: e.target.value }))}
+              className="min-h-[100px]"
+            />
           </div>
-        </div>
-        
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button variant="outline">
-              <Settings className="w-4 h-4 mr-2" />
-              Settings
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Generation Settings</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Number of Questions</Label>
-                  <Slider
-                    value={[generationSettings.questionCount]}
-                    onValueChange={(value) => setGenerationSettings({...generationSettings, questionCount: value[0]})}
-                    max={50}
-                    min={1}
-                    step={1}
-                    className="mt-2"
-                  />
-                  <div className="text-sm text-gray-500 mt-1">{generationSettings.questionCount} questions</div>
-                </div>
-                <div>
-                  <Label>Difficulty</Label>
-                  <Select value={generationSettings.difficulty} onValueChange={(value) => setGenerationSettings({...generationSettings, difficulty: value})}>
-                    <SelectTrigger className="mt-2">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="easy">Easy</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="hard">Hard</SelectItem>
-                      <SelectItem value="mixed">Mixed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+
+          {/* File Upload */}
+          <div>
+            <Label>Upload Content (PDF, DOCX, TXT)</Label>
+            <div className="mt-2">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept=".pdf,.docx,.doc,.txt"
+                className="hidden"
+              />
               
-              <div>
-                <Label>Question Types</Label>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {[
-                    { id: 'mcq', label: 'Multiple Choice' },
-                    { id: 'true_false', label: 'True/False' },
-                    { id: 'fill_blank', label: 'Fill in Blanks' },
-                    { id: 'descriptive', label: 'Descriptive' }
-                  ].map(type => (
-                    <div key={type.id} className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id={type.id}
-                        checked={generationSettings.questionTypes.includes(type.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setGenerationSettings({
-                              ...generationSettings,
-                              questionTypes: [...generationSettings.questionTypes, type.id]
-                            })
-                          } else {
-                            setGenerationSettings({
-                              ...generationSettings,
-                              questionTypes: generationSettings.questionTypes.filter(t => t !== type.id)
-                            })
-                          }
-                        }}
-                      />
-                      <Label htmlFor={type.id}>{type.label}</Label>
+              {config.uploadedFile ? (
+                <div className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                  <div className="flex items-center gap-3">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                    <div>
+                      <p className="font-medium">{config.uploadedFile.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {(config.uploadedFile.size / 1024).toFixed(1)} KB
+                      </p>
                     </div>
-                  ))}
-                </div>
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <Label htmlFor="explanations">Include Explanations</Label>
-                <Switch
-                  id="explanations"
-                  checked={generationSettings.includeExplanations}
-                  onCheckedChange={(checked) => setGenerationSettings({...generationSettings, includeExplanations: checked})}
-                />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <Label htmlFor="adaptive">Adaptive Difficulty</Label>
-                <Switch
-                  id="adaptive"
-                  checked={generationSettings.adaptiveDifficulty}
-                  onCheckedChange={(checked) => setGenerationSettings({...generationSettings, adaptiveDifficulty: checked})}
-                />
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Main Content */}
-      <Card className="bg-white/90 backdrop-blur-sm border-0 shadow-lg">
-        <CardContent className="p-6">
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as any)}>
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="upload">Upload Content</TabsTrigger>
-              <TabsTrigger value="text">Text Input</TabsTrigger>
-              <TabsTrigger value="generated">Generated Questions</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="upload" className="space-y-6">
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Upload your content</h3>
-                <p className="text-gray-600 mb-4">
-                  Support for PDF, DOCX, TXT, and image files
-                </p>
-                <input
-                  type="file"
-                  multiple
-                  accept=".pdf,.docx,.txt,.jpg,.jpeg,.png"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  id="file-upload"
-                />
-                <Label htmlFor="file-upload">
-                  <Button className="cursor-pointer">
-                    <Upload className="w-4 h-4 mr-2" />
-                    Choose Files
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={removeFile}>
+                    <Trash2 className="w-4 h-4 text-red-500" />
                   </Button>
-                </Label>
-              </div>
-
-              {uploadedFiles.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium text-gray-900">Uploaded Files:</h4>
-                  {uploadedFiles.map((file, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center space-x-2">
-                        <FileText className="w-4 h-4 text-blue-600" />
-                        <span className="text-sm font-medium">{file.name}</span>
-                        <Badge variant="outline">{(file.size / 1024).toFixed(1)} KB</Badge>
-                      </div>
-                      <Button variant="ghost" size="sm" onClick={() => removeFile(index)}>
-                        <Trash2 className="w-4 h-4 text-red-600" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="text" className="space-y-6">
-              <div>
-                <Label htmlFor="content">Paste your content here</Label>
-                <Textarea
-                  id="content"
-                  placeholder="Paste your notes, lecture content, or study material here..."
-                  value={textContent}
-                  onChange={(e) => setTextContent(e.target.value)}
-                  className="mt-2 min-h-[300px]"
-                />
-              </div>
-            </TabsContent>
-
-            <TabsContent value="generated" className="space-y-6">
-              {generatedQuestions.length > 0 ? (
-                <>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <h3 className="text-lg font-semibold">Generated Questions ({generatedQuestions.length})</h3>
-                      <Badge variant="outline">{selectedQuestions.length} selected</Badge>
-                    </div>
-                    <div className="flex space-x-2">
-                      <Button variant="outline" size="sm" onClick={selectAllQuestions}>
-                        Select All
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={deselectAllQuestions}>
-                        Deselect All
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        onClick={addSelectedToQuiz}
-                        disabled={selectedQuestions.length === 0}
-                        className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white"
-                      >
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add Selected
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    {generatedQuestions.map((question, index) => (
-                      <motion.div
-                        key={question.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.1 }}
-                        className={`p-6 border-2 rounded-lg transition-all ${
-                          selectedQuestions.includes(question.id) ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
-                        }`}
-                      >
-                        <div className="flex items-start space-x-4">
-                          <input
-                            type="checkbox"
-                            checked={selectedQuestions.includes(question.id)}
-                            onChange={() => toggleQuestionSelection(question.id)}
-                            className="mt-1"
-                          />
-                          
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-2 mb-3">
-                              <Badge variant="outline">{question.type.replace('_', ' ').toUpperCase()}</Badge>
-                              <Badge className={getDifficultyColor(question.difficulty)}>
-                                {question.difficulty}
-                              </Badge>
-                              <Badge variant="secondary">{question.topic}</Badge>
-                              <div className={`text-sm font-medium ${getConfidenceColor(question.confidence)}`}>
-                                {Math.round(question.confidence * 100)}% confidence
-                              </div>
-                            </div>
-                            
-                            <h4 className="font-semibold text-gray-900 mb-3">{question.question}</h4>
-                            
-                            {question.options && (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-                                {question.options.map((option, optIndex) => (
-                                  <div 
-                                    key={optIndex}
-                                    className={`p-2 rounded border text-sm ${
-                                      option === question.correctAnswer 
-                                        ? 'bg-green-100 border-green-300 text-green-800' 
-                                        : 'bg-gray-50 border-gray-200'
-                                    }`}
-                                  >
-                                    {String.fromCharCode(65 + optIndex)}. {option}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            
-                            {!question.options && (
-                              <div className="mb-3">
-                                <div className="text-sm font-medium text-gray-700 mb-1">Correct Answer:</div>
-                                <div className="p-2 bg-green-100 border border-green-300 rounded text-green-800 text-sm">
-                                  {question.correctAnswer}
-                                </div>
-                              </div>
-                            )}
-                            
-                            <div className="bg-blue-50 p-3 rounded-lg">
-                              <div className="text-sm font-medium text-blue-800 mb-1">Explanation:</div>
-                              <div className="text-sm text-blue-700">{question.explanation}</div>
-                            </div>
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <div className="text-center py-12">
-                  <Brain className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No questions generated yet</h3>
-                  <p className="text-gray-500">Upload content or enter text to generate questions</p>
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
-
-          {/* Generate Button */}
-          {(activeTab === 'upload' || activeTab === 'text') && (
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              {isGenerating ? (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-center space-x-2">
-                    <RefreshCw className="w-5 h-5 animate-spin text-blue-600" />
-                    <span className="text-blue-600 font-medium">Generating questions...</span>
-                  </div>
-                  <Progress value={generationProgress} className="w-full" />
-                  <div className="text-center text-sm text-gray-600">
-                    {generationProgress < 30 ? 'Analyzing content...' :
-                     generationProgress < 60 ? 'Extracting key concepts...' :
-                     generationProgress < 90 ? 'Generating questions...' :
-                     'Finalizing questions...'}
-                  </div>
                 </div>
               ) : (
-                <Button 
-                  onClick={generateQuestions}
-                  disabled={uploadedFiles.length === 0 && !textContent.trim()}
-                  className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white"
-                  size="lg"
+                <Button
+                  variant="outline"
+                  className="w-full h-24 border-dashed"
+                  onClick={() => fileInputRef.current?.click()}
                 >
-                  <Zap className="w-5 h-5 mr-2" />
-                  Generate Questions with AI
+                  <div className="flex flex-col items-center gap-2">
+                    <Upload className="w-6 h-6 text-gray-400" />
+                    <span className="text-sm text-gray-500">Click to upload or drag and drop</span>
+                  </div>
                 </Button>
               )}
             </div>
-          )}
+          </div>
+
+          {/* Question Types */}
+          <div>
+            <Label className="mb-3 block">Question Types *</Label>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {questionTypeOptions.map(option => (
+                <div
+                  key={option.value}
+                  onClick={() => handleQuestionTypeToggle(option.value)}
+                  className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                    config.questionTypes.includes(option.value)
+                      ? 'border-purple-500 bg-purple-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={config.questionTypes.includes(option.value)}
+                      onCheckedChange={() => handleQuestionTypeToggle(option.value)}
+                    />
+                    <span className="text-lg">{option.icon}</span>
+                    <span className="text-sm font-medium">{option.label}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Settings */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>Difficulty Level</Label>
+              <Select value={config.difficulty} onValueChange={(value) => setConfig(prev => ({ ...prev, difficulty: value }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {difficultyOptions.map(option => (
+                    <SelectItem key={option.value} value={option.value}>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${option.color.split(' ')[0]}`}></div>
+                        {option.label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Number of Questions</Label>
+              <Input
+                type="number"
+                min="1"
+                max="100"
+                value={config.numQuestions}
+                onChange={(e) => setConfig(prev => ({ ...prev, numQuestions: parseInt(e.target.value) || 20 }))}
+              />
+            </div>
+          </div>
+
+          {/* Generate Button */}
+          <Button
+            onClick={generateQuestions}
+            disabled={isGenerating || config.questionTypes.length === 0}
+            className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Generating Questions...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 mr-2" />
+                Generate {config.numQuestions} Questions
+              </>
+            )}
+          </Button>
         </CardContent>
       </Card>
+
+      {/* Generated Questions Preview */}
+      {generatedQuestions.length > 0 && (
+        <Card className="border-green-200 bg-gradient-to-br from-green-50 to-emerald-50">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+                Generated Questions ({generatedQuestions.length})
+              </CardTitle>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowPreview(!showPreview)}
+                >
+                  {showPreview ? <EyeOff className="w-4 h-4 mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
+                  {showPreview ? 'Hide' : 'Preview'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={exportQuestions}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Export
+                </Button>
+                <Button
+                  onClick={useGeneratedQuestions}
+                  className="bg-green-600 hover:bg-green-700"
+                  size="sm"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add to Quiz
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+
+          {showPreview && (
+            <CardContent className="space-y-4">
+              {generatedQuestions.map((question, index) => (
+                <div
+                  key={question.id}
+                  className="border rounded-lg p-4 bg-white shadow-sm"
+                >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge variant="outline">Q{index + 1}</Badge>
+                            <Badge className={difficultyOptions.find(d => d.value === question.difficulty)?.color}>
+                              {question.difficulty}
+                            </Badge>
+                            <Badge variant="outline">{question.type.replace('_', ' ')}</Badge>
+                            <Badge variant="outline">{question.points} pts</Badge>
+                          </div>
+                          <p className="font-medium">{question.question}</p>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => regenerateQuestion(question.id)} title="Regenerate with AI">
+                            <Sparkles className="w-4 h-4 text-purple-500" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => copyQuestion(question)}>
+                            <Copy className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => removeQuestion(question.id)}>
+                            <Trash2 className="w-4 h-4 text-red-500" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      {question.options && (
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                          {Object.entries(question.options).map(([key, value]) => (
+                            <div
+                              key={key}
+                              className={`p-2 rounded border text-sm ${
+                                key === question.correctAnswer
+                                  ? 'bg-green-100 border-green-400 font-medium'
+                                  : 'bg-white'
+                              }`}
+                            >
+                              <div className="flex items-center gap-1 mb-1">
+                                <span className="font-medium">{key}.</span>
+                                <input
+                                  type="text"
+                                  value={value}
+                                  onChange={(e) => updateQuestion(question.id, `option_${key}`, e.target.value)}
+                                  className="flex-1 bg-transparent border-b border-dashed border-gray-300 focus:border-blue-500 outline-none text-sm"
+                                />
+                              </div>
+                              <label className="flex items-center gap-1 text-xs cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name={`correct-${question.id}`}
+                                  checked={key === question.correctAnswer}
+                                  onChange={() => updateQuestion(question.id, 'correctAnswer', key)}
+                                />
+                                Correct
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2 text-sm mb-2">
+                        <span className="text-gray-500">Answer:</span>
+                        <Badge variant="default" className="bg-green-600">
+                          {question.correctAnswer}
+                        </Badge>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-sm mb-2">
+                        <span className="text-gray-500">Points:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="10"
+                          value={question.points}
+                          onChange={(e) => updateQuestion(question.id, 'points', parseInt(e.target.value) || 1)}
+                          className="w-16 p-1 border rounded text-sm"
+                        />
+                      </div>
+
+                      {question.explanation && (
+                        <div className="text-sm text-gray-600 mt-2">
+                          <span className="font-medium">Explanation:</span>
+                          <textarea
+                            value={question.explanation}
+                            onChange={(e) => updateQuestion(question.id, 'explanation', e.target.value)}
+                            className="w-full mt-1 p-2 border rounded text-sm italic"
+                            rows={2}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </CardContent>
+              )}
+            </Card>
+          )}
     </div>
   )
 }
-
-export default AIQuestionGenerator

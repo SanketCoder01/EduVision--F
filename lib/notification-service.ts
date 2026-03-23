@@ -31,7 +31,6 @@ export async function createNotificationsForStudents(
       .from('students')
       .select('id')
       .eq('department', department)
-      .eq('registration_completed', true)
 
     // If specific years are targeted
     if (targetYears && targetYears.length > 0) {

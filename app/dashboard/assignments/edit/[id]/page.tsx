@@ -28,9 +28,10 @@ interface Assignment {
   status: "draft" | "published"
   max_marks: number
   submission_guidelines?: string
-  enable_plagiarism_check?: boolean
   allow_late_submission?: boolean
   allow_resubmission?: boolean
+  assignment_type?: string
+  resources?: any[]
   faculty?: {
     name: string
     email: string
@@ -54,7 +55,6 @@ export default function AssignmentEditPage() {
     total_marks: 100,
     instructions: "",
     status: "draft" as "draft" | "published",
-    plagiarism_check_enabled: false,
     allow_late_submission: false,
     allow_resubmission: false,
     auto_grading_enabled: false,
@@ -106,7 +106,6 @@ export default function AssignmentEditPage() {
               total_marks: assignment.max_marks || 100,
               instructions: assignment.submission_guidelines || "",
               status: assignment.status as "draft" | "published", 
-              plagiarism_check_enabled: Boolean(assignment.enable_plagiarism_check),
               allow_late_submission: Boolean(assignment.allow_late_submission),
               allow_resubmission: Boolean(assignment.allow_resubmission),
               auto_grading_enabled: false,
@@ -219,7 +218,6 @@ export default function AssignmentEditPage() {
       
       console.log('DEBUG: Saving assignment with data:', {
         status: statusToUse,
-        plagiarism_check: formData.plagiarism_check_enabled,
         late_submission: formData.allow_late_submission,
         resubmission: formData.allow_resubmission
       })
@@ -246,10 +244,9 @@ export default function AssignmentEditPage() {
         submission_guidelines: formData.instructions?.trim() || '',
         department: formData.department,
         target_years: [normalizedYear],
-        due_date: formData.due_date + "T23:59:59",
+        due_date: formData.due_date.includes('T') ? formData.due_date + ':59' : formData.due_date + 'T23:59:59',
         max_marks: formData.total_marks,
         status: statusToUse,
-        enable_plagiarism_check: Boolean(formData.plagiarism_check_enabled),
         allow_late_submission: Boolean(formData.allow_late_submission),
         allow_resubmission: Boolean(formData.allow_resubmission),
         updated_at: new Date().toISOString()
@@ -327,13 +324,13 @@ export default function AssignmentEditPage() {
           
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">Edit Assignment</h1>
-            {assignment.isAIGenerated && (
+            {assignment.assignment_type === 'ai' && (
               <Badge variant="secondary">
                 <Bot className="mr-1 h-3 w-3" />
                 AI Generated
               </Badge>
             )}
-            {assignment.isFileGenerated && (
+            {assignment.assignment_type === 'file_upload' && (
               <Badge variant="secondary">
                 <FileUp className="mr-1 h-3 w-3" />
                 File Based
@@ -379,25 +376,28 @@ export default function AssignmentEditPage() {
               </div>
 
               <div>
-                <Label htmlFor="description" className="font-sans">Description *</Label>
+                <Label htmlFor="description" className="font-sans">Description and Objectives</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
                   onChange={(e) => handleInputChange("description", e.target.value)}
-                  placeholder="Enter assignment description"
-                  rows={3}
+                  placeholder="Enter assignment description and objectives"
+                  rows={4}
                   className="font-sans"
                 />
+                <p className="text-xs text-gray-500 mt-1 font-sans">
+                  Include description and learning objectives
+                </p>
               </div>
 
               <div>
-                <Label htmlFor="questions" className="font-sans">Assignment Questions</Label>
+                <Label htmlFor="questions" className="font-sans">Assignment Questions *</Label>
                 <Textarea
                   id="questions"
                   value={formData.questions}
                   onChange={(e) => handleInputChange("questions", e.target.value)}
-                  placeholder="Enter assignment questions (one per line or formatted as needed)"
-                  rows={6}
+                  placeholder="Enter assignment questions here"
+                  rows={8}
                   className="font-sans text-sm"
                 />
                 <p className="text-xs text-gray-500 mt-1 font-sans">
@@ -432,76 +432,45 @@ export default function AssignmentEditPage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="department">Department *</Label>
-                  <Select value={formData.department} onValueChange={(value) => handleInputChange("department", value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {departments.map((dept) => (
-                        <SelectItem key={dept} value={dept}>
-                          {dept}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <Label className="text-sm text-gray-600">Department</Label>
+                  <div className="mt-1">
+                    <Badge variant="outline" className="text-base">{formData.department || 'Not set'}</Badge>
+                  </div>
                 </div>
 
-                <div>
-                  <Label htmlFor="year">Year *</Label>
-                  <Select value={formData.year} onValueChange={(value) => handleInputChange("year", value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select year" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {years.map((year) => (
-                        <SelectItem key={year} value={year}>
-                          Year {year}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <Label className="text-sm text-gray-600">Year</Label>
+                  <div className="mt-1">
+                    <Badge variant="outline" className="text-base">Year {formData.year || 'Not set'}</Badge>
+                  </div>
                 </div>
-              </div>
-
-              <div>
-                <Label htmlFor="subject">Subject</Label>
-                <Select value={formData.subject} onValueChange={(value) => handleInputChange("subject", value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select subject" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {subjects.map((subject) => (
-                      <SelectItem key={subject} value={subject}>
-                        {subject}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
             </CardContent>
           </Card>
 
-          {/* Assignment Content */}
+          {/* Submission Guidelines */}
           <Card>
             <CardHeader>
-              <CardTitle className="font-sans">Assignment Content</CardTitle>
+              <CardTitle className="font-sans">Submission Guidelines</CardTitle>
               <CardDescription className="font-sans">
-                Edit the assignment description and instructions
+                Requirements and evaluation criteria
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label htmlFor="instructions" className="font-sans">Submission Guidelines</Label>
+                <Label htmlFor="instructions" className="font-sans">Requirements and Evaluation</Label>
                 <Textarea
                   id="instructions"
                   value={formData.instructions}
                   onChange={(e) => handleInputChange("instructions", e.target.value)}
-                  placeholder="Enter specific submission guidelines for students"
-                  rows={4}
+                  placeholder="Enter submission requirements and evaluation criteria"
+                  rows={6}
                   className="font-sans text-sm"
                 />
+                <p className="text-xs text-gray-500 mt-1 font-sans">
+                  Include requirements, evaluation criteria, and any special instructions
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -514,26 +483,10 @@ export default function AssignmentEditPage() {
                 Assignment Settings
               </CardTitle>
               <CardDescription className="font-sans">
-                Configure submission rules and plagiarism checking
+                Configure submission rules
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Plagiarism Check */}
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex items-center gap-3">
-                  <Shield className="h-5 w-5 text-blue-600" />
-                  <div>
-                    <Label className="text-base font-medium font-sans">Plagiarism Check</Label>
-                    <p className="text-sm text-gray-600 font-sans">Enable automatic plagiarism detection for submissions</p>
-                  </div>
-                </div>
-                <Switch
-                  id="plagiarism_check_enabled"
-                  checked={formData.plagiarism_check_enabled}
-                  onCheckedChange={(checked) => handleInputChange("plagiarism_check_enabled", checked)}
-                />
-              </div>
-
               <div className="flex items-center justify-between">
                 <Label htmlFor="allow_late_submission">Allow Late Submission</Label>
                 <Switch
@@ -551,8 +504,6 @@ export default function AssignmentEditPage() {
                   onCheckedChange={(checked) => handleInputChange("allow_resubmission", checked)}
                 />
               </div>
-
-              {/* Word Limit */}
             </CardContent>
           </Card>
         </div>
@@ -637,12 +588,6 @@ export default function AssignmentEditPage() {
               </div>
               
               <div className="border-t pt-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Plagiarism Check:</span>
-                  <Badge variant={formData.plagiarism_check_enabled ? "default" : "secondary"}>
-                    {formData.plagiarism_check_enabled ? "Enabled" : "Disabled"}
-                  </Badge>
-                </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Late Submission:</span>
                   <Badge variant={formData.allow_late_submission ? "default" : "secondary"}>

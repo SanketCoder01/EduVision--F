@@ -30,6 +30,12 @@ const departments = [
 ]
 
 const years = ["1", "2", "3", "4"]
+const yearOptions = [
+  { value: "first", label: "1st Year" },
+  { value: "second", label: "2nd Year" },
+  { value: "third", label: "3rd Year" },
+  { value: "fourth", label: "4th Year" }
+]
 
 export default function CreateAssignmentPage() {
   const router = useRouter()
@@ -37,12 +43,12 @@ export default function CreateAssignmentPage() {
   const [assignmentType, setAssignmentType] = useState<"normal" | "ai">("normal")
   const [isLoading, setIsLoading] = useState(false)
   const [resources, setResources] = useState<File[]>([])
+  const [selectedYears, setSelectedYears] = useState<string[]>(["first", "second", "third", "fourth"]) // Default all years
 
   const [formData, setFormData] = useState({
     title: "",
     description: "",
-    department: "",
-    year: "",
+    department: "", // Will be auto-filled from faculty profile
     dueDate: "",
     dueTime: "23:59",
     startDate: "",
@@ -52,8 +58,6 @@ export default function CreateAssignmentPage() {
     allowedFileTypes: ["pdf"],
     allowLateSubmission: false,
     allowResubmission: false,
-    enablePlagiarismCheck: true,
-    allowGroupSubmission: false,
     visibility: true,
     aiPrompt: "",
     difficulty: "intermediate",
@@ -79,127 +83,63 @@ export default function CreateAssignmentPage() {
   })
 
   useEffect(() => {
-    // Get current user from Supabase
+    // Get current user from Supabase Auth
     const getUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
-        // Check if user has sanjivani.edu.in email
-        const email = session.user.email
-        if (!email?.endsWith('@sanjivani.edu.in')) {
-          toast({
-            title: "Access Denied",
-            description: "Only Sanjivani faculty members can access this system.",
-            variant: "destructive"
-          })
-          router.push("/login")
-          return
-        }
-
-        // Try to fetch existing faculty record
-        let { data: facultyData, error } = await supabase
-          .from('faculty')
-          .select('*')
-          .eq('email', email)
-          .single()
-        
-        // If faculty record doesn't exist, create one automatically
-        if (error && error.code === 'PGRST116') {
-          const name = session.user.user_metadata?.name || email.split('@')[0].replace(/[._]/g, ' ')
-          const department = 'CSE' // Default department, can be updated later
-          
-          const { data: newFacultyData, error: insertError } = await supabase
-            .from('faculty')
-            .insert([{
-              name: name,
-              full_name: name,
-              email: email,
-              department: department,
-              designation: 'Faculty',
-              employee_id: `FAC_${Date.now()}`
-            }])
-            .select()
-            .single()
-          
-          if (newFacultyData && !insertError) {
-            facultyData = newFacultyData
-            toast({
-              title: "Welcome!",
-              description: "Faculty profile created successfully. You can update your details in profile settings.",
-              variant: "default"
-            })
-          } else {
-            console.error("Error creating faculty record:", insertError)
-            toast({
-              title: "Error",
-              description: "Failed to create faculty profile. Please contact admin.",
-              variant: "destructive"
-            })
-            return
-          }
-        } else if (error) {
-          console.error("Error fetching faculty record:", error)
-          toast({
-            title: "Error",
-            description: "Failed to fetch faculty profile. Please try again.",
-            variant: "destructive"
-          })
-          return
-        }
-        
-        if (facultyData) {
-          setCurrentUser({
-            id: facultyData.id,
-            email: facultyData.email,
-            name: facultyData.name,
-            department: facultyData.department,
-            designation: facultyData.designation
-          })
-        }
-      } else {
-        // Check localStorage for session
-        const localSession = localStorage.getItem('user_session')
-        if (localSession) {
-          try {
-            const user = JSON.parse(localSession)
-            // Verify this is a faculty record by checking if it has department
-            if (user.department) {
-              setCurrentUser(user)
-            } else {
-              // Fetch faculty record if localStorage doesn't have complete data
-              const { data: facultyData, error } = await supabase
-                .from('faculty')
-                .select('*')
-                .eq('email', user.email)
-                .single()
-              
-              if (facultyData && !error) {
-                const facultyUser = {
-                  id: facultyData.id,
-                  email: facultyData.email,
-                  name: facultyData.name,
-                  department: facultyData.department,
-                  designation: facultyData.designation
-                }
-                setCurrentUser(facultyUser)
-                localStorage.setItem('user_session', JSON.stringify(facultyUser))
-              } else {
-                router.push("/login")
-              }
-            }
-          } catch (error) {
-            console.error("Error parsing session:", error)
-            router.push("/login")
-          }
-        } else {
-          router.push("/login")
-        }
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      
+      if (authError || !user) {
+        router.push("/login?type=faculty")
+        return
       }
+      
+      // Check if user has sanjivani.edu.in email
+      const email = user.email
+      if (!email?.endsWith('@sanjivani.edu.in')) {
+        toast({
+          title: "Access Denied",
+          description: "Only Sanjivani faculty members can access this system.",
+          variant: "destructive"
+        })
+        router.push("/login")
+        return
+      }
+
+      // Fetch faculty record
+      const { data: facultyData, error } = await supabase
+        .from('faculty')
+        .select('*')
+        .eq('email', email)
+        .maybeSingle()
+      
+      if (!facultyData) {
+        // No faculty record - redirect to complete profile
+        router.push('/complete-profile')
+        return
+      }
+      
+      if (error) {
+        console.error("Error fetching faculty record:", error)
+        toast({
+          title: "Error",
+          description: "Failed to fetch faculty profile. Please try again.",
+          variant: "destructive"
+        })
+        return
+      }
+      
+      setCurrentUser({
+        id: facultyData.id,
+        email: facultyData.email,
+        name: facultyData.name,
+        department: facultyData.department,
+        designation: facultyData.designation
+      })
     }
     getUser()
   }, [router])
 
   const handleSubmit = async (status: "draft" | "published") => {
-    if (!formData.title || !formData.description || !formData.dueDate || !formData.year) {
+    if (!formData.title || !formData.description || !formData.dueDate) {
       toast({
         title: "Missing Information",
         description: "Please fill in all required fields.",
@@ -220,15 +160,21 @@ export default function CreateAssignmentPage() {
     setIsLoading(true)
 
     try {
-      // Create assignment using Supabase
-      // Convert year number to year name for target_years
-      const yearMapping: { [key: string]: string } = {
-        '1': 'first',
-        '2': 'second', 
-        '3': 'third',
-        '4': 'fourth'
+      // Use selected years instead of hardcoded all years
+      if (selectedYears.length === 0) {
+        toast({
+          title: "No Years Selected",
+          description: "Please select at least one year for this assignment.",
+          variant: "destructive",
+        })
+        setIsLoading(false)
+        return
       }
-      const targetYear = yearMapping[formData.year] || formData.year
+      
+      // Normalize department to lowercase for consistent matching
+      const normalizedDept = (formData.department || currentUser.department || '').toLowerCase().trim()
+      
+      console.log('DEBUG: Creating assignment with department:', normalizedDept, 'target_years:', selectedYears)
       
       const assignmentData = {
         title: formData.title,
@@ -236,15 +182,13 @@ export default function CreateAssignmentPage() {
         questions: formData.questions,
         submission_guidelines: formData.submissionGuidelines,
         faculty_id: currentUser.id,
-        department: formData.department,
-        target_years: [targetYear],
+        department: normalizedDept, // Store in lowercase for consistent matching
+        target_years: selectedYears, // Selected years only
         assignment_type: formData.assignmentType as 'normal' | 'ai' | 'file_upload' | 'text_based' | 'quiz' | 'coding',
         max_marks: formData.maxMarks,
         due_date: `${formData.dueDate}T${formData.dueTime}:00`,
         allow_late_submission: formData.allowLateSubmission,
         allow_resubmission: formData.allowResubmission,
-        enable_plagiarism_check: formData.enablePlagiarismCheck,
-        allow_group_submission: formData.allowGroupSubmission,
         visibility: formData.visibility,
         difficulty: formData.difficulty,
         estimated_time: formData.estimatedTime,
@@ -450,13 +394,13 @@ export default function CreateAssignmentPage() {
     setIsLoading(true)
 
     try {
-      const response = await fetch("/api/gemini", {
+      const response = await fetch("/api/groq", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          prompt: `Create a detailed assignment for ${formData.department} department, ${formData.year} year students. 
+          prompt: `Create a detailed assignment for ${formData.department || currentUser?.department} department students. 
                    ${formData.aiPrompt ? `Prompt: ${formData.aiPrompt}` : ''}
                    
                    Please provide:
@@ -476,24 +420,53 @@ export default function CreateAssignmentPage() {
         const data = await response.json()
         let content = data.content
 
-        // Clean content - remove *** formatting and other markdown
+        // Clean content - remove markdown formatting
         content = content
-          .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1') // Remove *** bold formatting
+          .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1') // Remove bold formatting
           .replace(/#{1,6}\s*/g, '') // Remove markdown headers
-          .replace(/`([^`]+)`/g, '$1') // Remove inline code formatting
-          .replace(/^\s*[-*+]\s+/gm, '• ') // Convert markdown lists to bullet points
-          .replace(/^\s*\d+\.\s+/gm, '') // Remove numbered list formatting
+          .replace(/`([^`]+)`/g, '$1') // Remove inline code
+          .replace(/^\s*[-*+]\s+/gm, '') // Remove bullet markers
           .replace(/\n{3,}/g, '\n\n') // Clean excessive line breaks
           .trim()
 
-        // Extract title from the generated content
-        const titleMatch = content.match(/(?:Title|Assignment):\s*(.+)/i)
-        const title = titleMatch ? titleMatch[1].trim() : `AI Generated: ${formData.aiPrompt ? formData.aiPrompt.substring(0, 50) : 'File-based Assignment'}...`
+        // Extract title
+        const titleMatch = content.match(/Title:\s*(.+)/i)
+        const extractedTitle = titleMatch ? titleMatch[1].trim() : `AI Assignment: ${formData.aiPrompt ? formData.aiPrompt.substring(0, 30) : 'Generated'}...`
+
+        // Extract description (includes objectives and description)
+        let description = ''
+        const descMatch = content.match(/Description:\s*([\s\S]*?)(?=Objectives:|Questions:|Requirements:|Evaluation:|$)/i)
+        const objMatch = content.match(/Objectives:\s*([\s\S]*?)(?=Questions:|Requirements:|Evaluation:|$)/i)
+        
+        if (descMatch) {
+          description = 'Description:\n' + descMatch[1].trim()
+        }
+        if (objMatch) {
+          description += '\n\nObjectives:\n' + objMatch[1].trim()
+        }
+
+        // Extract questions only
+        const questionsMatch = content.match(/Questions:\s*([\s\S]*?)(?=Requirements:|Evaluation:|Submission:|Guidelines:|$)/i)
+        const questions = questionsMatch ? questionsMatch[1].trim() : ''
+
+        // Extract submission guidelines (requirements + evaluation + any other info)
+        let submissionGuidelines = ''
+        const reqMatch = content.match(/Requirements:\s*([\s\S]*?)(?=Evaluation:|Submission:|Guidelines:|$)/i)
+        const evalMatch = content.match(/Evaluation:\s*([\s\S]*?)(?=Submission:|Guidelines:|$)/i)
+        
+        if (reqMatch) {
+          submissionGuidelines = 'Requirements:\n' + reqMatch[1].trim()
+        }
+        if (evalMatch) {
+          submissionGuidelines += '\n\nEvaluation:\n' + evalMatch[1].trim()
+        }
 
         setFormData((prev) => ({
           ...prev,
-          title: title,
-          description: content,
+          title: extractedTitle,
+          description: description,
+          questions: questions,
+          submissionGuidelines: submissionGuidelines,
         }))
 
         toast({
@@ -536,6 +509,23 @@ export default function CreateAssignmentPage() {
 
   const removeResource = (index: number) => {
     setResources((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const toggleYear = (year: string) => {
+    setSelectedYears((prev) => {
+      if (prev.includes(year)) {
+        return prev.filter((y) => y !== year)
+      }
+      return [...prev, year]
+    })
+  }
+
+  const selectAllYears = () => {
+    setSelectedYears(["first", "second", "third", "fourth"])
+  }
+
+  const deselectAllYears = () => {
+    setSelectedYears([])
   }
 
   if (!currentUser) {
@@ -645,37 +635,67 @@ export default function CreateAssignmentPage() {
                   <Select
                     value={formData.department}
                     onValueChange={(value) => setFormData((prev) => ({ ...prev, department: value }))}
+                    disabled={!!currentUser?.department}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select department" />
+                      <SelectValue placeholder={currentUser?.department ? currentUser.department.toUpperCase() : "Select department"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {departments.map((dept) => (
-                        <SelectItem key={dept} value={dept}>
-                          {dept}
-                        </SelectItem>
-                      ))}
+                      {currentUser?.department ? (
+                        <SelectItem value={currentUser.department}>{currentUser.department.toUpperCase()}</SelectItem>
+                      ) : (
+                        departments.map((dept) => (
+                          <SelectItem key={dept} value={dept}>
+                            {dept}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
+                  {currentUser?.department && (
+                    <p className="text-xs text-gray-500">You can only post to your department</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="year">Academic Year *</Label>
-                  <Select
-                    value={formData.year}
-                    onValueChange={(value) => setFormData((prev) => ({ ...prev, year: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select year" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {years.map((year) => (
-                        <SelectItem key={year} value={year}>
-                          Year {year}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Target Years</Label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={selectAllYears}
+                      className="text-xs"
+                    >
+                      Select All
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={deselectAllYears}
+                      className="text-xs"
+                    >
+                      Deselect All
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {yearOptions.map((year) => (
+                      <div key={year.value} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`year-${year.value}`}
+                          checked={selectedYears.includes(year.value)}
+                          onCheckedChange={() => toggleYear(year.value)}
+                        />
+                        <Label htmlFor={`year-${year.value}`} className="text-sm cursor-pointer">
+                          {year.label}
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    {selectedYears.length} year(s) selected: {selectedYears.map(y => yearOptions.find(opt => opt.value === y)?.label).join(', ')}
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -750,14 +770,17 @@ export default function CreateAssignmentPage() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="description">Assignment Description *</Label>
+                <Label htmlFor="description">Description and Objectives</Label>
                 <Textarea
                   id="description"
-                  placeholder="Provide detailed instructions for the assignment"
+                  placeholder="Enter assignment description and learning objectives"
                   value={formData.description}
                   onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                  rows={8}
+                  rows={4}
                 />
+                <p className="text-sm text-gray-600">
+                  Include a brief description and learning objectives for this assignment.
+                </p>
               </div>
             </TabsContent>
 
@@ -774,26 +797,29 @@ export default function CreateAssignmentPage() {
                       <Label htmlFor="assignmentQuestions">Assignment Questions *</Label>
                       <Textarea
                         id="assignmentQuestions"
-                        placeholder="Enter your assignment questions here. You can add multiple questions, instructions, and requirements for students."
+                        placeholder="Enter assignment questions here"
                         value={formData.questions || ''}
                         onChange={(e) => setFormData((prev) => ({ ...prev, questions: e.target.value }))}
                         rows={8}
                         className="min-h-[200px]"
                       />
                       <p className="text-sm text-gray-600">
-                        Add detailed questions, instructions, and requirements for your assignment. Students will see this when they view the assignment details.
+                        Add the specific questions or tasks for this assignment.
                       </p>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="submissionGuidelines">Submission Guidelines</Label>
+                      <Label htmlFor="submissionGuidelines">Requirements and Evaluation</Label>
                       <Textarea
                         id="submissionGuidelines"
-                        placeholder="Enter submission guidelines, format requirements, and any special instructions..."
+                        placeholder="Enter submission requirements, format requirements, and evaluation criteria..."
                         value={formData.submissionGuidelines || ''}
                         onChange={(e) => setFormData((prev) => ({ ...prev, submissionGuidelines: e.target.value }))}
                         rows={4}
                       />
+                      <p className="text-sm text-gray-600">
+                        Include requirements, evaluation criteria, and any special instructions.
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -994,25 +1020,14 @@ export default function CreateAssignmentPage() {
 
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label>Enable Plagiarism Check</Label>
-                      <p className="text-sm text-gray-600">Automatically check for plagiarism</p>
+                      <Label>Allow Late Submission</Label>
+                      <p className="text-sm text-gray-600">Students can submit after due date</p>
                     </div>
                     <Switch
-                      checked={formData.enablePlagiarismCheck}
+                      checked={formData.allowLateSubmission}
                       onCheckedChange={(checked) =>
-                        setFormData((prev) => ({ ...prev, enablePlagiarismCheck: checked }))
+                        setFormData((prev) => ({ ...prev, allowLateSubmission: checked }))
                       }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Allow Group Submission</Label>
-                      <p className="text-sm text-gray-600">Students can submit as a group</p>
-                    </div>
-                    <Switch
-                      checked={formData.allowGroupSubmission}
-                      onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, allowGroupSubmission: checked }))}
                     />
                   </div>
                 </div>

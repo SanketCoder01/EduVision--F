@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
+import { supabase } from "@/lib/supabase"
 
 interface ClassInfo {
   id: string
@@ -37,18 +38,71 @@ export default function StudyGroupsPage() {
   const [showQueryDialog, setShowQueryDialog] = useState(false)
   const [replyMessage, setReplyMessage] = useState("")
   const [activeTab, setActiveTab] = useState("classes")
+  const [currentUser, setCurrentUser] = useState<any>(null)
 
   useEffect(() => {
-    // Load classes from localStorage
-    const storedClasses = JSON.parse(localStorage.getItem("study_classes") || "[]")
-    setClasses(storedClasses)
-    
-    // Load faculty queries from localStorage
-    const storedQueries = JSON.parse(localStorage.getItem("facultyQueries") || "[]")
-    setFacultyQueries(storedQueries)
-    
-    setIsLoading(false)
+    loadData()
   }, [])
+
+  const loadData = async () => {
+    try {
+      setIsLoading(true)
+      
+      // Get current user from Supabase Auth
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      
+      if (authError || !user) {
+        router.push('/login?type=faculty')
+        return
+      }
+      
+      // Get faculty profile
+      const { data: faculty } = await supabase
+        .from('faculty')
+        .select('*')
+        .eq('email', user.email)
+        .maybeSingle()
+      
+      if (faculty) {
+        setCurrentUser(faculty)
+      }
+      
+      // Load study groups from Supabase
+      const { data: groups, error } = await supabase
+        .from('study_groups')
+        .select('*')
+        .eq('faculty_id', user.id)
+        .order('created_at', { ascending: false })
+      
+      if (groups) {
+        setClasses(groups.map(g => ({
+          id: g.id,
+          name: g.name,
+          description: g.description,
+          subject: g.subject,
+          faculty: faculty?.name || 'Faculty',
+          maxMembers: g.max_members,
+          students_count: g.members_count || 0,
+          created_at: g.created_at
+        })))
+      }
+      
+      // Load faculty queries from Supabase
+      const { data: queries } = await supabase
+        .from('faculty_queries')
+        .select('*')
+        .eq('faculty_id', user.id)
+        .order('created_at', { ascending: false })
+      
+      if (queries) {
+        setFacultyQueries(queries)
+      }
+    } catch (error) {
+      console.error('Error loading data:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   // Filter classes based on search query
   const filteredClasses = classes.filter((cls) => {
@@ -66,18 +120,20 @@ export default function StudyGroupsPage() {
     setShowDeleteDialog(true)
   }
 
-  const confirmDeleteClass = () => {
+  const confirmDeleteClass = async () => {
     if (!classToDelete) return
 
     try {
-      // Remove class from localStorage
-      const updatedClasses = classes.filter(cls => cls.id !== classToDelete.id)
-      localStorage.setItem("study_classes", JSON.stringify(updatedClasses))
+      // Delete from Supabase
+      const { error } = await supabase
+        .from('study_groups')
+        .delete()
+        .eq('id', classToDelete.id)
       
-      // Remove associated study groups
-      localStorage.removeItem(`study_groups_${classToDelete.id}`)
+      if (error) throw error
       
       // Update state
+      const updatedClasses = classes.filter(cls => cls.id !== classToDelete.id)
       setClasses(updatedClasses)
       
       toast({
@@ -96,48 +152,68 @@ export default function StudyGroupsPage() {
     }
   }
 
-  const handleQueryClick = (query: any) => {
+  const handleQueryClick = async (query: any) => {
     setSelectedQuery(query)
     setShowQueryDialog(true)
     
-    // Mark query as read
+    // Mark query as read in Supabase
+    await supabase
+      .from('faculty_queries')
+      .update({ status: 'read' })
+      .eq('id', query.id)
+    
+    // Update local state
     const updatedQueries = facultyQueries.map(q => 
       q.id === query.id ? { ...q, status: "read" } : q
     )
     setFacultyQueries(updatedQueries)
-    localStorage.setItem("facultyQueries", JSON.stringify(updatedQueries))
   }
 
-  const handleReplyToQuery = () => {
+  const handleReplyToQuery = async () => {
     if (!replyMessage.trim() || !selectedQuery) return
 
-    const reply = {
-      id: Date.now().toString(),
-      queryId: selectedQuery.id,
-      facultyName: "Current Faculty",
-      message: replyMessage,
-      timestamp: new Date().toISOString()
+    try {
+      // Store reply in Supabase
+      const { error: replyError } = await supabase
+        .from('faculty_replies')
+        .insert({
+          query_id: selectedQuery.id,
+          faculty_id: currentUser?.id,
+          faculty_name: currentUser?.name || 'Faculty',
+          message: replyMessage,
+          created_at: new Date().toISOString()
+        })
+      
+      if (replyError) throw replyError
+
+      // Update query status to replied in Supabase
+      const { error: updateError } = await supabase
+        .from('faculty_queries')
+        .update({ status: 'replied' })
+        .eq('id', selectedQuery.id)
+      
+      if (updateError) throw updateError
+
+      // Update local state
+      const updatedQueries = facultyQueries.map(q => 
+        q.id === selectedQuery.id ? { ...q, status: "replied" } : q
+      )
+      setFacultyQueries(updatedQueries)
+
+      toast({
+        title: "Reply Sent",
+        description: "Your reply has been sent to the student.",
+      })
+
+      setReplyMessage("")
+      setShowQueryDialog(false)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to send reply. Please try again.",
+        variant: "destructive"
+      })
     }
-
-    // Store reply in localStorage
-    const existingReplies = JSON.parse(localStorage.getItem("facultyReplies") || "[]")
-    existingReplies.push(reply)
-    localStorage.setItem("facultyReplies", JSON.stringify(existingReplies))
-
-    // Update query status to replied
-    const updatedQueries = facultyQueries.map(q => 
-      q.id === selectedQuery.id ? { ...q, status: "replied" } : q
-    )
-    setFacultyQueries(updatedQueries)
-    localStorage.setItem("facultyQueries", JSON.stringify(updatedQueries))
-
-    toast({
-      title: "Reply Sent",
-      description: "Your reply has been sent to the student.",
-    })
-
-    setReplyMessage("")
-    setShowQueryDialog(false)
   }
 
   const getUnreadQueriesCount = () => {
