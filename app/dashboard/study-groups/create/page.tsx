@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
+import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
 import { supabase } from "@/lib/supabase"
 
@@ -46,41 +47,91 @@ export default function CreateStudyGroupsPage() {
   const [students, setStudents] = useState<any[]>([])
   const [loadingStudents, setLoadingStudents] = useState(false)
   const [facultyId, setFacultyId] = useState<string | null>(null)
+  const [facultyDepartment, setFacultyDepartment] = useState<string>("")
+  const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
+  const [loadingSubjects, setLoadingSubjects] = useState(false)
 
-  // Load faculty ID on mount
+  // Load faculty ID and department on mount
   useEffect(() => {
-    const session = localStorage.getItem("facultySession")
-    if (session) {
-      try {
-        const user = JSON.parse(session)
-        setFacultyId(user.id)
-      } catch (error) {
-        console.error("Failed to parse faculty session:", error)
+    const loadFacultyProfile = async () => {
+      const session = localStorage.getItem("facultySession")
+      if (session) {
+        try {
+          const user = JSON.parse(session)
+          setFacultyId(user.id)
+          
+          // Fetch faculty details from Supabase
+          const { data } = await supabase
+            .from('faculty')
+            .select('department, name')
+            .eq('id', user.id)
+            .single()
+          
+          if (data) {
+            if (data.department) {
+              setFacultyDepartment(data.department)
+              setDepartment(data.department) // Auto-set department
+            }
+            if (data.name) {
+              setFacultyName(data.name) // Auto-set faculty name
+            }
+          }
+        } catch (error) {
+          console.error("Failed to parse faculty session:", error)
+        }
       }
     }
+    loadFacultyProfile()
   }, [])
 
-  // Fetch students when department and year change
+  // Fetch subjects when department and year change
   useEffect(() => {
     if (department && year) {
       fetchStudents(department, year)
+      fetchSubjects(department, year)
     } else {
       setStudents([])
+      setAvailableSubjects([])
     }
   }, [department, year])
+
+  // Fetch subjects from Supabase based on department and year
+  const fetchSubjects = async (dept: string, yr: string) => {
+    setLoadingSubjects(true)
+    try {
+      const normalizedDept = dept.toLowerCase()
+      const { data, error } = await supabase
+        .from('subjects')
+        .select('*')
+        .eq('department', normalizedDept)
+        .eq('year', yr)
+        .eq('is_active', true)
+        .order('name', { ascending: true })
+      
+      if (error) {
+        console.error('Error fetching subjects:', error)
+        setAvailableSubjects([])
+      } else {
+        setAvailableSubjects(data || [])
+      }
+    } catch (error) {
+      console.error('Error:', error)
+      setAvailableSubjects([])
+    } finally {
+      setLoadingSubjects(false)
+    }
+  }
 
   // Fetch students from Supabase based on department and year
   const fetchStudents = async (dept: string, yr: string) => {
     setLoadingStudents(true)
     try {
-      // Map year to table format
-      const yearMap: Record<string, string> = {
-        "1st_year": "1st",
-        "2nd_year": "2nd",
-        "3rd_year": "3rd",
-        "4th_year": "4th"
-      }
-      const tableName = `students_${dept}_${yearMap[yr]}_year`
+      // Normalize department to lowercase for table name
+      const normalizedDept = dept.toLowerCase()
+      // Table name format: students_cse_1st_year, students_aids_2nd_year, etc.
+      const tableName = `students_${normalizedDept}_${yr}`
+      
+      console.log('Fetching students from table:', tableName, 'Department:', dept, 'Year:', yr)
       
       const { data, error } = await supabase
         .from(tableName)
@@ -88,14 +139,30 @@ export default function CreateStudyGroupsPage() {
         .order('name', { ascending: true })
       
       if (error) {
-        console.error('Error fetching students:', error)
-        toast({
-          title: "Error",
-          description: "Failed to load students for this department/year",
-          variant: "destructive",
-        })
-        setStudents([])
+        console.error('Error fetching students from', tableName, ':', error)
+        // Try alternative table format without _year suffix
+        const altTableName = `students_${normalizedDept}_${yr.replace('_year', '')}`
+        console.log('Trying alternative table:', altTableName)
+        
+        const { data: altData, error: altError } = await supabase
+          .from(altTableName)
+          .select('id, name, email, prn')
+          .order('name', { ascending: true })
+        
+        if (altError) {
+          console.error('Error fetching from alternative table:', altError)
+          toast({
+            title: "No Students Found",
+            description: `No students found for ${dept} ${yr}. Table may not exist yet.`,
+            variant: "destructive",
+          })
+          setStudents([])
+        } else {
+          console.log('Found students from alt table:', altData?.length)
+          setStudents(altData || [])
+        }
       } else {
+        console.log('Found students:', data?.length)
         setStudents(data || [])
       }
     } catch (error) {
@@ -124,12 +191,7 @@ export default function CreateStudyGroupsPage() {
     return `${yearMap[yr]}-${deptMap[dept]}`
   }
 
-  // Update class name when department or year changes
-  const handleDepartmentChange = (value: string) => {
-    setDepartment(value)
-    setClassName(generateClassName(value, year))
-  }
-
+  // Update class name when year changes (department is locked)
   const handleYearChange = (value: string) => {
     setYear(value)
     setClassName(generateClassName(department, value))
@@ -140,15 +202,6 @@ export default function CreateStudyGroupsPage() {
       toast({
         title: "Error",
         description: "Please enter a class name",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (!subject.trim()) {
-      toast({
-        title: "Error",
-        description: "Please enter a subject name",
         variant: "destructive",
       })
       return
@@ -175,7 +228,7 @@ export default function CreateStudyGroupsPage() {
     if (!facultyName.trim()) {
       toast({
         title: "Error",
-        description: "Please enter faculty name",
+        description: "Faculty name not loaded. Please refresh the page.",
         variant: "destructive",
       })
       return
@@ -329,17 +382,19 @@ export default function CreateStudyGroupsPage() {
                   <BookOpen className="mr-2 h-4 w-4" />
                   Department *
                 </Label>
-                <Select value={department} onValueChange={handleDepartmentChange}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cse">Computer Science & Engineering</SelectItem>
-                    <SelectItem value="aids">Artificial Intelligence & Data Science</SelectItem>
-                    <SelectItem value="aiml">Artificial Intelligence & Machine Learning</SelectItem>
-                    <SelectItem value="cyber">Cyber Security</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="relative">
+                  <Input
+                    value={facultyDepartment ? facultyDepartment.toUpperCase() : "Loading..."}
+                    className="bg-gray-100 cursor-not-allowed font-medium"
+                    disabled
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                      Locked
+                    </Badge>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">Auto-filled from your faculty profile</p>
               </div>
 
               <div className="space-y-2">
@@ -377,14 +432,31 @@ export default function CreateStudyGroupsPage() {
               <div className="space-y-2">
                 <Label htmlFor="subject" className="flex items-center">
                   <BookOpen className="mr-2 h-4 w-4" />
-                  Subject Name *
+                  Subject
                 </Label>
-                <Input
-                  id="subject"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  placeholder="e.g., Data Structures, Machine Learning, Web Development"
-                />
+                <Select value={subject} onValueChange={setSubject} disabled={!year}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={loadingSubjects ? "Loading subjects..." : year ? "Select a subject" : "Select year first"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableSubjects.length > 0 ? (
+                      availableSubjects.map((sub) => (
+                        <SelectItem key={sub.id} value={sub.name}>
+                          {sub.name} {sub.code ? `(${sub.code})` : ''}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="_none" disabled>
+                        No subjects available for this department/year
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+                {availableSubjects.length === 0 && year && !loadingSubjects && (
+                  <p className="text-xs text-amber-600">
+                    No subjects configured. Contact admin to add subjects for {facultyDepartment.toUpperCase()} - {year.replace('_', ' ')}
+                  </p>
+                )}
               </div>
             </div>
 

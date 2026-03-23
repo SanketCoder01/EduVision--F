@@ -110,10 +110,12 @@ CRITICAL RULES:
 3. Avoid complex algorithms or advanced topics
 4. Each question must be CLEAR and CONCISE
 5. Problems must be executable in a standard compiler
+6. DO NOT use special symbols like asterisks (*), at signs (@), hash (#), dashes (-), ampersands (&), or any other special characters in question titles or descriptions
+7. Use plain text only - no markdown formatting, no bullet points with symbols
 
 DIFFICULTY LEVELS:
-- EASY: Basic syntax, simple loops, input/output, calculations (10-15 minutes)
-- MEDIUM: Arrays, strings, functions, basic data structures (20-30 minutes)  
+- EASY (Simple): Basic syntax, simple loops, input/output, calculations (10-15 minutes)
+- MEDIUM (Intermediate): Arrays, strings, functions, basic data structures (20-30 minutes)  
 - HARD: Complex logic, multiple data structures, optimization (30-45 minutes)
 
 LANGUAGE-SPECIFIC EXAMPLES:
@@ -127,7 +129,7 @@ OUTPUT FORMAT - Return ONLY valid JSON:
   "questions": [
     {
       "id": "q1",
-      "title": "Clear Question Title",
+      "title": "Clear Question Title Without Symbols",
       "difficulty": "easy",
       "marks": 10,
       "timeLimit": "15 minutes",
@@ -148,10 +150,16 @@ OUTPUT FORMAT - Return ONLY valid JSON:
 IMPORTANT:
 - Generate ONLY valid JSON, no markdown, no code blocks
 - Keep questions SIMPLE and PRACTICAL
-- Avoid special characters like *, #, &
+- NO special characters or symbols in any text field
+- Use only letters, numbers, spaces, and basic punctuation (comma, period, parentheses)
 - Each question must be unique`
 
     // Build user prompt - focus on simple coding questions
+    // Map difficulty to user-friendly terms
+    const difficultyLabel = difficulty === 'easy' ? 'simple (beginner level)' : 
+                           difficulty === 'medium' ? 'intermediate (moderate level)' : 
+                           'advanced (complex level)'
+    
     let userPrompt = `Generate exactly ${numQuestions || 3} SIMPLE coding questions for ${language} programming language.
 
 ${customPrompt ? `USER REQUEST: ${customPrompt}
@@ -159,16 +167,19 @@ ${customPrompt ? `USER REQUEST: ${customPrompt}
 Generate questions based on the user's specific request above. Make sure questions are:
 - Simple and practical
 - Related to what the user asked for
-- Solvable by students in 15-30 minutes` : `Generate a mix of easy and medium difficulty questions covering:
-- Basic input/output operations
-- Simple loops and conditionals  
-- Array/string manipulations
-- Basic function implementations`}
+- Solvable by students in 15-30 minutes
+- NO special symbols like asterisks, hashes, at signs, or dashes in titles or descriptions` : `Generate questions that are:
+- Clear and easy to understand
+- Practical programming exercises
+- Focused on basic concepts like input/output, loops, arrays, strings
+- NO special symbols or markdown formatting in any text`}
 
-DIFFICULTY: ${difficulty || 'mixed (easy and medium)'}
+DIFFICULTY LEVEL: ${difficultyLabel}
 NUMBER OF QUESTIONS: ${numQuestions || 3}
 ${totalMarks ? `TOTAL MARKS: ${totalMarks}` : ''}
-${topics && topics.length > 0 ? `TOPICS: ${topics.join(', ')}` : ''}`
+${topics && topics.length > 0 ? `TOPICS TO COVER: ${topics.join(', ')}` : ''}
+
+IMPORTANT: Use only plain text with letters, numbers, spaces, and basic punctuation. No symbols or special characters.`
 
     // Avoid repetition
     if (previousQuestions.length > 0) {

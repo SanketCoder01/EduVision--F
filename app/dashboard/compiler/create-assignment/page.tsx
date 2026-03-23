@@ -1044,6 +1044,55 @@ export default function CreateCompilerAssignment() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Questions Preview Section - Show after AI generation */}
+      {assignmentData.useAIQuestions && assignmentData.aiQuestions.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="fixed bottom-4 right-4 z-50"
+        >
+          <Card className="w-96 max-h-[80vh] overflow-hidden shadow-2xl border-purple-200">
+            <CardHeader className="bg-purple-50 border-b border-purple-200">
+              <CardTitle className="text-lg flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-purple-600" />
+                  Generated Questions ({assignmentData.aiQuestions.length})
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleInputChange("useAIQuestions", false)}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0 max-h-[60vh] overflow-y-auto">
+              {assignmentData.aiQuestions.map((q: any, i: number) => (
+                <div key={i} className="p-4 border-b last:border-b-0 hover:bg-gray-50">
+                  <div className="flex items-start justify-between mb-2">
+                    <h4 className="font-semibold text-sm">Q{i + 1}: {q.title}</h4>
+                    <Badge variant="outline" className={
+                      q.difficulty === 'easy' ? 'bg-green-100 text-green-800 border-green-300' :
+                      q.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
+                      'bg-red-100 text-red-800 border-red-300'
+                    }>
+                      {q.difficulty}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-gray-600 mb-2 line-clamp-2">{q.description}</p>
+                  <div className="flex gap-2 text-xs text-gray-500">
+                    <span>Marks: {q.marks}</span>
+                    <span>•</span>
+                    <span>Time: {q.timeLimit}</span>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
     </div>
   )
 }

@@ -17,6 +17,7 @@ import {
   Paperclip,
   Smile,
   FileText,
+  Loader2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -31,7 +32,55 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { getClasses, getStudentsByClass, initializeDatabase, seedDatabase } from "@/app/actions/study-group-actions"
+import { createClient } from "@supabase/supabase-js"
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabase = createClient(supabaseUrl, supabaseKey)
+
+interface StudyGroup {
+  id: string
+  name: string
+  subject: string
+  faculty_id: string
+  faculty: string
+  description: string
+  max_members: number
+  department: string
+  year: string
+  objectives: string
+  group_purpose: string
+  learning_goals: string
+  expected_outcomes: string
+  enable_task_scheduling: boolean
+  task_frequency: string
+  require_submissions: boolean
+  allow_materials: boolean
+  enable_file_uploads: boolean
+  enable_messaging: boolean
+  auto_notifications: boolean
+  let_students_decide: boolean
+  created_at: string
+  updated_at: string
+}
+
+interface StudyGroupMember {
+  id: string
+  study_group_id: string
+  student_id: string
+  student_name: string
+  student_email: string
+  joined_at: string
+}
+
+interface StudentProfile {
+  id: string
+  name: string
+  email: string
+  prn: string
+  department: string
+  year: string
+}
 
 export default function StudyGroupsPage() {
   const { toast } = useToast()
@@ -41,22 +90,20 @@ export default function StudyGroupsPage() {
   const [showChatDialog, setShowChatDialog] = useState(false)
   const [selectedGroup, setSelectedGroup] = useState<any>(null)
   const [activeTab, setActiveTab] = useState("my-groups")
-  const [classes, setClasses] = useState<any[]>([])
-  const [selectedClass, setSelectedClass] = useState<any>(null)
   const [students, setStudents] = useState<any[]>([])
   const [selectedStudents, setSelectedStudents] = useState<any[]>([])
   const [groupName, setGroupName] = useState("")
   const [maxGroupSize, setMaxGroupSize] = useState(5)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [isInitializing, setIsInitializing] = useState(false)
-  const [studyGroups, setStudyGroups] = useState<any[]>([])
-  const [availableSettings, setAvailableSettings] = useState<any[]>([])
-  const [selectedSetting, setSelectedSetting] = useState<any>(null)
-  const [groupRequests, setGroupRequests] = useState<any[]>([])
-  const [selectedRequest, setSelectedRequest] = useState<any>(null)
+  const [studyGroups, setStudyGroups] = useState<StudyGroup[]>([])
+  const [groupMembers, setGroupMembers] = useState<StudyGroupMember[]>([])
+  const [groupRequests, setGroupRequests] = useState<StudyGroup[]>([])
+  const [selectedRequest, setSelectedRequest] = useState<StudyGroup | null>(null)
   const [showRequestDialog, setShowRequestDialog] = useState(false)
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
+  const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null)
+  const [myMemberships, setMyMemberships] = useState<StudyGroupMember[]>([])
 
   // Chat state
   const [messages, setMessages] = useState<any[]>([])
@@ -64,157 +111,239 @@ export default function StudyGroupsPage() {
   const [isCallActive, setIsCallActive] = useState(false)
   const [callType, setCallType] = useState("") // "audio" or "video"
 
+  // Load student profile and study groups on mount
   useEffect(() => {
-    async function fetchClasses() {
-      try {
-        setIsLoading(true)
-        const result = await getClasses()
-
-        if (result.success) {
-          setClasses(result.data)
-          setError(null)
-        } else {
-          setError("Failed to fetch classes. The database tables might not exist yet.")
-        }
-
-        // Load existing study groups
-        const existingGroups = JSON.parse(localStorage.getItem("studyGroups") || "[]")
-        setStudyGroups(existingGroups)
-
-        // Load available group settings
-        const settings = JSON.parse(localStorage.getItem("studyGroupSettings") || "[]")
-        setAvailableSettings(settings)
-
-        // Load group requests from faculty (where letStudentsDecide is true)
-        const classes = JSON.parse(localStorage.getItem("study_classes") || "[]")
-        const requests = classes.filter((cls: any) => cls.letStudentsDecide === true)
-        setGroupRequests(requests)
-      } catch (error) {
-        console.error("Error fetching classes:", error)
-        setError("An unexpected error occurred. The database tables might not exist yet.")
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    fetchClasses()
-  }, [])
-
-  const handleInitializeDatabase = async () => {
-    try {
-      setIsInitializing(true)
-      const result = await initializeDatabase()
-
-      if (result.success) {
-        toast({
-          title: "Success",
-          description: "Database initialized successfully. Now seeding with sample data...",
-        })
-
-        const seedResult = await seedDatabase()
-
-        if (seedResult.success) {
-          toast({
-            title: "Success",
-            description: "Database seeded successfully. Refreshing data...",
-          })
-
-          const classesResult = await getClasses()
-
-          if (classesResult.success) {
-            setClasses(classesResult.data)
-            setError(null)
+    loadStudentData()
+    
+    // Set up realtime subscription for study groups
+    const channel = supabase
+      .channel('study-groups-changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'study_groups' },
+        (payload) => {
+          console.log('Study group change:', payload)
+          if (payload.eventType === 'INSERT') {
+            // Check if this new group is for student's department/year
+            const newGroup = payload.new as StudyGroup
+            if (studentProfile && 
+                newGroup.department === studentProfile.department && 
+                newGroup.year === studentProfile.year) {
+              setStudyGroups(prev => [...prev, newGroup])
+              if (newGroup.let_students_decide) {
+                setGroupRequests(prev => [...prev, newGroup])
+              }
+              toast({
+                title: "New Study Group Available",
+                description: `${newGroup.name} by ${newGroup.faculty} is now available.`,
+              })
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            setStudyGroups(prev => prev.map(g => g.id === payload.new.id ? payload.new as StudyGroup : g))
+          } else if (payload.eventType === 'DELETE') {
+            setStudyGroups(prev => prev.filter(g => g.id !== payload.old.id))
           }
-        } else {
-          toast({
-            title: "Warning",
-            description: "Database initialized but seeding failed. Some features may not work properly.",
-            variant: "destructive",
-          })
         }
-      } else {
-        toast({
-          title: "Error",
-          description: "Failed to initialize database. Please try again.",
-          variant: "destructive",
-        })
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'study_group_members' },
+        (payload) => {
+          console.log('Member change:', payload)
+          loadMemberships()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [studentProfile?.department, studentProfile?.year])
+
+  const loadStudentData = async () => {
+    try {
+      setIsLoading(true)
+      
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setError("Please log in to view study groups.")
+        return
       }
+
+      // Get student profile from department-specific table
+      // Try to find student in any department table
+      const departments = ['cse', 'aids', 'aiml', 'cyber']
+      const years = ['1st_year', '2nd_year', '3rd_year', '4th_year']
+      let studentData = null
+      
+      for (const dept of departments) {
+        for (const yr of years) {
+          const tableName = `students_${dept}_${yr.replace('_year', '')}`
+          const { data, error: tableError } = await supabase
+            .from(tableName)
+            .select('*')
+            .eq('id', user.id)
+            .maybeSingle()
+          
+          if (data) {
+            studentData = { ...data, department: dept, year: yr, tableName }
+            break
+          }
+        }
+        if (studentData) break
+      }
+      
+      if (!studentData) {
+        // Fallback: try students table
+        const { data } = await supabase
+          .from('students')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle()
+        
+        if (data) {
+          studentData = data
+        }
+      }
+      
+      if (studentData) {
+        setStudentProfile({
+          id: user.id,
+          name: studentData.name || 'Student',
+          email: studentData.email || user.email,
+          prn: studentData.prn || '',
+          department: studentData.department,
+          year: studentData.year
+        })
+        
+        // Load study groups for this department/year
+        await loadStudyGroups(studentData.department, studentData.year)
+        await loadMemberships()
+      } else {
+        setError("Could not find your student profile.")
+      }
+      
+      setError(null)
     } catch (error) {
-      console.error("Error initializing database:", error)
-      toast({
-        title: "Error",
-        description: "An unexpected error occurred. Please try again.",
-        variant: "destructive",
-      })
+      console.error("Error loading student data:", error)
+      setError("An unexpected error occurred while loading your profile.")
     } finally {
-      setIsInitializing(false)
+      setIsLoading(false)
     }
   }
 
-  const handleSettingSelect = async (settingId: string) => {
-    const setting = availableSettings.find((s: any) => s.id === settingId)
-    setSelectedSetting(setting)
-    setMaxGroupSize(setting.maxMembers)
+  const loadStudyGroups = async (department: string, year: string) => {
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('study_groups')
+        .select('*')
+        .eq('department', department)
+        .eq('year', year)
+        .order('created_at', { ascending: false })
+      
+      if (fetchError) throw fetchError
+      
+      setStudyGroups(data || [])
+      
+      // Filter groups where let_students_decide is true
+      const requests = (data || []).filter(g => g.let_students_decide)
+      setGroupRequests(requests)
+    } catch (error) {
+      console.error("Error loading study groups:", error)
+    }
+  }
+
+  const loadMemberships = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      
+      const { data, error: fetchError } = await supabase
+        .from('study_group_members')
+        .select('*')
+        .eq('student_id', user.id)
+      
+      if (fetchError) throw fetchError
+      
+      setMyMemberships(data || [])
+    } catch (error) {
+      console.error("Error loading memberships:", error)
+    }
+  }
+
+  const handleSettingSelect = async (studyGroupId: string) => {
+    const group = studyGroups.find(g => g.id === studyGroupId)
+    if (!group) return
+    
+    setSelectedGroup(group)
+    setMaxGroupSize(group.max_members)
 
     try {
-      const result = await getStudentsByClass(setting.classId)
-
-      if (result.success) {
-        // Filter out students who are already in groups
-        const existingGroupMembers = studyGroups
-          .filter((group: any) => group.classId === setting.classId)
-          .flatMap((group: any) => group.members.map((member: any) => member.id))
-
-        const availableStudents = result.data.filter((student: any) => !existingGroupMembers.includes(student.id))
-
-        setStudents(availableStudents)
+      // Normalize department to lowercase
+      const normalizedDept = group.department.toLowerCase()
+      // Fetch students from the same department/year
+      const tableName = `students_${normalizedDept}_${group.year}`
+      const { data, error: fetchError } = await supabase
+        .from(tableName)
+        .select('id, name, prn, email')
+        .limit(20)
+      
+      if (fetchError) {
+        // Try alternative format without _year suffix
+        const altTableName = `students_${normalizedDept}_${group.year.replace('_year', '')}`
+        const { data: altData, error: altError } = await supabase
+          .from(altTableName)
+          .select('id, name, prn, email')
+          .limit(20)
+        
+        if (altError) throw altError
+        setStudents(altData || [])
       } else {
-        toast({
-          title: "Error",
-          description: "Failed to fetch students for this class.",
-          variant: "destructive",
-        })
+        setStudents(data || [])
       }
     } catch (error) {
       console.error("Error fetching students:", error)
       toast({
         title: "Error",
-        description: "Failed to fetch students for this class.",
+        description: "Failed to fetch students for this group.",
         variant: "destructive",
       })
     }
   }
 
   const handleRequestSelect = async (requestId: string) => {
-    const request = groupRequests.find((r: any) => r.id === requestId)
+    const request = groupRequests.find(r => r.id === requestId)
+    if (!request) return
     setSelectedRequest(request)
-    setMaxGroupSize(request.maxMembers)
+    setMaxGroupSize(request.max_members)
 
     try {
-      // Mock students data for the request's department and year
-      const mockStudents = [
-        { id: "1", name: "Alice Johnson", prn: "2124UCEM2001", department: request.department, year: request.year },
-        { id: "2", name: "Bob Smith", prn: "2124UCEM2002", department: request.department, year: request.year },
-        { id: "3", name: "Charlie Brown", prn: "2124UCEM2003", department: request.department, year: request.year },
-        { id: "4", name: "Diana Prince", prn: "2124UCEM2004", department: request.department, year: request.year },
-        { id: "5", name: "Eve Wilson", prn: "2124UCEM2005", department: request.department, year: request.year },
-        { id: "6", name: "Frank Miller", prn: "2124UCEM2006", department: request.department, year: request.year },
-        { id: "7", name: "Grace Lee", prn: "2124UCEM2007", department: request.department, year: request.year },
-        { id: "8", name: "Henry Davis", prn: "2124UCEM2008", department: request.department, year: request.year },
-      ]
-
-      // Filter out students who are already in groups for this request
-      const existingGroupMembers = studyGroups
-        .filter((group: any) => group.requestId === requestId)
-        .flatMap((group: any) => group.members.map((member: any) => member.id))
-
-      const availableStudents = mockStudents.filter((student: any) => !existingGroupMembers.includes(student.id))
-      setStudents(availableStudents)
+      // Normalize department to lowercase
+      const normalizedDept = request.department.toLowerCase()
+      // Fetch real students from the same department/year
+      const tableName = `students_${normalizedDept}_${request.year}`
+      const { data, error: fetchError } = await supabase
+        .from(tableName)
+        .select('id, name, email, prn')
+        .limit(20)
+      
+      if (fetchError) {
+        // Try alternative format
+        const altTableName = `students_${normalizedDept}_${request.year.replace('_year', '')}`
+        const { data: altData, error: altError } = await supabase
+          .from(altTableName)
+          .select('id, name, email, prn')
+          .limit(20)
+        
+        if (altError) throw altError
+        setStudents(altData || [])
+      } else {
+        setStudents(data || [])
+      }
     } catch (error) {
       console.error("Error fetching students:", error)
       toast({
         title: "Error",
-        description: "Failed to fetch students for this request.",
+        description: "Failed to fetch students for this group.",
         variant: "destructive",
       })
     }
@@ -265,32 +394,42 @@ export default function StudyGroupsPage() {
     }
 
     try {
-      const currentUserId = "current-user-id" // In real app, get from auth
-      const currentUser = { id: currentUserId, name: "Current Student", prn: "2124UCEM2059" }
-
-      const newGroup = {
-        id: Date.now().toString(),
-        name: groupName,
-        classId: selectedRequest.id,
-        subjectName: selectedRequest.subject,
-        facultyName: selectedRequest.faculty,
-        maxMembers: selectedRequest.maxMembers,
-        members: [currentUser, ...selectedStudents.map((id) => students.find((s) => s.id === id))],
-        creationType: "student-request",
-        createdBy: currentUserId,
-        createdAt: new Date().toISOString(),
-        messages: [],
-        requestId: selectedRequest.id,
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast({
+          title: "Error",
+          description: "Please log in to create a group.",
+          variant: "destructive",
+        })
+        return
       }
 
-      const existingGroups = JSON.parse(localStorage.getItem("studyGroups") || "[]")
-      const updatedGroups = [...existingGroups, newGroup]
-      localStorage.setItem("studyGroups", JSON.stringify(updatedGroups))
-      setStudyGroups(updatedGroups)
+      // Create student group members
+      const members = selectedStudents.map(id => students.find(s => s.id === id)).filter(Boolean)
+      
+      // Add current user as member
+      const allMembers = [
+        { study_group_id: selectedRequest.id, student_id: user.id, student_name: studentProfile?.name || 'Student', student_email: studentProfile?.email },
+        ...members.map(m => ({ study_group_id: selectedRequest.id, student_id: m.id, student_name: m.name, student_email: m.email }))
+      ]
 
-      // Remove the request from available requests since group is formed
-      const updatedRequests = groupRequests.filter(req => req.id !== selectedRequest.id)
-      setGroupRequests(updatedRequests)
+      // Insert members into study_group_members
+      const { error: memberError } = await supabase
+        .from('study_group_members')
+        .insert(allMembers)
+
+      if (memberError) throw memberError
+
+      // Create notification for faculty
+      await supabase
+        .from('notifications')
+        .insert({
+          user_id: selectedRequest.faculty_id,
+          title: 'Study Group Formed',
+          message: `Students have formed a group "${groupName}" for ${selectedRequest.subject || 'your subject'}`,
+          type: 'study_group',
+          reference_id: selectedRequest.id
+        })
 
       toast({
         title: "Group Created",
@@ -302,6 +441,9 @@ export default function StudyGroupsPage() {
       setSelectedStudents([])
       setGroupName("")
       setActiveTab("my-groups")
+      
+      // Refresh memberships
+      loadMemberships()
     } catch (error) {
       console.error("Error creating study group:", error)
       toast({
@@ -312,81 +454,53 @@ export default function StudyGroupsPage() {
     }
   }
 
-  const handleCreateGroup = async () => {
-    if (!selectedSetting) {
-      toast({
-        title: "Error",
-        description: "Please select a subject to create a group for.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (selectedStudents.length < 1) {
-      toast({
-        title: "Error",
-        description: "Please select at least 1 other student for the group.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (!groupName.trim()) {
-      toast({
-        title: "Error",
-        description: "Please enter a name for the study group.",
-        variant: "destructive",
-      })
-      return
-    }
-
+  const handleJoinGroup = async (group: StudyGroup) => {
     try {
-      const currentUserId = "current-user-id" // In real app, get from auth
-      const currentUser = { id: currentUserId, name: "Current Student", prn: "2124UCEM2059" }
-
-      const newGroup = {
-        id: Date.now().toString(),
-        name: groupName,
-        classId: selectedSetting.classId,
-        subjectName: selectedSetting.subjectName,
-        facultyName: selectedSetting.facultyName,
-        maxMembers: selectedSetting.maxMembers,
-        members: [currentUser, ...selectedStudents.map((id) => students.find((s) => s.id === id))],
-        creationType: "student",
-        createdBy: currentUserId,
-        createdAt: new Date().toISOString(),
-        messages: [],
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      
+      // Check if already a member
+      const { data: existingMember } = await supabase
+        .from('study_group_members')
+        .select('*')
+        .eq('study_group_id', group.id)
+        .eq('student_id', user.id)
+        .maybeSingle()
+      
+      if (existingMember) {
+        toast({
+          title: "Already Joined",
+          description: "You are already a member of this group.",
+        })
+        return
       }
-
-      const existingGroups = JSON.parse(localStorage.getItem("studyGroups") || "[]")
-      const updatedGroups = [...existingGroups, newGroup]
-      localStorage.setItem("studyGroups", JSON.stringify(updatedGroups))
-      setStudyGroups(updatedGroups)
-
+      
+      // Join the group
+      const { error } = await supabase
+        .from('study_group_members')
+        .insert({
+          study_group_id: group.id,
+          student_id: user.id,
+          student_name: studentProfile?.name || 'Student',
+          student_email: studentProfile?.email
+        })
+      
+      if (error) throw error
+      
       toast({
-        title: "Group Created",
-        description: "Your study group has been created successfully.",
+        title: "Joined Group",
+        description: `You have successfully joined ${group.name}.`,
       })
-
-      setShowCreateDialog(false)
-      setSelectedSetting(null)
-      setSelectedStudents([])
-      setGroupName("")
+      
+      loadMemberships()
     } catch (error) {
-      console.error("Error creating study group:", error)
+      console.error("Error joining group:", error)
       toast({
         title: "Error",
-        description: "An unexpected error occurred. Please try again.",
+        description: "Failed to join group. Please try again.",
         variant: "destructive",
       })
     }
-  }
-
-  const handleJoinGroup = (group) => {
-    toast({
-      title: "Request Sent",
-      description: `Your request to join ${group.name} has been sent to the group admin.`,
-    })
     setShowJoinDialog(false)
   }
 
@@ -486,20 +600,20 @@ export default function StudyGroupsPage() {
     const query = searchQuery.toLowerCase()
     return (
       group.name.toLowerCase().includes(query) ||
-      group.subjectName.toLowerCase().includes(query) ||
-      group.facultyName.toLowerCase().includes(query)
+      group.subject?.toLowerCase().includes(query) ||
+      group.faculty?.toLowerCase().includes(query)
     )
   })
 
   // Get groups based on tab
   const getGroupsByTab = (tab: string) => {
-    const currentUserId = "current-user-id"
+    const myGroupIds = myMemberships.map(m => m.study_group_id)
 
     switch (tab) {
       case "my-groups":
-        return filteredGroups.filter((group) => group.members.some((member: { id: string }) => member.id === currentUserId))
+        return filteredGroups.filter((group) => myGroupIds.includes(group.id))
       case "discover":
-        return filteredGroups.filter((group) => !group.members.some((member: { id: string }) => member.id === currentUserId))
+        return filteredGroups.filter((group) => !myGroupIds.includes(group.id))
       default:
         return filteredGroups
     }
@@ -536,11 +650,11 @@ export default function StudyGroupsPage() {
           <CardContent className="p-6">
             <div className="flex flex-col items-center justify-center text-center py-8">
               <Database className="h-12 w-12 text-orange-500 mb-4" />
-              <h2 className="text-xl font-semibold mb-2">Database Setup Required</h2>
+              <h2 className="text-xl font-semibold mb-2">Error Loading Data</h2>
               <p className="text-gray-600 mb-6 max-w-md">{error}</p>
-              <Button onClick={handleInitializeDatabase} disabled={isInitializing} className="flex items-center">
-                {isInitializing ? "Setting up database..." : "Initialize & Seed Database"}
-                {!isInitializing && <Database className="ml-2 h-4 w-4" />}
+              <Button onClick={() => loadStudentData()} className="flex items-center">
+                Retry
+                <Database className="ml-2 h-4 w-4" />
               </Button>
             </div>
           </CardContent>
@@ -682,7 +796,7 @@ export default function StudyGroupsPage() {
                               <Users className="h-5 w-5 text-gray-500 mr-2 mt-0.5" />
                               <div>
                                 <p className="font-medium text-sm">Max Members</p>
-                                <p className="text-sm text-gray-600">{request.maxMembers} students per group</p>
+                                <p className="text-sm text-gray-600">{request.max_members} students per group</p>
                               </div>
                             </div>
 
@@ -760,31 +874,21 @@ export default function StudyGroupsPage() {
                           <div className="flex-1">
                             <div className="flex items-center justify-between mb-2">
                               <h3 className="text-lg font-bold">{group.name}</h3>
-                              <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                                {group.subjectName}
-                              </Badge>
+                              {group.subject && (
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                                  {group.subject}
+                                </Badge>
+                              )}
                             </div>
 
-                            <p className="text-gray-700 mb-4">Faculty: {group.facultyName}</p>
+                            <p className="text-gray-700 mb-4">Faculty: {group.faculty}</p>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                               <div className="flex items-start">
                                 <Users className="h-5 w-5 text-gray-500 mr-2 mt-0.5" />
                                 <div>
-                                  <p className="font-medium text-sm">Members</p>
-                                  <div className="flex -space-x-2 mt-1">
-                                    {group.members.slice(0, 3).map((member) => (
-                                      <Avatar key={member.id} className="h-6 w-6 border-2 border-white">
-                                        <AvatarImage src={member.avatar || "/placeholder.svg"} alt={member.name} />
-                                        <AvatarFallback>{member.name.charAt(0)}</AvatarFallback>
-                                      </Avatar>
-                                    ))}
-                                    {group.members.length > 3 && (
-                                      <div className="flex items-center justify-center h-6 w-6 rounded-full bg-gray-200 text-xs font-medium border-2 border-white">
-                                        +{group.members.length - 3}
-                                      </div>
-                                    )}
-                                  </div>
+                                  <p className="font-medium text-sm">Max Members</p>
+                                  <p className="text-sm text-gray-600">{group.max_members} students</p>
                                 </div>
                               </div>
 
@@ -792,14 +896,16 @@ export default function StudyGroupsPage() {
                                 <Calendar className="h-5 w-5 text-gray-500 mr-2 mt-0.5" />
                                 <div>
                                   <p className="font-medium text-sm">Created</p>
-                                  <p className="text-sm text-gray-600">{formatDate(group.createdAt)}</p>
+                                  <p className="text-sm text-gray-600">{formatDate(group.created_at)}</p>
                                 </div>
                               </div>
                             </div>
 
-                            <Badge variant="outline" className="bg-gray-100">
-                              {group.creationType === "faculty" ? "Faculty Created" : "Student Created"}
-                            </Badge>
+                            {group.let_students_decide && (
+                              <Badge variant="outline" className="bg-purple-100 text-purple-700">
+                                Students Form Groups
+                              </Badge>
+                            )}
                           </div>
 
                           <div className="flex flex-row md:flex-col gap-2 justify-end">
@@ -820,22 +926,6 @@ export default function StudyGroupsPage() {
                                 <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => openChat(group)}>
                                   <MessageSquare className="mr-2 h-4 w-4" />
                                   Chat
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  onClick={() => handleStartCall("audio")}
-                                  className="text-green-600 hover:text-green-700"
-                                >
-                                  <Phone className="mr-2 h-4 w-4" />
-                                  Call
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  onClick={() => handleStartCall("video")}
-                                  className="text-purple-600 hover:text-purple-700"
-                                >
-                                  <Video className="mr-2 h-4 w-4" />
-                                  Video
                                 </Button>
                               </div>
                             ) : (
@@ -862,141 +952,29 @@ export default function StudyGroupsPage() {
         ))}
       </Tabs>
 
-      {/* Create Study Group Dialog */}
+      {/* Create Study Group Dialog - Students form groups from faculty-created requests */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Create Study Group</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="subject-select">Select Subject</Label>
-              <Select value={selectedSetting?.id} onValueChange={handleSettingSelect}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select subject" />
-                </SelectTrigger>
-                <SelectContent>
-                  {isLoading ? (
-                    <SelectItem value="loading" disabled>
-                      Loading subjects...
-                    </SelectItem>
-                  ) : availableSettings.length === 0 ? (
-                    <SelectItem value="none" disabled>
-                      No subjects available for group creation
-                    </SelectItem>
-                  ) : (
-                    availableSettings.map((setting) => (
-                      <SelectItem key={setting.id || setting.classId} value={setting.id || setting.classId}>
-                        {setting.subjectName} - {setting.facultyName}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {selectedSetting && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="group-name">Group Name</Label>
-                  <Input
-                    id="group-name"
-                    placeholder="Enter group name"
-                    value={groupName}
-                    onChange={(e) => setGroupName(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Select Group Members</Label>
-                    <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                      {selectedStudents.length}/{maxGroupSize - 1} members (excluding you)
-                    </Badge>
-                  </div>
-
-                  <div className="border rounded-md p-4 max-h-[300px] overflow-y-auto">
-                    {students.length === 0 ? (
-                      <div className="text-center py-4 text-gray-500">
-                        No students available for this subject or all students are already in groups
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {students.map((student) => {
-                          const isSelected = selectedStudents.includes(student.id)
-                          const isDisabled = selectedStudents.length >= maxGroupSize - 1 && !isSelected
-
-                          return (
-                            <div
-                              key={student.id}
-                              className={`flex items-center justify-between p-2 rounded-md ${
-                                isSelected ? "bg-blue-50" : isDisabled ? "opacity-50" : ""
-                              }`}
-                            >
-                              <div className="flex items-center">
-                                <Checkbox
-                                  id={`student-${student.id}`}
-                                  checked={isSelected}
-                                  onCheckedChange={() => handleStudentSelect(student.id)}
-                                  disabled={isDisabled}
-                                />
-                                <Label
-                                  htmlFor={`student-${student.id}`}
-                                  className="ml-2 flex items-center cursor-pointer"
-                                >
-                                  <Avatar className="h-6 w-6 mr-2">
-                                    <AvatarFallback>{student.name.charAt(0)}</AvatarFallback>
-                                  </Avatar>
-                                  {student.name}
-                                </Label>
-                              </div>
-                              <Badge variant="outline" className="text-xs">
-                                PRN: {student.prn}
-                              </Badge>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {selectedStudents.length > 0 && (
-                  <div className="space-y-2">
-                    <Label>Selected Members</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedStudents.map((studentId) => {
-                        const student = students.find((s) => s.id === studentId)
-                        if (!student) return null
-
-                        return (
-                          <Badge key={student.id} variant="secondary" className="flex items-center gap-1 py-1 px-2">
-                            {student.name}
-                            <button
-                              className="ml-1 text-gray-500 hover:text-gray-700"
-                              onClick={() => handleStudentSelect(student.id)}
-                            >
-                              ×
-                            </button>
-                          </Badge>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
+            <p className="text-gray-600">
+              To create a study group, go to the "Group Requests" tab and select a faculty-created group request to form your own group.
+            </p>
+            <p className="text-sm text-gray-500">
+              Faculty members create study group requests for your department and year. You can then form groups with your classmates.
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
-              Cancel
+              Close
             </Button>
-            <Button
-              className="bg-blue-600 hover:bg-blue-700"
-              onClick={handleCreateGroup}
-              disabled={!selectedSetting || selectedStudents.length < 1 || !groupName.trim()}
-            >
-              Create Group
+            <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => {
+              setShowCreateDialog(false)
+              setActiveTab("requests")
+            }}>
+              Go to Group Requests
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1013,13 +991,15 @@ export default function StudyGroupsPage() {
               <>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-lg font-medium">{selectedGroup.name}</h3>
-                  <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                    {selectedGroup.subjectName}
-                  </Badge>
+                  {selectedGroup.subject && (
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                      {selectedGroup.subject}
+                    </Badge>
+                  )}
                 </div>
-                <p className="text-gray-600">Faculty: {selectedGroup.facultyName}</p>
+                <p className="text-gray-600">Faculty: {selectedGroup.faculty}</p>
                 <p className="text-gray-600">
-                  Members: {selectedGroup.members.length}/{selectedGroup.maxMembers}
+                  Max Members: {selectedGroup.max_members}
                 </p>
               </>
             )}
@@ -1170,44 +1150,34 @@ export default function StudyGroupsPage() {
               <>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-lg font-medium">{selectedGroup.name}</h3>
-                  <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                    {selectedGroup.subjectName}
-                  </Badge>
+                  {selectedGroup.subject && (
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                      {selectedGroup.subject}
+                    </Badge>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <p>
-                    <strong>Faculty:</strong> {selectedGroup.facultyName}
+                    <strong>Faculty:</strong> {selectedGroup.faculty}
                   </p>
                   <p>
-                    <strong>Created:</strong> {formatDate(selectedGroup.createdAt)}
+                    <strong>Created:</strong> {formatDate(selectedGroup.created_at)}
                   </p>
                   <p>
-                    <strong>Members:</strong> {selectedGroup.members.length}/{selectedGroup.maxMembers}
+                    <strong>Max Members:</strong> {selectedGroup.max_members}
                   </p>
                   <p>
-                    <strong>Created by:</strong> {selectedGroup.creationType === "faculty" ? "Faculty" : "Student"}
+                    <strong>Department:</strong> {selectedGroup.department}
                   </p>
                 </div>
 
-                <div>
-                  <Label className="text-sm font-medium">Group Members</Label>
-                  <div className="mt-2 space-y-2">
-                    {selectedGroup.members.map((member) => (
-                      <div key={member.id} className="flex items-center">
-                        <Avatar className="h-6 w-6 mr-2">
-                          <AvatarFallback>{member.name.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <span className="text-sm">{member.name}</span>
-                        {member.prn && (
-                          <Badge variant="outline" className="ml-2 text-xs">
-                            PRN: {member.prn}
-                          </Badge>
-                        )}
-                      </div>
-                    ))}
+                {selectedGroup.objectives && (
+                  <div className="mt-4">
+                    <Label className="text-sm font-medium">Objectives</Label>
+                    <p className="text-sm text-gray-600 mt-1">{selectedGroup.objectives}</p>
                   </div>
-                </div>
+                )}
               </>
             )}
           </div>
@@ -1235,7 +1205,7 @@ export default function StudyGroupsPage() {
                   <h3 className="font-semibold text-blue-900 mb-2">{selectedRequest.subject}</h3>
                   <p className="text-blue-700 text-sm">Faculty: {selectedRequest.faculty}</p>
                   <p className="text-blue-700 text-sm">Class: {selectedRequest.name}</p>
-                  <p className="text-blue-700 text-sm">Max Members: {selectedRequest.maxMembers} students per group</p>
+                  <p className="text-blue-700 text-sm">Max Members: {selectedRequest.max_members} students per group</p>
                 </div>
 
                 <div className="space-y-2">
