@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { supabase } from "@/lib/supabase"
+import { getCurrentFaculty } from "@/lib/supabase-utils"
 
 export default function AssignedTasksPage() {
   const router = useRouter()
@@ -36,12 +38,20 @@ export default function AssignedTasksPage() {
     loadAssignedTasks()
   }, [])
 
-  const loadAssignedTasks = () => {
+  const loadAssignedTasks = async () => {
     try {
       setIsLoading(true)
-      const tasks = JSON.parse(localStorage.getItem("faculty_assigned_tasks") || "[]")
-      setAssignedTasks(tasks)
-    } catch (error) {
+      const fac = await getCurrentFaculty()
+      if (!fac) { setIsLoading(false); return }
+
+      const { data, error } = await supabase
+        .from('study_group_tasks')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setAssignedTasks(data || [])
+    } catch (error: any) {
       console.error("Error loading assigned tasks:", error)
       toast({
         title: "Error",
@@ -57,8 +67,8 @@ export default function AssignedTasksPage() {
     setSelectedTask(task)
     setEditTitle(task.title)
     setEditDescription(task.description)
-    setEditDueDate(task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : "")
-    setEditPriority(task.priority)
+    setEditDueDate(task.due_date ? new Date(task.due_date).toISOString().slice(0, 16) : (task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : ""))
+    setEditPriority(task.priority || 'medium')
     setShowEditDialog(true)
   }
 
@@ -72,84 +82,38 @@ export default function AssignedTasksPage() {
     setShowDeleteDialog(true)
   }
 
-  const saveTaskChanges = () => {
+  const saveTaskChanges = async () => {
     if (!selectedTask) return
-
     try {
-      const updatedTask = {
-        ...selectedTask,
+      const { error } = await supabase.from('study_group_tasks').update({
         title: editTitle,
         description: editDescription,
-        dueDate: editDueDate ? new Date(editDueDate).toISOString() : selectedTask.dueDate,
+        due_date: editDueDate ? new Date(editDueDate).toISOString() : null,
         priority: editPriority,
-        updatedAt: new Date().toISOString()
-      }
+      }).eq('id', selectedTask.id)
 
-      // Update in faculty tasks
-      const tasks = JSON.parse(localStorage.getItem("faculty_assigned_tasks") || "[]")
-      const updatedTasks = tasks.map((task: any) => 
-        task.id === selectedTask.id ? updatedTask : task
-      )
-      localStorage.setItem("faculty_assigned_tasks", JSON.stringify(updatedTasks))
+      if (error) throw error
 
-      // Update in group tasks
-      selectedTask.assignedGroups.forEach((group: any) => {
-        const groupTaskKey = `group_tasks_${group.id}`
-        const groupTasks = JSON.parse(localStorage.getItem(groupTaskKey) || "[]")
-        const updatedGroupTasks = groupTasks.map((task: any) => 
-          task.id === selectedTask.id ? updatedTask : task
-        )
-        localStorage.setItem(groupTaskKey, JSON.stringify(updatedGroupTasks))
-      })
-
-      setAssignedTasks(updatedTasks)
+      setAssignedTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, title: editTitle, description: editDescription, due_date: editDueDate, priority: editPriority } : t))
       setShowEditDialog(false)
       setSelectedTask(null)
-
-      toast({
-        title: "Success",
-        description: "Task updated successfully.",
-      })
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update task.",
-        variant: "destructive",
-      })
+      toast({ title: "Success", description: "Task updated successfully." })
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to update task.", variant: "destructive" })
     }
   }
 
-  const confirmDeleteTask = () => {
+  const confirmDeleteTask = async () => {
     if (!taskToDelete) return
-
     try {
-      // Remove from faculty tasks
-      const tasks = JSON.parse(localStorage.getItem("faculty_assigned_tasks") || "[]")
-      const updatedTasks = tasks.filter((task: any) => task.id !== taskToDelete.id)
-      localStorage.setItem("faculty_assigned_tasks", JSON.stringify(updatedTasks))
-
-      // Remove from group tasks
-      taskToDelete.assignedGroups.forEach((group: any) => {
-        const groupTaskKey = `group_tasks_${group.id}`
-        const groupTasks = JSON.parse(localStorage.getItem(groupTaskKey) || "[]")
-        const updatedGroupTasks = groupTasks.filter((task: any) => task.id !== taskToDelete.id)
-        localStorage.setItem(groupTaskKey, JSON.stringify(updatedGroupTasks))
-      })
-
-      setAssignedTasks(updatedTasks)
+      const { error } = await supabase.from('study_group_tasks').delete().eq('id', taskToDelete.id)
+      if (error) throw error
+      setAssignedTasks(prev => prev.filter(t => t.id !== taskToDelete.id))
       setShowDeleteDialog(false)
       setTaskToDelete(null)
-
-      toast({
-        title: "Success",
-        description: "Task deleted successfully.",
-      })
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to delete task.",
-        variant: "destructive",
-      })
+      toast({ title: "Success", description: "Task deleted successfully." })
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to delete task.", variant: "destructive" })
     }
   }
 

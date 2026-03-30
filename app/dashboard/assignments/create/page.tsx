@@ -20,6 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "@/hooks/use-toast"
 import { SupabaseAssignmentService } from "@/lib/supabase-assignments"
 import { supabase } from "@/lib/supabase"
+import { FileUploader } from "@/components/file-uploader"
 // import { createAssignment, addAssignmentResources, uploadFile } from "@/lib/supabase"
 
 const departments = [
@@ -42,7 +43,7 @@ export default function CreateAssignmentPage() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [assignmentType, setAssignmentType] = useState<"normal" | "ai">("normal")
   const [isLoading, setIsLoading] = useState(false)
-  const [resources, setResources] = useState<File[]>([])
+  const [resources, setResources] = useState<any[]>([])
   const [selectedYears, setSelectedYears] = useState<string[]>(["first", "second", "third", "fourth"]) // Default all years
 
   const [formData, setFormData] = useState({
@@ -208,7 +209,9 @@ export default function CreateAssignmentPage() {
 
       // Upload resources if any
       if (resources.length > 0) {
-        for (const file of resources) {
+        for (const res of resources) {
+          const file = res.file
+          if (!file) continue
           try {
             const fileUrl = await SupabaseAssignmentService.uploadAssignmentResource(createdAssignment.id, file)
             await SupabaseAssignmentService.createAssignmentResource({
@@ -422,10 +425,11 @@ export default function CreateAssignmentPage() {
 
         // Clean content - remove markdown formatting
         content = content
-          .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1') // Remove bold formatting
+          .replace(/\*{1,3}/g, '') // Remove bold/italic asterisks
           .replace(/#{1,6}\s*/g, '') // Remove markdown headers
-          .replace(/`([^`]+)`/g, '$1') // Remove inline code
+          .replace(/`{1,3}[^`]*`{1,3}/g, '') // Remove code blocks
           .replace(/^\s*[-*+]\s+/gm, '') // Remove bullet markers
+          .replace(/^\s*\d+\.\s+/gm, '') // Remove numbered list markers
           .replace(/\n{3,}/g, '\n\n') // Clean excessive line breaks
           .trim()
 
@@ -943,41 +947,63 @@ export default function CreateAssignmentPage() {
                         </>
                       )}
                     </Button>
+
+                    {/* AI Generated Content Preview */}
+                    {formData.questions && (
+                      <div className="mt-8 space-y-6 bg-white p-5 rounded-lg border border-purple-100 shadow-sm">
+                        <div className="flex items-center gap-2 mb-4 border-b border-purple-100 pb-2">
+                          <Sparkles className="h-5 w-5 text-purple-600" />
+                          <h4 className="font-semibold text-purple-900">Generated Assignment Setup</h4>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="aiGeneratedQuestions">Generated Questions</Label>
+                            <Textarea
+                              id="aiGeneratedQuestions"
+                              value={formData.questions}
+                              onChange={(e) => setFormData((prev) => ({ ...prev, questions: e.target.value }))}
+                              rows={10}
+                              className="font-mono text-sm"
+                            />
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label htmlFor="aiGeneratedGuidelines">Generated Requirements and Evaluation</Label>
+                            <Textarea
+                              id="aiGeneratedGuidelines"
+                              value={formData.submissionGuidelines}
+                              onChange={(e) => setFormData((prev) => ({ ...prev, submissionGuidelines: e.target.value }))}
+                              rows={6}
+                              className="font-mono text-sm"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
             </TabsContent>
 
             <TabsContent value="resources" className="space-y-6">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <Label>Assignment Resources</Label>
-                  <Input type="file" multiple onChange={handleResourceUpload} className="max-w-xs" />
-                </div>
-
-                {resources.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="font-medium">Uploaded Resources</h4>
-                    {resources.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <FileText className="h-4 w-4 text-gray-500" />
-                          <span className="text-sm">{file.name}</span>
-                          <span className="text-xs text-gray-500">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeResource(index)}
-                          className="text-red-600 hover:text-red-700"
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    ))}
+              <FileUploader
+                files={resources}
+                onFilesChange={setResources}
+                allowedTypes={formData.allowedFileTypes}
+                label="Assignment Resources"
+                emptyState={
+                  <div className="border border-dashed rounded-md p-6 text-center">
+                    <div className="h-16 w-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <FileText className="h-8 w-8 text-gray-400" />
+                    </div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">Add Resources</h3>
+                    <p className="text-gray-500 text-sm mb-4">
+                      Attach PDFs, documents, images, or links that students will need to complete the assignment.
+                    </p>
                   </div>
-                )}
-              </div>
+                }
+              />
             </TabsContent>
 
             <TabsContent value="settings" className="space-y-6">
@@ -1041,12 +1067,11 @@ export default function CreateAssignmentPage() {
       <div className="flex flex-col sm:flex-row gap-4 justify-end">
         <Button
           variant="outline"
-          onClick={() => handleSubmit("draft")}
+          onClick={() => router.back()}
           disabled={isLoading}
           className="flex items-center gap-2"
         >
-          <Save className="h-4 w-4" />
-          Save as Draft
+          Cancel
         </Button>
         <Button
           onClick={() => handleSubmit("published")}

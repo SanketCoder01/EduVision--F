@@ -42,11 +42,21 @@ export default function StudyGroupsPage() {
 
   useEffect(() => {
     loadData()
+    
+    const channel = supabase.channel('study-groups-refresh')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_groups' }, () => {
+        loadData(true)
+      })
+      .subscribe()
+      
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [])
 
-  const loadData = async () => {
+  const loadData = async (isRefresh = false) => {
     try {
-      setIsLoading(true)
+      if (!isRefresh) setIsLoading(true)
       
       // Get current user from Supabase Auth
       const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -56,47 +66,50 @@ export default function StudyGroupsPage() {
         return
       }
       
-      // Get faculty profile
-      const { data: faculty } = await supabase
-        .from('faculty')
-        .select('*')
-        .eq('email', user.email)
-        .maybeSingle()
+      // Get faculty profile (try id first, then email)
+      let faculty: any = null
+      const { data: facultyById } = await supabase.from('faculty').select('*').eq('id', user.id).maybeSingle()
+      if (facultyById) {
+        faculty = facultyById
+      } else {
+        const { data: facultyByEmail } = await supabase.from('faculty').select('*').eq('email', user.email).maybeSingle()
+        faculty = facultyByEmail
+      }
       
       if (faculty) {
         setCurrentUser(faculty)
       }
       
-      // Load study groups from Supabase
-      const { data: groups, error } = await supabase
+      // Load study groups - try by auth uid first, then by faculty record id
+      const { data: groups, error: groupsError } = await supabase
         .from('study_groups')
         .select('*')
         .eq('faculty_id', user.id)
         .order('created_at', { ascending: false })
       
-      if (groups) {
-        setClasses(groups.map(g => ({
-          id: g.id,
-          name: g.name,
-          description: g.description,
-          subject: g.subject,
-          faculty: faculty?.name || 'Faculty',
-          maxMembers: g.max_members,
-          students_count: g.members_count || 0,
-          created_at: g.created_at
-        })))
-      }
+      let allGroups = groups || []
       
-      // Load faculty queries from Supabase
-      const { data: queries } = await supabase
-        .from('faculty_queries')
-        .select('*')
-        .eq('faculty_id', user.id)
-        .order('created_at', { ascending: false })
-      
-      if (queries) {
-        setFacultyQueries(queries)
+      // If no groups and faculty has a different id in DB, try that id too
+      if (allGroups.length === 0 && faculty && faculty.id !== user.id) {
+        const { data: groupsByFacId } = await supabase
+          .from('study_groups')
+          .select('*')
+          .eq('faculty_id', faculty.id)
+          .order('created_at', { ascending: false })
+        allGroups = groupsByFacId || []
       }
+
+      setClasses(allGroups.map(g => ({
+        id: g.id,
+        name: g.name,
+        description: g.description,
+        subject: g.subject,
+        faculty: faculty?.name || g.faculty || 'Faculty',
+        maxMembers: g.max_members,
+        students_count: g.members_count || 0,
+        created_at: g.created_at
+      })))
+      
     } catch (error) {
       console.error('Error loading data:', error)
     } finally {

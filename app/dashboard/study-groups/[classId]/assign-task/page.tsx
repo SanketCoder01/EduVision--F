@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/use-toast"
-import { getClassById, getStudyGroupsByClass, addTaskToStudyGroup } from "@/app/actions/study-group-actions"
+import { supabase } from "@/lib/supabase"
 
 export default function AssignTaskPage() {
   const params = useParams()
@@ -45,25 +45,33 @@ export default function AssignTaskPage() {
         setIsLoading(true)
         const classId = params.classId as string
 
-        // Load class info from localStorage
-        const classes = JSON.parse(localStorage.getItem("study_classes") || "[]")
-        const classData = classes.find((cls: any) => cls.id === classId)
-        
-        if (!classData) {
-          throw new Error("Class not found")
-        }
+        // Load class info from Supabase
+        const { data: classData } = await supabase
+          .from('study_groups')
+          .select('*')
+          .eq('id', classId)
+          .maybeSingle()
 
-        // Load study groups from localStorage (both faculty and student created)
-        const facultyGroups = JSON.parse(localStorage.getItem(`study_groups_${classId}`) || "[]")
-        const studentGroups = JSON.parse(localStorage.getItem("student_study_groups") || "[]")
-        const classStudentGroups = studentGroups.filter((group: any) => group.classId === classId)
-        
-        const allGroups = [...facultyGroups, ...classStudentGroups]
+        setClassInfo(classData || { id: classId, name: `Class ${classId}` })
 
-        setClassInfo(classData)
+        // Load sub-groups from study_group_members
+        const { data: membersData } = await supabase
+          .from('study_group_members')
+          .select('class_id, group_name, student_id, student_name')
+          .eq('class_id', classId)
+
+        // Group by group_name
+        const grouped: Record<string, any> = {}
+        ;(membersData || []).forEach((m: any) => {
+          if (!grouped[m.group_name]) {
+            grouped[m.group_name] = { id: m.group_name, name: m.group_name, members: [] }
+          }
+          grouped[m.group_name].members.push(m)
+        })
+        const allGroups = Object.values(grouped)
+
         setStudyGroups(allGroups)
 
-        // If shuffle mode, select all groups by default
         if (mode === "shuffle") {
           setSelectedGroups(allGroups.map((group: any) => group.id))
         }
@@ -135,77 +143,37 @@ export default function AssignTaskPage() {
     try {
       setIsSubmitting(true)
       const classId = params.classId as string
-
-      // Get selected groups data
       const selectedGroupsData = studyGroups.filter(group => selectedGroups.includes(group.id))
-      
-      // Get all students from selected groups
-      const allStudents = selectedGroupsData.reduce((acc: any[], group: any) => {
-        return [...acc, ...(group.members || [])]
-      }, [])
 
-      // Create task object
-      const taskData = {
-        id: `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      // Insert a task for each selected group
+      const taskInserts = selectedGroupsData.map((group: any) => ({
+        class_id: classId,
+        group_name: group.name,
         title: taskTitle,
         description: taskDescription,
-        dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        taskType,
-        frequency: taskType === "recurring" ? frequency : null,
+        due_date: dueDate ? new Date(dueDate).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString(),
         priority,
-        requiresSubmission,
-        allowLateSubmission,
-        maxFileSize: parseInt(maxFileSize),
-        attachments: attachments.map(file => ({
-          name: file.name,
-          fileType: file.type,
-          size: file.size,
-          fileUrl: `temp/${file.name}` // Will be updated after file upload
-        })),
-        classId,
-        assignedGroups: selectedGroupsData.map(group => ({
-          id: group.id,
-          name: group.name,
-          memberCount: group.members?.length || 0
-        })),
-        assignedStudents: allStudents,
-        createdAt: new Date().toISOString(),
-        createdBy: "faculty", // Current user
-        status: "active",
-        submissions: []
-      }
+        task_type: taskType,
+        frequency: taskType === 'recurring' ? frequency : null,
+        requires_submission: requiresSubmission,
+        allow_late_submission: allowLateSubmission,
+        status: 'active',
+      }))
 
-      // Save to faculty tasks for dashboard tracking
-      const existingTasks = JSON.parse(localStorage.getItem("faculty_assigned_tasks") || "[]")
-      const updatedTasks = [...existingTasks, taskData]
-      localStorage.setItem("faculty_assigned_tasks", JSON.stringify(updatedTasks))
-
-      // Save task assignment to each group's task list
-      selectedGroupsData.forEach(group => {
-        const groupTaskKey = `group_tasks_${group.id}`
-        const existingGroupTasks = JSON.parse(localStorage.getItem(groupTaskKey) || "[]")
-        const groupTask = {
-          ...taskData,
-          groupId: group.id,
-          groupName: group.name,
-          assignedTo: group.members || []
-        }
-        const updatedGroupTasks = [...existingGroupTasks, groupTask]
-        localStorage.setItem(groupTaskKey, JSON.stringify(updatedGroupTasks))
-      })
+      const { error } = await supabase.from('study_group_tasks').insert(taskInserts)
+      if (error) throw error
 
       toast({
         title: "Success",
-        description: `Task "${taskTitle}" assigned to ${selectedGroups.length} study groups successfully.`,
+        description: `Task "${taskTitle}" assigned to ${selectedGroups.length} study groups.`,
       })
 
-      // Redirect back to class study groups page
       router.push(`/dashboard/study-groups/${params.classId}`)
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error assigning task:", error)
       toast({
         title: "Error",
-        description: "Failed to assign task to study groups.",
+        description: error.message || "Failed to assign task to study groups.",
         variant: "destructive",
       })
     } finally {

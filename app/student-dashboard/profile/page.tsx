@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Camera, User, Mail, CreditCard, AlertCircle, Edit, Save, X, Building, GraduationCap, Calendar } from "lucide-react"
+import { ArrowLeft, Camera, User, Mail, CreditCard, AlertCircle, Edit, Save, X, Building, GraduationCap, Calendar, IdCard, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -142,11 +142,37 @@ export default function StudentProfilePage() {
       const deptCode = student.department?.toLowerCase()
       const tableName = `students_${deptCode}_${student.year}_year`
 
+      let finalPhotoUrl = formData.photo;
+      
+      if (formData.photo && formData.photo.startsWith('data:image')) {
+        const base64Data = formData.photo.split(',')[1];
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'image/jpeg' });
+        const filePath = `student_${user.id}_${Date.now()}.jpg`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, blob);
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+
+        finalPhotoUrl = urlData.publicUrl;
+      }
+
       const updateData = {
         name: formData.name,
         college_name: formData.college_name,
         prn: formData.prn,
-        photo: formData.photo,
+        face_image: finalPhotoUrl,
         updated_at: new Date().toISOString()
       }
 
@@ -331,6 +357,7 @@ export default function StudentProfilePage() {
                         onChange={handleInputChange}
                         placeholder="e.g., 22CSE001"
                         required
+                        disabled={!!student?.prn}
                       />
                     </div>
                   </>
@@ -406,6 +433,129 @@ export default function StudentProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* Virtual ID Card Section */}
+      {student && student.name && student.prn && student.email && (
+        <div className="max-w-7xl mx-auto mt-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <IdCard className="h-5 w-5 text-blue-600" />
+                Virtual ID Card
+              </h2>
+              <p className="text-sm text-gray-500 mt-0.5">Your digital student identity card</p>
+            </div>
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 print:hidden"
+            >
+              <Printer className="h-4 w-4" />
+              Print ID Card
+            </button>
+          </div>
+
+          {/* ID Card */}
+          <div
+            id="virtual-id-card"
+            className="max-w-sm mx-auto rounded-2xl overflow-hidden shadow-2xl border border-emerald-200 print:shadow-none"
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-r from-emerald-700 via-teal-600 to-cyan-700 px-6 pt-6 pb-4 text-white text-center">
+              <div className="flex items-center justify-center gap-2 mb-1">
+                <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+                  <span className="text-white font-black text-sm">SU</span>
+                </div>
+                <div className="text-left">
+                  <p className="text-xs font-bold tracking-wide">SANJIVANI UNIVERSITY</p>
+                  <p className="text-[10px] text-emerald-200">Kopargaon, Maharashtra</p>
+                </div>
+              </div>
+              <div className="h-px bg-white/20 mt-3" />
+            </div>
+
+            {/* Body */}
+            <div className="bg-white px-6 py-5">
+              {/* Photo */}
+              <div className="flex justify-center mb-4">
+                <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-emerald-600 shadow-lg">
+                  {formData.photo ? (
+                    <img src={formData.photo} alt={student.name || student.full_name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                      <span className="text-white text-3xl font-bold">{(student.name || student.full_name)?.charAt(0)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Name & badge */}
+              <div className="text-center mb-4">
+                <h3 className="text-lg font-black text-gray-900">{student.name || student.full_name}</h3>
+                <span className="inline-block mt-1 px-3 py-0.5 bg-yellow-400 text-yellow-900 text-xs font-bold rounded-full uppercase tracking-wide">
+                  Student
+                </span>
+              </div>
+
+              {/* Info */}
+              <div className="space-y-2 text-sm">
+                {student.prn && (
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <span className="w-16 text-xs font-semibold text-gray-400 uppercase">PRN</span>
+                    <span className="font-bold text-gray-900">{student.prn}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-gray-700">
+                  <span className="w-16 text-xs font-semibold text-gray-400 uppercase">Email</span>
+                  <span className="font-medium text-xs truncate">{student.email}</span>
+                </div>
+                {(student.phone || student.phone_number) && (
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <span className="w-16 text-xs font-semibold text-gray-400 uppercase">Phone</span>
+                    <span className="font-medium">{student.phone || student.phone_number}</span>
+                  </div>
+                )}
+                {student.college_name && (
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <span className="w-16 text-xs font-semibold text-gray-400 uppercase">College</span>
+                    <span className="font-medium text-xs">{student.college_name || "Sanjivani University"}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-gray-700">
+                  <span className="w-16 text-xs font-semibold text-gray-400 uppercase">Dept</span>
+                  <span className="font-medium text-xs">{getDepartmentLabel(student.department || student._dept)}</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-700">
+                  <span className="w-16 text-xs font-semibold text-gray-400 uppercase">Year</span>
+                  <span className="font-medium">{getYearLabel(student.year || student._year)}</span>
+                </div>
+              </div>
+
+              {/* Barcode */}
+              <div className="mt-5 pt-4 border-t border-gray-100">
+                <div className="flex justify-center gap-px h-8">
+                  {Array.from({ length: 40 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="bg-gray-800"
+                      style={{
+                        width: [2, 1, 3, 1, 2, 1, 1, 3, 1, 2, 1, 2, 1, 3, 1, 1, 2, 1, 3, 2, 1, 1, 2, 3, 1, 2, 1, 1, 3, 2, 1, 2, 1, 3, 1, 1, 2, 1, 2, 1][i] + "px",
+                      }}
+                    />
+                  ))}
+                </div>
+                <p className="text-center text-[9px] text-gray-400 mt-1 font-mono">
+                  EV-STUDENT-{student.prn?.toUpperCase() || student.email?.split("@")[0]?.toUpperCase()}
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="bg-gradient-to-r from-emerald-700 to-teal-700 px-6 py-2 text-center">
+              <p className="text-[9px] text-emerald-200">This card is the property of Sanjivani University. If found, please return.</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

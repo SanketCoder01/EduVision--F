@@ -25,6 +25,8 @@ import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "@/hooks/use-toast"
+import { supabase } from "@/lib/supabase"
+import { getCurrentFaculty, normalizeDept } from "@/lib/supabase-utils"
 
 const departments = [
   { id: "cse", name: "Computer Science & Engineering", code: "CSE" },
@@ -99,23 +101,16 @@ export default function CreateExamPage() {
   const [showQuestionDialog, setShowQuestionDialog] = useState(false)
 
   useEffect(() => {
-    // Get current user from localStorage or session
-    const facultySession = localStorage.getItem("facultySession")
-    if (facultySession) {
-      try {
-        const user = JSON.parse(facultySession)
-        setCurrentUser(user)
-        setFormData((prev) => ({
-          ...prev,
-          department: user.department || "",
-        }))
-      } catch (error) {
-        console.error("Error parsing faculty session:", error)
-        router.push("/login?type=faculty")
-      }
-    } else {
-      router.push("/login?type=faculty")
+    const initUser = async () => {
+      const fac = await getCurrentFaculty()
+      if (!fac) { router.push('/login?type=faculty'); return }
+      setCurrentUser(fac)
+      setFormData(prev => ({
+        ...prev,
+        department: normalizeDept(fac.department || 'cse'),
+      }))
     }
+    initUser()
   }, [router])
 
   const handleSubmit = async (status: "draft" | "published") => {
@@ -138,66 +133,40 @@ export default function CreateExamPage() {
     }
 
     setIsLoading(true)
-
     try {
-      const examData = {
-        id: Date.now(),
+      const startTime = new Date(`${formData.examDate}T${formData.examTime}`)
+      const endTime = new Date(startTime.getTime() + formData.duration * 60000)
+
+      const { error } = await supabase.from('exams').insert({
+        faculty_id: currentUser.id,
+        faculty_name: currentUser.name,
         title: formData.title,
         description: formData.description,
-        faculty_id: currentUser.id,
-        department: formData.department,
+        department: normalizeDept(formData.department || currentUser.department),
         year: formData.year,
-        exam_date: new Date(`${formData.examDate}T${formData.examTime}`).toISOString(),
-        duration: formData.duration,
+        target_years: [formData.year],
+        problems: formData.questions,
         language: formData.language,
-        max_marks: formData.maxMarks,
-        passing_marks: formData.passingMarks,
-        instructions: formData.instructions,
-        
-        // Security settings
-        enable_security: formData.enableSecurity,
+        total_marks: formData.maxMarks,
+        duration_minutes: formData.duration,
+        start_time: startTime.toISOString(),
+        end_time: endTime.toISOString(),
+        is_published: status === 'published',
         allow_copy_paste: formData.allowCopyPaste,
-        allow_tab_switching: formData.allowTabSwitching,
-        enable_screen_recording: formData.enableScreenRecording,
-        enable_webcam_monitoring: formData.enableWebcamMonitoring,
-        max_warnings: formData.maxWarnings,
-        auto_submit_on_violation: formData.autoSubmitOnViolation,
-        
-        // Exam settings
-        allow_late_entry: formData.allowLateEntry,
-        late_entry_minutes: formData.lateEntryMinutes,
-        show_results_immediately: formData.showResultsImmediately,
-        allow_review: formData.allowReview,
-        randomize_questions: formData.randomizeQuestions,
-        
-        questions: formData.questions,
-        status: status,
-        visibility: status === "published" ? formData.visibility : false,
-        created_at: new Date().toISOString(),
-        isExam: true
-      }
+      })
 
-      // Store in localStorage for demo purposes
-      const existingExams = JSON.parse(localStorage.getItem('coding_assignments') || '[]')
-      existingExams.push(examData)
-      localStorage.setItem('coding_assignments', JSON.stringify(existingExams))
+      if (error) throw error
 
       toast({
         title: status === "published" ? "Exam Published" : "Exam Saved",
-        description:
-          status === "published"
-            ? "Your coding exam has been published and is now available to students."
-            : "Your coding exam has been saved as a draft.",
+        description: status === "published"
+          ? "Your coding exam is now available to students."
+          : "Your coding exam has been saved as a draft.",
       })
-
       router.push("/dashboard/exams")
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating exam:", error)
-      toast({
-        title: "Error",
-        description: "Failed to create exam. Please try again.",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: error.message || "Failed to create exam.", variant: "destructive" })
     } finally {
       setIsLoading(false)
     }

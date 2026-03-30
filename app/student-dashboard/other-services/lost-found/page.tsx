@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { useRouter } from "next/navigation"
-import { createClient } from "@supabase/supabase-js"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
+import { supabase } from "@/lib/supabase"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,16 +13,10 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Calendar } from "@/components/ui/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useToast } from "@/hooks/use-toast"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
-import { AlertCircle, CalendarIcon, Camera, Eye, MapPin, Package, Search, Upload, Loader2, ArrowLeft } from "lucide-react"
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabase = createClient(supabaseUrl, supabaseKey)
+import { AlertCircle, CalendarIcon, Camera, Eye, MapPin, Package, Search, Upload, Loader2, ArrowLeft, Trash2, Plus } from "lucide-react"
 
 interface LostFoundItem {
   id: string
@@ -50,43 +44,122 @@ export default function LostFoundPage() {
   
   const [items, setItems] = useState<LostFoundItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("All")
   const [selectedStatus, setSelectedStatus] = useState("All")
   const [selectedItem, setSelectedItem] = useState<LostFoundItem | null>(null)
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // Report form state
+  const [reportForm, setReportForm] = useState({
+    item_name: "",
+    item_category: "",
+    location_found: "",
+    description: "",
+    status: "lost",
+    image_url: "",
+  })
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState("")
 
   useEffect(() => {
-    // Load items immediately - visible to ALL users
     loadItems()
+    getCurrentUser()
     
-    // Setup realtime subscription
     const channel = supabase
-      .channel(`lost-found-all-students`)
-      .on(
-        "postgres_changes", 
-        { event: "INSERT", schema: "public", table: "lost_found_items" }, 
-        (payload) => {
-          const newItem = payload.new as LostFoundItem
-          setItems(prev => [newItem, ...prev])
-          toast({ title: "New Lost & Found Item", description: `${newItem.item_name} has been posted.` })
-        }
-      )
+      .channel(`lost-found-all`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "lost_found_items" }, (payload) => {
+        const newItem = payload.new as LostFoundItem
+        setItems(prev => [newItem, ...prev])
+        toast({ title: "New Lost & Found Item", description: `${newItem.item_name} has been posted.` })
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "lost_found_items" }, (payload) => {
+        setItems(prev => prev.filter(i => i.id !== (payload.old as any).id))
+      })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
   }, [])
 
+  const getCurrentUser = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) setCurrentUserId(user.id)
+  }
+
   const loadItems = async () => {
     setLoading(true)
     try {
-      // Lost & Found shows ALL items to ALL students - no filtering
       const { data, error } = await supabase.from("lost_found_items").select("*").order("created_at", { ascending: false })
-      if (data) {
-        setItems(data)
-        console.log(`Loaded ${data.length} lost-found items (visible to ALL students)`)
+      if (data) setItems(data)
+    } catch (error) { console.error("Error loading items:", error) } 
+    finally { setLoading(false) }
+  }
+
+  const handleDeleteItem = async (itemId: string) => {
+    if (!confirm("Are you sure you want to delete this item? This cannot be undone.")) return
+    
+    setDeletingId(itemId)
+    try {
+      const { error } = await supabase.from("lost_found_items").delete().eq("id", itemId)
+      if (error) throw error
+      setItems(prev => prev.filter(i => i.id !== itemId))
+      toast({ title: "Item deleted", description: "Your lost & found item has been removed." })
+    } catch (error: any) {
+      toast({ title: "Delete failed", description: error.message || "Failed to delete item", variant: "destructive" })
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setImageFile(file)
+      setImagePreview(URL.createObjectURL(file))
+    }
+  }
+
+  const handleSubmitReport = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!reportForm.item_name || !reportForm.item_category || !reportForm.location_found) {
+      toast({ title: "Please fill required fields", variant: "destructive" })
+      return
+    }
+    setSubmitting(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { toast({ title: "Not logged in", variant: "destructive" }); return }
+
+      let image_url = ""
+      if (imageFile) {
+        const ext = imageFile.name.split('.').pop()
+        const path = `lost_found/${user.id}/${Date.now()}.${ext}`
+        const { data: up } = await supabase.storage.from('uploads').upload(path, imageFile, { upsert: true })
+        if (up) {
+          const { data: pub } = supabase.storage.from('uploads').getPublicUrl(path)
+          image_url = pub.publicUrl
+        }
       }
-    } catch (error) { console.error("Error loading items:", error) } finally { setLoading(false) }
+
+      const { error } = await supabase.from("lost_found_items").insert([{
+        ...reportForm,
+        image_url,
+        reporter_id: user.id,
+      }])
+      if (error) throw error
+
+      toast({ title: "Item reported!", description: `${reportForm.item_name} has been posted.` })
+      setReportForm({ item_name: "", item_category: "", location_found: "", description: "", status: "lost", image_url: "" })
+      setImageFile(null)
+      setImagePreview("")
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const filteredItems = items.filter(item => {
@@ -124,15 +197,17 @@ export default function LostFoundPage() {
         </div>
 
         <Tabs defaultValue="browse" className="mb-8">
-          <TabsList className="grid w-full md:w-[300px] grid-cols-1">
+          <TabsList className="grid w-full md:w-[320px] grid-cols-2">
             <TabsTrigger value="browse">Browse Items</TabsTrigger>
+            <TabsTrigger value="report"><Plus className="w-3 h-3 mr-1" />Report Item</TabsTrigger>
           </TabsList>
 
+          {/* Browse Tab */}
           <TabsContent value="browse" className="mt-6">
             <Card>
               <CardHeader>
                 <CardTitle>Browse Lost & Found Items</CardTitle>
-                <CardDescription>Items from your department and year</CardDescription>
+                <CardDescription>Items from all students — you can delete your own posts</CardDescription>
                 <div className="flex flex-col sm:flex-row gap-3 mt-4">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
@@ -160,7 +235,7 @@ export default function LostFoundPage() {
                 {loading ? (
                   <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>
                 ) : filteredItems.length === 0 ? (
-                  <div className="text-center py-12"><Package className="mx-auto h-12 w-12 text-gray-400" /><h3 className="mt-4 text-lg font-medium">No items found</h3><p className="text-gray-500">No items match your criteria</p></div>
+                  <div className="text-center py-12"><Package className="mx-auto h-12 w-12 text-gray-400" /><h3 className="mt-4 text-lg font-medium">No items found</h3></div>
                 ) : (
                   <div className="space-y-4">
                     {filteredItems.map((item) => (
@@ -183,8 +258,25 @@ export default function LostFoundPage() {
                             </div>
                             <p className="text-sm text-gray-700 mt-2">{item.description}</p>
                             <div className="mt-4 flex justify-between items-center">
-                              <div className="text-xs text-gray-500">Reported by: {item.reporter_id}</div>
-                              <Button size="sm" variant="outline" onClick={() => { setSelectedItem(item); setShowDetailsDialog(true) }}><Eye className="h-3 w-3 mr-1" /> View Details</Button>
+                              <div className="text-xs text-gray-500">Posted by: {item.reporter_id === currentUserId ? <span className="text-blue-600 font-medium">You</span> : "Another student"}</div>
+                              <div className="flex gap-2">
+                                <Button size="sm" variant="outline" onClick={() => { setSelectedItem(item); setShowDetailsDialog(true) }}>
+                                  <Eye className="h-3 w-3 mr-1" /> View
+                                </Button>
+                                {/* Delete button only for own items */}
+                                {item.reporter_id === currentUserId && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-red-600 border-red-200 hover:bg-red-50"
+                                    onClick={() => handleDeleteItem(item.id)}
+                                    disabled={deletingId === item.id}
+                                  >
+                                    {deletingId === item.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3 mr-1" />}
+                                    Delete
+                                  </Button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -195,8 +287,80 @@ export default function LostFoundPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* Report Tab */}
+          <TabsContent value="report" className="mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Report a Lost or Found Item</CardTitle>
+                <CardDescription>Fill in the details of the item you've lost or found</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleSubmitReport} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label>Item Name *</Label>
+                      <Input placeholder="e.g., Black Wallet" value={reportForm.item_name} onChange={e => setReportForm(p => ({ ...p, item_name: e.target.value }))} className="mt-1" required />
+                    </div>
+                    <div>
+                      <Label>Status *</Label>
+                      <Select value={reportForm.status} onValueChange={v => setReportForm(p => ({ ...p, status: v }))}>
+                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="lost">Lost (I lost this item)</SelectItem>
+                          <SelectItem value="found">Found (I found this item)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Category *</Label>
+                      <Select value={reportForm.item_category} onValueChange={v => setReportForm(p => ({ ...p, item_category: v }))}>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder="Select category" /></SelectTrigger>
+                        <SelectContent>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Location *</Label>
+                      <Select value={reportForm.location_found} onValueChange={v => setReportForm(p => ({ ...p, location_found: v }))}>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder="Select location" /></SelectTrigger>
+                        <SelectContent>{locations.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Description</Label>
+                    <Textarea placeholder="Describe the item (color, size, any distinguishing marks...)" value={reportForm.description} onChange={e => setReportForm(p => ({ ...p, description: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Image (optional)</Label>
+                    <div className="mt-1 border-2 border-dashed border-gray-200 rounded-lg p-4 text-center">
+                      {imagePreview ? (
+                        <div className="relative">
+                          <img src={imagePreview} alt="Preview" className="mx-auto max-h-40 rounded-lg" />
+                          <Button type="button" variant="destructive" size="sm" className="mt-2" onClick={() => { setImageFile(null); setImagePreview("") }}>Remove</Button>
+                        </div>
+                      ) : (
+                        <>
+                          <Camera className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+                          <Input type="file" accept="image/*" onChange={handleImageChange} className="hidden" id="lost-found-img" />
+                          <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById("lost-found-img")?.click()}>
+                            <Upload className="w-3 h-3 mr-2" /> Choose Image
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <Button type="submit" className="w-full bg-amber-600 hover:bg-amber-700" disabled={submitting}>
+                    {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Package className="w-4 h-4 mr-2" />}
+                    {submitting ? "Submitting..." : "Submit Report"}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
 
+        {/* Details Dialog */}
         <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
           <DialogContent className="max-w-lg">
             <DialogHeader><DialogTitle>{selectedItem?.item_name}</DialogTitle><DialogDescription>{selectedItem?.item_category}</DialogDescription></DialogHeader>
@@ -205,14 +369,21 @@ export default function LostFoundPage() {
                 {selectedItem.image_url && <img src={selectedItem.image_url} alt={selectedItem.item_name} className="w-full h-48 object-cover rounded-lg" />}
                 <div className="grid grid-cols-2 gap-4">
                   <div><Label className="text-sm text-gray-500">Location</Label><p className="text-sm flex items-center gap-1"><MapPin className="h-4 w-4" />{selectedItem.location_found}</p></div>
-                  <div><Label className="text-sm text-gray-500">Date</Label><p className="text-sm flex items-center gap-1"><CalendarIcon className="h-4 w-4" />{format(new Date(selectedItem.created_at), "PP")}</p></div>
+                  <div><Label className="text-sm text-gray-500">Date</Label><p className="text-sm">{format(new Date(selectedItem.created_at), "PP")}</p></div>
                   <div><Label className="text-sm text-gray-500">Status</Label><Badge className={getStatusColor(selectedItem.status)}>{selectedItem.status}</Badge></div>
-                  <div><Label className="text-sm text-gray-500">Department</Label><p className="text-sm">{selectedItem.department}</p></div>
+                  <div><Label className="text-sm text-gray-500">Department</Label><p className="text-sm">{selectedItem.department || 'N/A'}</p></div>
                 </div>
                 <div><Label className="text-sm text-gray-500">Description</Label><p className="text-sm mt-1">{selectedItem.description}</p></div>
               </div>
             )}
-            <DialogFooter><Button variant="outline" onClick={() => setShowDetailsDialog(false)}>Close</Button></DialogFooter>
+            <DialogFooter>
+              {selectedItem?.reporter_id === currentUserId && (
+                <Button variant="destructive" size="sm" onClick={() => { handleDeleteItem(selectedItem!.id); setShowDetailsDialog(false) }}>
+                  <Trash2 className="w-4 h-4 mr-2" /> Delete My Post
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => setShowDetailsDialog(false)}>Close</Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </motion.div>

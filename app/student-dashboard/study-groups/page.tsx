@@ -111,37 +111,23 @@ export default function StudyGroupsPage() {
   const [isCallActive, setIsCallActive] = useState(false)
   const [callType, setCallType] = useState("") // "audio" or "video"
 
-  // Load student profile and study groups on mount
+  // Load student profile on mount
   useEffect(() => {
     loadStudentData()
-    
-    // Set up realtime subscription for study groups
+  }, [])
+  
+  // Set up realtime subscription for study groups when profile is ready
+  useEffect(() => {
+    if (!studentProfile) return
+
     const channel = supabase
       .channel('study-groups-changes')
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'study_groups' },
         (payload) => {
           console.log('Study group change:', payload)
-          if (payload.eventType === 'INSERT') {
-            // Check if this new group is for student's department/year
-            const newGroup = payload.new as StudyGroup
-            if (studentProfile && 
-                newGroup.department === studentProfile.department && 
-                newGroup.year === studentProfile.year) {
-              setStudyGroups(prev => [...prev, newGroup])
-              if (newGroup.let_students_decide) {
-                setGroupRequests(prev => [...prev, newGroup])
-              }
-              toast({
-                title: "New Study Group Available",
-                description: `${newGroup.name} by ${newGroup.faculty} is now available.`,
-              })
-            }
-          } else if (payload.eventType === 'UPDATE') {
-            setStudyGroups(prev => prev.map(g => g.id === payload.new.id ? payload.new as StudyGroup : g))
-          } else if (payload.eventType === 'DELETE') {
-            setStudyGroups(prev => prev.filter(g => g.id !== payload.old.id))
-          }
+          // Simply reload to always get the freshest data and avoid stale closures
+          loadStudyGroups(studentProfile.department, studentProfile.year)
         }
       )
       .on('postgres_changes',
@@ -156,7 +142,7 @@ export default function StudyGroupsPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [studentProfile?.department, studentProfile?.year])
+  }, [studentProfile])
 
   const loadStudentData = async () => {
     try {
@@ -504,56 +490,32 @@ export default function StudyGroupsPage() {
     setShowJoinDialog(false)
   }
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!newMessage.trim()) return
 
-    const message = {
-      id: Date.now().toString(),
-      text: newMessage,
-      sender: "Current Student",
-      timestamp: new Date().toISOString(),
-      type: "text",
-    }
+    const { data: { user } } = await supabase.auth.getUser()
 
-    const updatedMessages = [...messages, message]
-    setMessages(updatedMessages)
-
-    // Update group messages in localStorage
-    const updatedGroups = studyGroups.map((group: any) => {
-      if (group.id === selectedGroup.id) {
-        return { ...group, messages: updatedMessages }
-      }
-      return group
-    })
-    localStorage.setItem("studyGroups", JSON.stringify(updatedGroups))
-    setStudyGroups(updatedGroups)
-
-    // If this is a student-request group, also send to faculty queries
-    if (selectedGroup.creationType === "student-request") {
-      const facultyQuery = {
-        id: Date.now().toString() + "_query",
-        groupId: selectedGroup.id,
-        groupName: selectedGroup.name,
-        studentName: "Current Student",
-        facultyName: selectedGroup.facultyName,
-        message: newMessage,
-        timestamp: new Date().toISOString(),
-        status: "unread"
-      }
-
-      // Store in faculty queries
-      const existingQueries = JSON.parse(localStorage.getItem("facultyQueries") || "[]")
-      existingQueries.push(facultyQuery)
-      localStorage.setItem("facultyQueries", JSON.stringify(existingQueries))
-
-      toast({
-        title: "Message Sent",
-        description: "Your message has been sent to the faculty and group members.",
+    // Store message in Supabase if group has a class_id context
+    if (selectedGroup?.id) {
+      await supabase.from('study_group_tasks').insert({
+        class_id: selectedGroup.id,
+        group_name: selectedGroup.name,
+        title: `[MSG:${studentProfile?.name || 'Student'}] ${newMessage.substring(0, 200)}`,
+        status: 'active',
       })
     }
 
+    const newMsg = {
+      id: Date.now().toString(),
+      text: newMessage,
+      sender: studentProfile?.name || "Student",
+      timestamp: new Date().toISOString(),
+      type: "text",
+    }
+    setMessages((prev: any[]) => [...prev, newMsg])
     setNewMessage("")
   }
+
 
   const handleStartCall = (type: string) => {
     setCallType(type)

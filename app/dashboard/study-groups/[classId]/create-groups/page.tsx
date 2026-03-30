@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
 import { useRouter } from "next/navigation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { supabase } from "@/lib/supabase"
+
 
 export default function CreateGroupsPage({ params }) {
   const { toast } = useToast()
@@ -170,31 +172,36 @@ export default function CreateGroupsPage({ params }) {
   const saveGroups = async () => {
     setIsCreating(true)
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    try {
+      // Insert each group and its members into study_group_members table
+      const inserts = groups.flatMap((group: any) =>
+        group.members.map((member: any) => ({
+          class_id: classId,
+          group_name: group.name,
+          student_id: member.id,
+          student_name: member.name,
+          is_leader: group.leader?.id === member.id,
+        }))
+      )
 
-    // Transform groups to match expected format
-    const formattedGroups = groups.map(group => ({
-      id: `group_${Date.now()}_${group.id}`,
-      name: group.name,
-      members: group.members,
-      leader: group.leader,
-      classId: classId,
-      created_at: new Date().toISOString(),
-      creation_type: "faculty",
-      method: groupingMethod
-    }))
+      const { error } = await supabase.from('study_group_members').insert(inserts)
+      if (error) throw error
 
-    // Save groups to localStorage with correct key format
-    localStorage.setItem(`study_groups_${classId}`, JSON.stringify(formattedGroups))
+      toast({
+        title: "Groups Created Successfully",
+        description: `${groups.length} study groups have been created and saved successfully!`,
+      })
 
-    setIsCreating(false)
-    toast({
-      title: "Groups Created Successfully",
-      description: `${groups.length} study groups have been created and saved successfully!`,
-    })
-
-    router.push(`/dashboard/study-groups/${classId}`)
+      router.push(`/dashboard/study-groups/${classId}`)
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to save groups.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsCreating(false)
+    }
   }
 
   const getGroupStats = () => {

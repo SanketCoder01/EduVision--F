@@ -6,84 +6,83 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { 
-  Clock,
-  Calendar,
-  Code,
-  Monitor,
-  AlertTriangle,
-  Play,
-  FileText,
-  Users,
-  Shield
-} from "lucide-react"
-
-interface Exam {
-  id: string
-  title: string
-  facultyName: string
-  examDate: string
-  startTime: string
-  duration: string
-  department: string
-  studyingYear: string
-  language: string
-  description: string
-  totalMarks: string
-  status: 'scheduled' | 'ongoing' | 'completed'
-  enableSecurity: boolean
-  enableCamera: boolean
-  enableMicrophone: boolean
-}
+import { Clock, Calendar, Code, Monitor, AlertTriangle, Play, FileText, Shield } from "lucide-react"
+import { supabase } from "@/lib/supabase"
+import { getCurrentStudent, normalizeDept, normalizeYear } from "@/lib/supabase-utils"
 
 export default function StudentExamsPage() {
   const router = useRouter()
-  const [exams, setExams] = useState<Exam[]>([])
+  const [exams, setExams] = useState<any[]>([])
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [isLoading, setIsLoading] = useState(true)
+  const [student, setStudent] = useState<any>(null)
 
   useEffect(() => {
-    // Load exams from localStorage
-    const storedExams = JSON.parse(localStorage.getItem("coding_exams") || "[]")
-    setExams(storedExams)
-
-    // Update current time every minute
-    const timer = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 60000)
-
+    loadExams()
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000)
     return () => clearInterval(timer)
   }, [])
 
-  const getExamStatus = (exam: Exam) => {
-    const now = new Date()
-    const examDateTime = new Date(`${exam.examDate}T${exam.startTime}`)
-    const examEndTime = new Date(examDateTime.getTime() + parseInt(exam.duration) * 60000)
+  const loadExams = async () => {
+    try {
+      setIsLoading(true)
+      const st = await getCurrentStudent()
+      setStudent(st)
+      if (!st) return
 
-    if (now < examDateTime) return 'scheduled'
-    if (now >= examDateTime && now <= examEndTime) return 'ongoing'
+      const dept = normalizeDept(st.department || 'cse')
+      const yr = normalizeYear(st.year || '1st')
+      
+      const { data, error } = await supabase
+        .from('exams')
+        .select('*')
+        .eq('department', dept)
+        .eq('is_published', true)
+        .order('start_time', { ascending: true })
+
+      if (error) throw error
+
+      // Also filter by year (in target_years array or year column)
+      const filtered = (data || []).filter((e: any) => {
+        if (e.target_years && e.target_years.length > 0) {
+          return e.target_years.some((ty: string) => normalizeYear(ty) === yr)
+        }
+        if (e.year) return normalizeYear(e.year) === yr
+        return true
+      })
+
+      setExams(filtered)
+    } catch (e: any) {
+      console.error("loadExams:", e)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+
+
+  const getExamStatus = (exam: any) => {
+    const now = new Date()
+    const start = new Date(exam.start_time || `${exam.examDate}T${exam.startTime || '00:00'}`)
+    const end = new Date(exam.end_time || (start.getTime() + (exam.duration_minutes || parseInt(exam.duration) || 120) * 60000))
+    if (now < start) return 'scheduled'
+    if (now >= start && now <= end) return 'ongoing'
     return 'completed'
   }
 
-  const getTimeUntilExam = (exam: Exam) => {
-    const now = new Date()
-    const examDateTime = new Date(`${exam.examDate}T${exam.startTime}`)
-    const diff = examDateTime.getTime() - now.getTime()
-
+  const getTimeUntilExam = (exam: any) => {
+    const start = new Date(exam.start_time || `${exam.examDate}T${exam.startTime || '00:00'}`)
+    const diff = start.getTime() - new Date().getTime()
     if (diff <= 0) return null
-
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-
+    const days = Math.floor(diff / 86400000)
+    const hours = Math.floor((diff % 86400000) / 3600000)
+    const minutes = Math.floor((diff % 3600000) / 60000)
     if (days > 0) return `${days}d ${hours}h`
     if (hours > 0) return `${hours}h ${minutes}m`
     return `${minutes}m`
   }
 
-  const canStartExam = (exam: Exam) => {
-    const status = getExamStatus(exam)
-    return status === 'ongoing'
-  }
+  const canStartExam = (exam: any) => getExamStatus(exam) === 'ongoing'
 
   const handleStartExam = (examId: string) => {
     router.push(`/student-dashboard/exams/${examId}/take`)

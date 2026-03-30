@@ -19,7 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/hooks/use-toast"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
-import { CalendarIcon, Search, MapPin, Clock, User, Phone, Mail, Info, ThumbsUp, Eye, AlertTriangle, ArrowLeft, Upload, Loader2, Package } from "lucide-react"
+import { CalendarIcon, Search, MapPin, Clock, User, Phone, Mail, Info, ThumbsUp, Eye, AlertTriangle, ArrowLeft, Upload, Loader2, Package, Trash2 } from "lucide-react"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -192,6 +192,18 @@ export default function LostFoundPage() {
     }
   }
 
+  const handleDelete = async (itemId: string) => {
+    if (!confirm("Delete this lost & found entry permanently?")) return
+    try {
+      const { error } = await supabase.from("lost_found_items").delete().eq("id", itemId)
+      if (error) throw error
+      setItems(prev => prev.filter(i => i.id !== itemId))
+      toast({ title: "Deleted", description: "Item removed from lost & found" })
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" })
+    }
+  }
+
   const filteredItems = items.filter(item => {
     const matchesSearch = item.item_name?.toLowerCase().includes(searchQuery.toLowerCase()) || item.description?.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesCategory = selectedCategory === "All" || item.item_category === selectedCategory.toLowerCase()
@@ -278,7 +290,14 @@ export default function LostFoundPage() {
                     </CardContent>
                     <CardFooter className="flex justify-between pt-2">
                       <Button variant="outline" size="sm" onClick={() => { setSelectedItem(item); setShowDetailsDialog(true) }}><Eye className="h-4 w-4 mr-1" /> Details</Button>
-                      {item.status !== "resolved" && <Button size="sm" onClick={() => handleResolve(item.id)}>Mark Resolved</Button>}
+                      <div className="flex gap-2">
+                        {item.status !== "resolved" && <Button size="sm" onClick={() => handleResolve(item.id)}>Mark Resolved</Button>}
+                        {item.reporter_id === facultyId && (
+                          <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => handleDelete(item.id)}>
+                            <Trash2 className="h-3 w-3 mr-1" /> Delete
+                          </Button>
+                        )}
+                      </div>
                     </CardFooter>
                   </Card>
                 ))}

@@ -32,6 +32,7 @@ interface User {
   id: string
   email: string
   name: string
+  department?: string
 }
 
 // Mock SupabaseAttendanceService (replace with actual implementation if available)
@@ -91,40 +92,56 @@ export default function CreateAttendancePage() {
   })
   const [errors, setErrors] = useState<FormErrors>({})
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
+  const [fetchedSubjects, setFetchedSubjects] = useState<any[]>([])
 
   const departments = ['CSE', 'CYBER', 'AIDS', 'AIML']
-  const years = ['1st Year', '2nd Year', '3rd Year', '4th Year']
+  const years = ['1st', '2nd', '3rd', '4th']
   
-  const subjectsByDepartment: { [key: string]: { [key: string]: string[] } } = {
-    'CSE': {
-      '1st Year': ['Programming in C', 'Mathematics I', 'Physics', 'Chemistry', 'English'],
-      '2nd Year': ['Data Structures', 'Object Oriented Programming', 'Database Management', 'Computer Networks'],
-      '3rd Year': ['Software Engineering', 'Operating Systems', 'Computer Graphics', 'Web Technologies'],
-      '4th Year': ['Machine Learning', 'Artificial Intelligence', 'Project Work', 'Internship']
-    },
-    'CYBER': {
-      '1st Year': ['Cybersecurity Fundamentals', 'Mathematics I', 'Physics', 'Chemistry', 'English'],
-      '2nd Year': ['Network Security', 'Cryptography', 'Ethical Hacking', 'Digital Forensics'],
-      '3rd Year': ['Malware Analysis', 'Incident Response', 'Security Auditing', 'Penetration Testing'],
-      '4th Year': ['Advanced Cybersecurity', 'Research Project', 'Industry Training', 'Capstone Project']
-    },
-    'AIDS': {
-      '1st Year': ['Programming Fundamentals', 'Mathematics I', 'Statistics', 'Physics', 'English'],
-      '2nd Year': ['Data Science', 'Machine Learning', 'Database Systems', 'Python Programming'],
-      '3rd Year': ['Deep Learning', 'Natural Language Processing', 'Computer Vision', 'Big Data Analytics'],
-      '4th Year': ['Advanced AI', 'Research Methodology', 'Industry Project', 'Thesis Work']
-    },
-    'AIML': {
-      '1st Year': ['AI Fundamentals', 'Mathematics I', 'Statistics', 'Programming', 'English'],
-      '2nd Year': ['Machine Learning', 'Data Mining', 'Neural Networks', 'Pattern Recognition'],
-      '3rd Year': ['Deep Learning', 'Reinforcement Learning', 'Computer Vision', 'NLP'],
-      '4th Year': ['Advanced ML', 'AI Ethics', 'Capstone Project', 'Research Work']
-    }
-  }
+  useEffect(() => {
+    const fetchSubjects = async () => {
+      if (!formData.department || !formData.year) {
+        setFetchedSubjects([])
+        return
+      }
 
-  const availableSubjects = formData.department && formData.year 
-    ? subjectsByDepartment[formData.department]?.[formData.year] || []
-    : []
+      // department_subjects stores full dept names; map code -> full name
+      const CODE_TO_FULL: Record<string, string> = {
+        'CSE': 'Computer Science & Engineering',
+        'CYBER': 'Cyber Security',
+        'AIDS': 'AI & Data Science',
+        'AIML': 'AI & Machine Learning',
+        'CY': 'Cyber Security',
+      }
+      const deptFull = CODE_TO_FULL[formData.department.toUpperCase()] || formData.department
+      const yr = formData.year.replace(' Year', '').trim()
+
+      // Try full dept name first, then the raw value as-is
+      let { data, error } = await supabase
+        .from('department_subjects')
+        .select('*')
+        .eq('department', deptFull)
+        .eq('year', yr)
+        .order('subject_name')
+
+      // Fallback: also try with raw value if nothing found
+      if ((!data || data.length === 0) && deptFull !== formData.department) {
+        const fallback = await supabase
+          .from('department_subjects')
+          .select('*')
+          .eq('department', formData.department)
+          .eq('year', yr)
+          .order('subject_name')
+        if (!fallback.error && fallback.data && fallback.data.length > 0) {
+          data = fallback.data
+        }
+      }
+
+      if (!error && data) {
+        setFetchedSubjects(data)
+      }
+    }
+    fetchSubjects()
+  }, [formData.department, formData.year])
 
   useEffect(() => {
     const initializeUser = async () => {
@@ -133,10 +150,10 @@ export default function CreateAttendancePage() {
         if (user) {
           const { data: facultyData, error } = await supabase
             .from('faculty')
-            .select('id, email, name')
+            .select('id, email, name, department')
             .eq('email', user.email)
             .single()
-          
+            
           if (error) {
             toast({
               title: "Error",
@@ -150,8 +167,20 @@ export default function CreateAttendancePage() {
             setCurrentUser({
               id: facultyData.id,
               email: user.email!,
-              name: facultyData.name || user.user_metadata?.name || 'Faculty'
+              name: facultyData.name || user.user_metadata?.name || 'Faculty',
+              department: facultyData.department || ''
             })
+            
+            if (facultyData.department) {
+              // Get the code if possible or just use string
+              let deptCode = facultyData.department.toUpperCase()
+              if (deptCode === 'COMPUTER SCIENCE & ENGINEERING') deptCode = 'CSE'
+              if (deptCode === 'CYBER SECURITY') deptCode = 'CYBER'
+              if (deptCode === 'AI & DATA SCIENCE') deptCode = 'AIDS'
+              if (deptCode === 'AI & MACHINE LEARNING') deptCode = 'AIML'
+              
+              setFormData(prev => ({ ...prev, department: deptCode }))
+            }
             
             // Load student lists for this faculty
             await loadStudentLists(user.email!)
@@ -407,6 +436,7 @@ export default function CreateAttendancePage() {
                   <Select
                     value={formData.department}
                     onValueChange={(value) => handleInputChange("department", value)}
+                    disabled={!!currentUser?.department}
                   >
                     <SelectTrigger className="font-sans h-11 border-gray-300">
                       <SelectValue placeholder="Select department" />
@@ -437,7 +467,7 @@ export default function CreateAttendancePage() {
                     <SelectContent>
                       {years.map((year) => (
                         <SelectItem key={year} value={year} className="font-sans">
-                          {year}
+                          {year} Year
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -464,14 +494,20 @@ export default function CreateAttendancePage() {
                     } />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableSubjects.map((subject) => (
-                      <SelectItem key={subject} value={subject} className="font-sans">
-                        <div className="flex items-center">
-                          <BookOpen className="mr-2 h-4 w-4 text-gray-500" />
-                          {subject}
-                        </div>
+                    {fetchedSubjects.length > 0 ? (
+                      fetchedSubjects.map((subject) => (
+                        <SelectItem key={subject.id || subject.subject_name} value={subject.subject_name} className="font-sans">
+                          <div className="flex items-center">
+                            <BookOpen className="mr-2 h-4 w-4 text-gray-500" />
+                            {subject.subject_name} {subject.subject_code ? `(${subject.subject_code})` : ''}
+                          </div>
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="none" disabled>
+                        No subjects found. Wait for Dean to assign.
                       </SelectItem>
-                    ))}
+                    )}
                   </SelectContent>
                 </Select>
                 {errors.subject && (

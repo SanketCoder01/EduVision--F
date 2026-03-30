@@ -24,6 +24,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "@/hooks/use-toast"
 import { SupabaseRealtimeService } from "@/lib/supabase-realtime"
+import { supabase } from "@/lib/supabase"
+import { getCurrentStudent } from "@/lib/supabase-utils"
 
 interface Assignment {
   id: string
@@ -65,21 +67,14 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
   const [dragActive, setDragActive] = useState(false)
 
   useEffect(() => {
-    // Get current user
-    const studentSession = localStorage.getItem("studentSession")
-    if (studentSession) {
-      try {
-        const user = JSON.parse(studentSession)
-        setCurrentUser(user)
-        loadAssignment(user)
-      } catch (error) {
-        console.error("Error parsing student session:", error)
-        router.push("/login?type=student")
-      }
-    } else {
-      router.push("/login?type=student")
+    const init = async () => {
+      const st = await getCurrentStudent()
+      if (!st) { router.push('/login?type=student'); return }
+      setCurrentUser(st)
+      await loadAssignment(st)
     }
-  }, [params.id, router])
+    init()
+  }, [params.id])
 
   const loadAssignment = async (user: any) => {
     try {
@@ -120,16 +115,18 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
         return
       }
 
-      // Mock existing submission check
-      const existingSubmissions = JSON.parse(localStorage.getItem("studentSubmissions") || "[]")
-      const existingSubmission = existingSubmissions.find((sub: any) => 
-        sub.assignment_id === params.id && sub.student_id === user.id
-      )
-      
-      if (existingSubmission) {
-        setExistingSubmission(existingSubmission)
-        if (existingSubmission.content) {
-          setTextSubmission(existingSubmission.content)
+      // Check for existing submission in Supabase
+      if (foundAssignment) {
+        const { data: existingSub } = await supabase
+          .from('assignment_submissions')
+          .select('*')
+          .eq('assignment_id', params.id)
+          .eq('student_id', user.id)
+          .maybeSingle()
+        
+        if (existingSub) {
+          setExistingSubmission(existingSub)
+          if (existingSub.submission_text) setTextSubmission(existingSub.submission_text)
         }
       }
     } catch (error) {
@@ -297,57 +294,49 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
 
     setSubmitting(true)
     setShowConfirmDialog(false)
-
     try {
-      const fileUrls: string[] = []
-      const fileNames: string[] = []
+      let fileUrl = ''
+      let fileName = ''
 
-      // Mock file upload for demo purposes
+      // Upload file to Supabase Storage
       if (submissionType === "file" && uploadedFiles.length > 0) {
-        for (const file of uploadedFiles) {
-          // Simulate file upload with mock URLs
-          const mockUrl = `https://mock-storage.com/submissions/${assignment.id}/${currentUser.id}/${Date.now()}-${file.name}`
-          fileUrls.push(mockUrl)
-          fileNames.push(file.name)
-        }
+        const file = uploadedFiles[0]
+        const filePath = `${assignment.id}/${currentUser.id}/${Date.now()}-${file.name}`
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('submissions')
+          .upload(filePath, file)
+        if (uploadError) throw uploadError
+        const { data: urlData } = supabase.storage.from('submissions').getPublicUrl(uploadData.path)
+        fileUrl = urlData.publicUrl
+        fileName = file.name
       }
 
-      // Create mock submission data
-      const submissionData = {
-        id: `sub-${Date.now()}`,
+      const submissionPayload: any = {
         assignment_id: assignment.id,
         student_id: currentUser.id,
-        content: submissionType === "text" ? textSubmission : null,
-        file_urls: fileUrls,
-        file_names: fileNames,
-        status: "submitted" as const,
+        student_name: currentUser.name,
+        department: currentUser.department,
+        year: currentUser.year,
+        submission_text: submissionType === "text" ? textSubmission : null,
+        file_url: fileUrl || null,
+        file_name: fileName || null,
+        status: 'submitted',
         submitted_at: new Date().toISOString(),
-        plagiarism_score: assignment.enable_plagiarism_check ? Math.floor(Math.random() * 15) : undefined
       }
 
-      // Store submission in localStorage for demo
-      const existingSubmissions = JSON.parse(localStorage.getItem("studentSubmissions") || "[]")
-      const updatedSubmissions = existingSubmissions.filter((sub: any) => 
-        !(sub.assignment_id === assignment.id && sub.student_id === currentUser.id)
-      )
-      updatedSubmissions.push(submissionData)
-      localStorage.setItem("studentSubmissions", JSON.stringify(updatedSubmissions))
+      if (existingSubmission) {
+        const { error } = await supabase.from('assignment_submissions').update(submissionPayload).eq('id', existingSubmission.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('assignment_submissions').insert(submissionPayload)
+        if (error) throw error
+      }
 
-      toast({
-        title: "Assignment submitted successfully!",
-        description: assignment.enable_plagiarism_check 
-          ? `Your submission has been recorded and plagiarism checked (${submissionData.plagiarism_score}% similarity).`
-          : "Your submission has been recorded and sent to your instructor.",
-      })
-
+      toast({ title: "Assignment submitted!", description: "Your submission has been recorded." })
       router.push("/student-dashboard/assignments")
-    } catch (error) {
-      console.error("Error submitting assignment:", error)
-      toast({
-        title: "Submission failed",
-        description: "There was an error submitting your assignment. Please try again.",
-        variant: "destructive",
-      })
+    } catch (error: any) {
+      console.error("Error submitting:", error)
+      toast({ title: "Submission failed", description: error.message || "Please try again.", variant: "destructive" })
     } finally {
       setSubmitting(false)
     }

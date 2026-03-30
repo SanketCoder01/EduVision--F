@@ -335,7 +335,7 @@ export default function SanjivaniLandingPage() {
       {/* Footer */}
       <footer className="bg-gray-900 text-white py-12">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
+          <div className="grid md:grid-cols-5 gap-8 mb-8">
             <div>
               <div className="flex items-center space-x-3 mb-4">
                 <div className="w-12 h-12 bg-white rounded-lg overflow-hidden"><Image src="/images/SU_2.jpg" alt="Logo" width={48} height={48} className="w-full h-full object-contain p-1" /></div>
@@ -345,6 +345,17 @@ export default function SanjivaniLandingPage() {
             </div>
             <div><h4 className="font-semibold mb-3">Institutes</h4><ul className="space-y-2 text-gray-400 text-sm"><li>Engineering</li><li>Pharmacy</li><li>Polytechnic</li></ul></div>
             <div><h4 className="font-semibold mb-3">Quick Links</h4><ul className="space-y-2 text-gray-400 text-sm"><li><Link href="/admissions">Admissions</Link></li><li><Link href="/placements">Placements</Link></li></ul></div>
+            <div>
+              <h4 className="font-semibold mb-3">Portal Access</h4>
+              <ul className="space-y-2 text-gray-400 text-sm">
+                <li><Link href="/login?type=student" className="hover:text-orange-400 transition-colors">Student Login</Link></li>
+                <li><Link href="/login?type=faculty" className="hover:text-orange-400 transition-colors">Faculty Login</Link></li>
+                <li><Link href="/deanlogin" className="hover:text-orange-400 transition-colors">Dean Login</Link></li>
+                <li><Link href="/cafeteria-login" className="hover:text-orange-400 transition-colors flex items-center gap-1">
+                  🍽️ Cafeteria Login
+                </Link></li>
+              </ul>
+            </div>
             <div><h4 className="font-semibold mb-3">Contact</h4><div className="space-y-2 text-gray-400 text-sm"><p className="flex items-center"><Phone className="w-3 h-3 mr-2" /> +91-2423-224004</p><p className="flex items-center"><Mail className="w-3 h-3 mr-2" /> info@sanjivani.org.in</p></div></div>
           </div>
           <div className="border-t border-gray-800 pt-6 text-center text-gray-400 text-sm"><p>&copy; 2025 Sanjivani University | Powered by <span className="text-orange-500 font-semibold">EduVision</span></p></div>

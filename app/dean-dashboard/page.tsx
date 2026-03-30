@@ -12,21 +12,17 @@ import {
   Code,
   BarChart3,
   GraduationCap,
-  Bot,
   Home,
   LogOut,
   Menu,
   X,
   Shield,
-  Bell,
-  Settings
 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
 
-// Import module components
 import OverviewModule from "./modules/overview"
 import StudentProgressModule from "./modules/student-progress"
 import FacultyAnalyticsModule from "./modules/faculty-analytics"
@@ -35,10 +31,7 @@ import EventsModule from "./modules/events"
 import HackathonModule from "./modules/hackathon"
 import DepartmentAnalyticsModule from "./modules/department-analytics"
 import CurriculumModule from "./modules/curriculum-optimization"
-import AIcopilotModule from "./modules/ai-copilot"
 import ProfileModule from "./modules/profile"
-import NotificationsModule from "./modules/notifications"
-import SettingsModule from "./modules/settings"
 
 interface DeanUser {
   id: string
@@ -65,7 +58,6 @@ export default function DeanDashboard() {
     { id: "hackathon", label: "Hackathon", icon: Code, color: "text-red-600" },
     { id: "analytics", label: "Department Analytics", icon: BarChart3, color: "text-indigo-600" },
     { id: "curriculum", label: "Curriculum Optimization", icon: GraduationCap, color: "text-teal-600" },
-    { id: "ai-copilot", label: "Dean AI Copilot", icon: Bot, color: "text-cyan-600" },
   ]
 
   useEffect(() => {
@@ -86,9 +78,9 @@ export default function DeanDashboard() {
         .from('deans')
         .select('*')
         .eq('email', session.user.email)
-        .single()
+        .maybeSingle()
 
-      if (error || !deanData) {
+      if (!deanData) {
         await supabase.auth.signOut()
         router.push("/deanlogin")
         return
@@ -143,17 +135,8 @@ export default function DeanDashboard() {
       case "curriculum":
         return <CurriculumModule dean={dean} />
       
-      case "ai-copilot":
-        return <AIcopilotModule dean={dean} />
-      
       case "profile":
         return <ProfileModule dean={dean} onUpdate={checkAuthentication} />
-      
-      case "notifications":
-        return <NotificationsModule dean={dean} />
-      
-      case "settings":
-        return <SettingsModule dean={dean} />
 
       default:
         return null
@@ -267,24 +250,6 @@ export default function DeanDashboard() {
             </div>
 
             <div className="flex items-center gap-3">
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => setActiveModule('notifications')}
-                className="relative"
-              >
-                <Bell className="w-4 h-4" />
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] text-white flex items-center justify-center">
-                  3
-                </span>
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => setActiveModule('settings')}
-              >
-                <Settings className="w-4 h-4" />
-              </Button>
               <button
                 onClick={() => setActiveModule('profile')}
                 className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-100 transition-colors"

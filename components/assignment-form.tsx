@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Check, HelpCircle, ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -22,6 +22,7 @@ import { ClassSelection } from "./class-selection"
 import { RichTextEditor } from "./rich-text-editor"
 import { FileUploader } from "./file-uploader"
 import { DateTimePicker } from "./date-time-picker"
+import { supabase } from "@/lib/supabase"
 
 interface AssignmentFormProps {
   onSubmit: (formData: {
@@ -66,6 +67,7 @@ export function AssignmentForm({ onSubmit, classes, facultyId }: AssignmentFormP
     title: "",
     description: "",
     classId: "",
+    subject: "",
     assignmentType: "file_upload",
     allowedFileTypes: ["pdf", "docx", "zip"],
     wordLimit: "",
@@ -81,6 +83,54 @@ export function AssignmentForm({ onSubmit, classes, facultyId }: AssignmentFormP
     enablePlagiarismCheck: true,
     allowGroupSubmission: false,
   })
+
+  // Subjects from Supabase (dean-assigned)
+  const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
+  const [facultyDept, setFacultyDept] = useState<string>("")
+  const [facultyYear, setFacultyYear] = useState<string>("")
+  const subjectChannelRef = useRef<any>(null)
+
+  useEffect(() => {
+    loadFacultyDeptAndSubjects()
+    return () => { subjectChannelRef.current?.unsubscribe() }
+  }, [])
+
+  const loadFacultyDeptAndSubjects = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data: facultyData } = await supabase
+        .from("faculty")
+        .select("department, year")
+        .eq("email", user.email)
+        .maybeSingle()
+      const dept = facultyData?.department || ""
+      const yr = facultyData?.year || ""
+      setFacultyDept(dept)
+      setFacultyYear(yr)
+      await fetchSubjects(dept)
+
+      // Realtime subscription for dean-assigned subjects
+      subjectChannelRef.current = supabase
+        .channel("assignment-form-subjects")
+        .on("postgres_changes", { event: "*", schema: "public", table: "department_subjects" }, () => {
+          fetchSubjects(dept)
+        })
+        .subscribe()
+    } catch (err) {
+      console.error("Error loading faculty dept:", err)
+    }
+  }
+
+  const fetchSubjects = async (dept: string) => {
+    if (!dept) return
+    const { data, error } = await supabase
+      .from("department_subjects")
+      .select("*")
+      .eq("department", dept)
+      .order("year").order("subject_name")
+    if (!error) setAvailableSubjects(data || [])
+  }
 
   // Resources state
   const [resources, setResources] = useState<
@@ -343,6 +393,29 @@ export function AssignmentForm({ onSubmit, classes, facultyId }: AssignmentFormP
               selectedClass={formData.classId}
               onClassChange={(value) => handleSelectChange("classId", value)}
             />
+          </div>
+
+          {/* Subject Selection */}
+          <div className="mb-4">
+            <Label className="text-sm font-medium text-gray-700 mb-1 block">Subject <span className="text-xs text-gray-500">(assigned by Dean)</span></Label>
+            {availableSubjects.length > 0 ? (
+              <Select value={formData.subject} onValueChange={(val) => handleSelectChange("subject", val)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a subject..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableSubjects.map((sub) => (
+                    <SelectItem key={sub.id} value={sub.subject_name}>
+                      {sub.subject_name}{sub.subject_code ? ` (${sub.subject_code})` : ""} — {sub.year} Year
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="px-3 py-2 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 bg-gray-50">
+                No subjects assigned by Dean yet for your department. Contact your Dean.
+              </div>
+            )}
           </div>
 
           <Tabs defaultValue="basic" value={activeTab} onValueChange={setActiveTab}>

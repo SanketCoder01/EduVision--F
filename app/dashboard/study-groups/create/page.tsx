@@ -51,34 +51,51 @@ export default function CreateStudyGroupsPage() {
   const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
   const [loadingSubjects, setLoadingSubjects] = useState(false)
 
-  // Load faculty ID and department on mount
+  // Load faculty ID and department on mount - ALWAYS use Supabase Auth (not localStorage)
   useEffect(() => {
     const loadFacultyProfile = async () => {
-      const session = localStorage.getItem("facultySession")
-      if (session) {
-        try {
-          const user = JSON.parse(session)
-          setFacultyId(user.id)
-          
-          // Fetch faculty details from Supabase
-          const { data } = await supabase
+      try {
+        // Always use live Supabase Auth session for faculty_id
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
+        if (authError || !user) {
+          console.error("Not authenticated:", authError)
+          return
+        }
+
+        setFacultyId(user.id) // This is the real auth UUID that study_groups list will query
+
+        // Fetch faculty profile from DB
+        const { data, error } = await supabase
+          .from('faculty')
+          .select('department, name')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        if (data) {
+          if (data.department) {
+            setFacultyDepartment(data.department)
+            setDepartment(data.department)
+          }
+          if (data.name) {
+            setFacultyName(data.name)
+          }
+        } else {
+          // Fallback to email-based lookup
+          const { data: emailData } = await supabase
             .from('faculty')
             .select('department, name')
-            .eq('id', user.id)
-            .single()
-          
-          if (data) {
-            if (data.department) {
-              setFacultyDepartment(data.department)
-              setDepartment(data.department) // Auto-set department
+            .eq('email', user.email)
+            .maybeSingle()
+          if (emailData) {
+            if (emailData.department) {
+              setFacultyDepartment(emailData.department)
+              setDepartment(emailData.department)
             }
-            if (data.name) {
-              setFacultyName(data.name) // Auto-set faculty name
-            }
+            if (emailData.name) setFacultyName(emailData.name)
           }
-        } catch (error) {
-          console.error("Failed to parse faculty session:", error)
         }
+      } catch (error) {
+        console.error("Failed to load faculty profile:", error)
       }
     }
     loadFacultyProfile()
@@ -176,19 +193,22 @@ export default function CreateStudyGroupsPage() {
   // Auto-populate class name when department and year are selected
   const generateClassName = (dept: string, yr: string) => {
     if (!dept || !yr) return ""
-    const deptMap: Record<string, string> = {
-      "cse": "CSE",
-      "aids": "AIDS", 
-      "aiml": "AIML",
-      "cyber": "CYBER"
-    }
+    
+    const d = dept.toLowerCase()
+    let code = "DEPT"
+    if (d === "cse" || d.includes("computer science") || d.includes("cs&e")) code = "CSE"
+    else if (d === "aids" || d.includes("data science")) code = "AIDS"
+    else if (d === "aiml" || d.includes("machine learning")) code = "AIML"
+    else if (d === "cyber" || d === "cy" || d.includes("security")) code = "CY"
+    else code = dept.substring(0, 4).toUpperCase()
+
     const yearMap: Record<string, string> = {
       "1st_year": "FY",
       "2nd_year": "SY", 
       "3rd_year": "TY",
       "4th_year": "Final"
     }
-    return `${yearMap[yr]}-${deptMap[dept]}`
+    return `${yearMap[yr] || yr.split('_')[0]}-${code}`
   }
 
   // Update class name when year changes (department is locked)

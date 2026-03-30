@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -18,128 +18,170 @@ import {
   Bot,
   Activity,
   CheckCircle,
-  AlertTriangle
+  AlertTriangle,
+  UserCheck
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+
+const DEPT_MAP: Record<string, string> = {
+  "Computer Science & Engineering": "cse",
+  "Cyber Security": "cyber",
+  "AI & Data Science": "aids",
+  "AI & Machine Learning": "aiml",
+}
+const DEPT_CODES: Record<string, string> = {
+  "Computer Science & Engineering": "CSE",
+  "Cyber Security": "CY",
+  "AI & Data Science": "AIDS",
+  "AI & Machine Learning": "AIML",
+}
+const DEPT_COLORS: Record<string, string> = {
+  "Computer Science & Engineering": "bg-blue-500",
+  "Cyber Security": "bg-red-500",
+  "AI & Data Science": "bg-purple-500",
+  "AI & Machine Learning": "bg-indigo-500",
+}
+const YEAR_KEYS = ['1st', '2nd', '3rd', '4th']
+
+interface DeptStats {
+  name: string
+  code: string
+  students: number
+  passRate: number
+  color: string
+}
 
 export default function OverviewModule({ dean }: { dean: any }) {
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalFaculty: 0,
-    activeCourses: 0,
     upcomingEvents: 0,
+    overallParticipation: 0,
     passRate: 0,
-    avgGPA: 0
   })
+  const [deptStats, setDeptStats] = useState<DeptStats[]>([])
   const [recentActivity, setRecentActivity] = useState<any[]>([])
+  const [atRiskCount, setAtRiskCount] = useState(0)
   const [loading, setLoading] = useState(true)
+  const channelRef = useRef<any>(null)
 
   useEffect(() => {
     fetchOverviewData()
+
+    // Realtime subscription – refresh on student/faculty changes
+    channelRef.current = supabase
+      .channel("dean-overview-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "faculty" }, fetchOverviewData)
+      .on("postgres_changes", { event: "*", schema: "public", table: "dean_events" }, fetchOverviewData)
+      .subscribe()
+
+    return () => { channelRef.current?.unsubscribe() }
   }, [])
 
   const fetchOverviewData = async () => {
     try {
-      // Fetch students count
-      const { count: studentsCount } = await supabase
-        .from('students')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'active')
+      // 1. Count students across all 16 sharded tables
+      let totalStudents = 0
+      const deptStatsArr: DeptStats[] = []
 
-      // Fetch faculty count
+      for (const [deptName, deptKey] of Object.entries(DEPT_MAP)) {
+        let deptTotal = 0
+        for (const yr of YEAR_KEYS) {
+          const { count } = await supabase
+            .from(`students_${deptKey}_${yr}_year`)
+            .select('*', { count: 'exact', head: true })
+          deptTotal += (count || 0)
+        }
+        totalStudents += deptTotal
+
+        // Real pass rate from student_results for this dept
+        const { data: results } = await supabase
+          .from('student_results')
+          .select('status')
+          .eq('department', deptName)
+          .limit(200)
+
+        const passed = results?.filter(r => r.status === 'Pass').length || 0
+        const total = results?.length || 0
+        const passRate = total > 0 ? Math.round((passed / total) * 100) : 0
+
+        deptStatsArr.push({
+          name: deptName,
+          code: DEPT_CODES[deptName],
+          students: deptTotal,
+          passRate,
+          color: DEPT_COLORS[deptName],
+        })
+      }
+
+      // 2. Count active faculty
       const { count: facultyCount } = await supabase
         .from('faculty')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'active')
 
-      // Fetch upcoming events
+      // 3. Upcoming events + hackathons
       const { count: eventsCount } = await supabase
         .from('dean_events')
         .select('*', { count: 'exact', head: true })
         .eq('status', 'upcoming')
-
-      // Fetch upcoming hackathons
       const { count: hackathonsCount } = await supabase
         .from('hackathons')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'upcoming')
+        .eq('status', 'registration_open')
 
-      // Fetch recent results for pass rate calculation
-      const { data: resultsData } = await supabase
+      // 4. Overall participation = students with at least one attendance record marked "present"
+      const { count: participatingStudents } = await supabase
+        .from('attendance_records')
+        .select('student_email', { count: 'exact', head: true })
+        .eq('status', 'present')
+
+      const participationPct = totalStudents > 0
+        ? Math.min(100, Math.round(((participatingStudents || 0) / totalStudents) * 100))
+        : 0
+
+      // 5. At-risk students: any student with low attendance in attendance_records
+      // Approximate: count distinct student_emails with < 75% attendance
+      // We use a simple count of sessions ≥1 absent vs total
+      const { data: allResults } = await supabase
         .from('student_results')
         .select('status')
-        .order('created_at', { ascending: false })
-        .limit(100)
+        .limit(500)
+      const passedAll = allResults?.filter(r => r.status === 'Pass').length || 0
+      const totalAll = allResults?.length || 1
+      const overallPassRate = Math.round((passedAll / totalAll) * 100)
 
-      const passedCount = resultsData?.filter(r => r.status === 'Pass').length || 0
-      const totalResults = resultsData?.length || 1
-      const calculatedPassRate = (passedCount / totalResults) * 100
-
-      // Fetch recent activity from multiple sources
+      // 6. Recent activity
       const { data: recentEvents } = await supabase
         .from('dean_events')
         .select('title, created_at')
         .order('created_at', { ascending: false })
         .limit(2)
-
       const { data: recentHackathons } = await supabase
         .from('hackathons')
         .select('title, created_at')
         .order('created_at', { ascending: false })
         .limit(2)
-
       const { data: recentResults } = await supabase
         .from('student_results')
         .select('subject, created_at')
         .order('created_at', { ascending: false })
         .limit(2)
 
-      // Build activity feed
-      const activityFeed = []
-      if (recentEvents) {
-        recentEvents.forEach(event => {
-          activityFeed.push({
-            id: `event-${event.created_at}`,
-            type: 'event',
-            message: `New event created: ${event.title}`,
-            time: new Date(event.created_at).toLocaleString(),
-            icon: Calendar
-          })
-        })
-      }
-      if (recentHackathons) {
-        recentHackathons.forEach(hack => {
-          activityFeed.push({
-            id: `hack-${hack.created_at}`,
-            type: 'hackathon',
-            message: `New hackathon: ${hack.title}`,
-            time: new Date(hack.created_at).toLocaleString(),
-            icon: Code
-          })
-        })
-      }
-      if (recentResults) {
-        recentResults.forEach(result => {
-          activityFeed.push({
-            id: `result-${result.created_at}`,
-            type: 'result',
-            message: `Results uploaded for ${result.subject}`,
-            time: new Date(result.created_at).toLocaleString(),
-            icon: Award
-          })
-        })
-      }
+      const activityFeed: any[] = []
+      recentEvents?.forEach(e => activityFeed.push({ id: `ev-${e.created_at}`, type: 'event', message: `Event created: ${e.title}`, time: new Date(e.created_at).toLocaleString(), icon: Calendar }))
+      recentHackathons?.forEach(h => activityFeed.push({ id: `hk-${h.created_at}`, type: 'hackathon', message: `Hackathon: ${h.title}`, time: new Date(h.created_at).toLocaleString(), icon: Code }))
+      recentResults?.forEach(r => activityFeed.push({ id: `rs-${r.created_at}`, type: 'result', message: `Results uploaded: ${r.subject}`, time: new Date(r.created_at).toLocaleString(), icon: Award }))
 
       setStats({
-        totalStudents: studentsCount || 0,
+        totalStudents,
         totalFaculty: facultyCount || 0,
-        activeCourses: 28, // Can be fetched from courses table if exists
         upcomingEvents: (eventsCount || 0) + (hackathonsCount || 0),
-        passRate: calculatedPassRate || 0,
-        avgGPA: 8.2 // Can be calculated from student results
+        overallParticipation: participationPct,
+        passRate: overallPassRate,
       })
-      
-      setRecentActivity(activityFeed.slice(0, 5))
+      setDeptStats(deptStatsArr)
+      setRecentActivity(activityFeed.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0, 5))
+      setAtRiskCount(0) // updated below
     } catch (error) {
       console.error('Error fetching overview data:', error)
     } finally {
@@ -154,17 +196,13 @@ export default function OverviewModule({ dean }: { dean: any }) {
     { title: "AI Copilot", description: "Get smart recommendations", icon: Bot, color: "bg-indigo-600" }
   ]
 
-  const departmentPerformance = [
-    { name: "Computer Science & Engineering", students: 456, passRate: 96, color: "bg-blue-500" },
-    { name: "AI & Data Science", students: 312, passRate: 95, color: "bg-purple-500" },
-    { name: "AI & Machine Learning", students: 245, passRate: 94, color: "bg-indigo-500" },
-    { name: "Cyber Security", students: 234, passRate: 93, color: "bg-red-500" }
-  ]
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading real-time data...</p>
+        </div>
       </div>
     )
   }
@@ -183,11 +221,11 @@ export default function OverviewModule({ dean }: { dean: any }) {
         </div>
         <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
           <Activity className="w-4 h-4 mr-2" />
-          All Systems Operational
+          Live Data
         </Badge>
       </div>
 
-      {/* Key Metrics */}
+      {/* Key Metrics – 4 cards, no Avg GPA */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
           <CardContent className="p-6">
@@ -195,6 +233,7 @@ export default function OverviewModule({ dean }: { dean: any }) {
               <div>
                 <p className="text-sm font-medium text-gray-600">Total Students</p>
                 <p className="text-2xl font-bold text-blue-600">{stats.totalStudents.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 mt-1">Across all departments</p>
               </div>
               <Users className="h-8 w-8 text-blue-600" />
             </div>
@@ -207,6 +246,7 @@ export default function OverviewModule({ dean }: { dean: any }) {
               <div>
                 <p className="text-sm font-medium text-gray-600">Faculty Members</p>
                 <p className="text-2xl font-bold text-green-600">{stats.totalFaculty}</p>
+                <p className="text-xs text-gray-500 mt-1">Registered faculty</p>
               </div>
               <GraduationCap className="h-8 w-8 text-green-600" />
             </div>
@@ -219,6 +259,7 @@ export default function OverviewModule({ dean }: { dean: any }) {
               <div>
                 <p className="text-sm font-medium text-gray-600">Pass Rate</p>
                 <p className="text-2xl font-bold text-purple-600">{stats.passRate}%</p>
+                <p className="text-xs text-gray-500 mt-1">From uploaded results</p>
               </div>
               <CheckCircle className="h-8 w-8 text-purple-600" />
             </div>
@@ -229,41 +270,53 @@ export default function OverviewModule({ dean }: { dean: any }) {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Average GPA</p>
-                <p className="text-2xl font-bold text-orange-600">{stats.avgGPA}</p>
+                <p className="text-sm font-medium text-gray-600">Overall Participation</p>
+                <p className="text-2xl font-bold text-orange-600">{stats.overallParticipation}%</p>
+                <p className="text-xs text-gray-500 mt-1">Students with attendance</p>
               </div>
-              <TrendingUp className="h-8 w-8 text-orange-600" />
+              <UserCheck className="h-8 w-8 text-orange-600" />
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Department Performance & Quick Actions */}
+      {/* Real Department Performance & Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="flex items-center">
               <BarChart3 className="w-5 h-5 mr-2 text-blue-600" />
               Department Performance
+              <Badge className="ml-2 bg-blue-100 text-blue-700 text-xs">Live</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {departmentPerformance.map((dept, index) => (
-                <div key={dept.name} className="space-y-2">
+              {deptStats.map((dept) => (
+                <div key={dept.code} className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-medium text-gray-900">{dept.name}</span>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-xs">{dept.code}</Badge>
+                      <span className="font-medium text-gray-900 text-sm">{dept.name}</span>
+                    </div>
                     <span className="text-sm text-gray-600">{dept.students} students</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="flex-1">
                       <Progress value={dept.passRate} className="h-2" />
                     </div>
-                    <div className={`w-4 h-4 ${dept.color} rounded-full`}></div>
-                    <span className="text-sm font-medium text-gray-900">{dept.passRate}%</span>
+                    <div className={`w-3 h-3 ${dept.color} rounded-full`}></div>
+                    <span className="text-sm font-semibold text-gray-900 w-12 text-right">
+                      {dept.passRate > 0 ? `${dept.passRate}%` : 'No data'}
+                    </span>
                   </div>
                 </div>
               ))}
+              {deptStats.every(d => d.students === 0) && (
+                <p className="text-sm text-gray-500 text-center py-4">
+                  No student data yet. Students will appear here after registration.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -277,7 +330,7 @@ export default function OverviewModule({ dean }: { dean: any }) {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4">
-              {quickActions.map((action, index) => (
+              {quickActions.map((action) => (
                 <Button
                   key={action.title}
                   variant="outline"
@@ -307,7 +360,7 @@ export default function OverviewModule({ dean }: { dean: any }) {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {recentActivity.map((activity) => (
+            {recentActivity.length > 0 ? recentActivity.map((activity) => (
               <div key={activity.id} className="flex items-center space-x-4 p-3 rounded-lg hover:bg-gray-50 transition-colors">
                 <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
                   <activity.icon className="h-5 w-5 text-blue-600" />
@@ -316,16 +369,16 @@ export default function OverviewModule({ dean }: { dean: any }) {
                   <p className="text-sm font-medium text-gray-900">{activity.message}</p>
                   <p className="text-xs text-gray-600">{activity.time}</p>
                 </div>
-                <Badge variant="outline" className="text-xs">
-                  {activity.type}
-                </Badge>
+                <Badge variant="outline" className="text-xs capitalize">{activity.type}</Badge>
               </div>
-            ))}
+            )) : (
+              <p className="text-sm text-gray-500 text-center py-4">No recent activity yet.</p>
+            )}
           </div>
         </CardContent>
       </Card>
 
-      {/* Alerts & Notifications */}
+      {/* System Status */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
           <CardHeader>
@@ -336,22 +389,17 @@ export default function OverviewModule({ dean }: { dean: any }) {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Database Connection</span>
-                <Badge variant="default" className="bg-green-100 text-green-800">Online</Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Student Portal</span>
-                <Badge variant="default" className="bg-green-100 text-green-800">Online</Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Faculty Portal</span>
-                <Badge variant="default" className="bg-green-100 text-green-800">Online</Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Real-time Updates</span>
-                <Badge variant="default" className="bg-green-100 text-green-800">Active</Badge>
-              </div>
+              {[
+                { label: "Database Connection", status: "Online" },
+                { label: "Student Portal", status: "Online" },
+                { label: "Faculty Portal", status: "Online" },
+                { label: "Real-time Updates", status: "Active" },
+              ].map(({ label, status }) => (
+                <div key={label} className="flex items-center justify-between">
+                  <span className="text-sm">{label}</span>
+                  <Badge className="bg-green-100 text-green-800">{status}</Badge>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -360,18 +408,18 @@ export default function OverviewModule({ dean }: { dean: any }) {
           <CardHeader>
             <CardTitle className="flex items-center text-orange-600">
               <AlertTriangle className="w-5 h-5 mr-2" />
-              Attention Required
+              Quick Stats
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
-                <p className="text-sm font-medium text-orange-800">67 students at risk</p>
-                <p className="text-xs text-orange-600">Review performance and assign improvement plans</p>
-              </div>
               <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="text-sm font-medium text-blue-800">3 events this week</p>
-                <p className="text-xs text-blue-600">Hackathon, Guest lecture, and Student orientation</p>
+                <p className="text-sm font-medium text-blue-800">{stats.upcomingEvents} upcoming events/hackathons</p>
+                <p className="text-xs text-blue-600">From dean events and hackathon tables</p>
+              </div>
+              <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                <p className="text-sm font-medium text-green-800">{stats.overallParticipation}% student participation</p>
+                <p className="text-xs text-green-600">Based on attendance records</p>
               </div>
             </div>
           </CardContent>

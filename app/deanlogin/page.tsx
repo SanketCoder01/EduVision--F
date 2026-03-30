@@ -46,14 +46,14 @@ export default function DeanLoginPage() {
         .from('deans')
         .select('*')
         .eq('email', email)
-        .single()
+        .maybeSingle()
 
-      if (deanError || !deanData) {
+      if (!deanData) {
         // Not a dean account
         await supabase.auth.signOut()
         toast({
           title: "Access Denied",
-          description: "This account is not authorized as a dean",
+          description: "This account is not authorized as a dean. Please contact the administrator.",
           variant: "destructive"
         })
         setIsLoading(false)

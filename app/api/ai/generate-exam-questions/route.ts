@@ -1,8 +1,48 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { getSecureApiKey, checkRateLimit, logSecurityEvent, getSecurityHeaders } from "@/lib/security/security-utils"
 
-// Groq API configuration
-const GROQ_API_KEY = process.env.GROQ_API_KEY || "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"
+// Groq API configuration - NEVER expose keys in client-side code
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+// Clean text by removing markdown symbols and special characters
+function cleanText(text: string): string {
+  if (!text) return text
+  return text
+    // Remove markdown headers (# ## ###)
+    .replace(/^#{1,6}\s+/gm, '')
+    // Remove bold/italic markers
+    .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
+    .replace(/_{1,3}([^_]+)_{1,3}/g, '$1')
+    // Remove bullet points and list markers
+    .replace(/^[\s]*[-•*+]\s+/gm, '')
+    .replace(/^[\s]*\d+[.)]\s+/gm, '')
+    // Remove backticks and code blocks
+    .replace(/`{1,3}([^`]+)`{1,3}/g, '$1')
+    // Remove @ symbols
+    .replace(/@/g, '')
+    // Remove special characters but keep basic punctuation
+    .replace(/[\*#\-]/g, ' ')
+    // Clean up extra whitespace
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// Clean all text fields in a question
+function cleanQuestion(q: any): any {
+  return {
+    ...q,
+    title: cleanText(q.title || ''),
+    description: cleanText(q.description || ''),
+    inputFormat: cleanText(q.inputFormat || ''),
+    outputFormat: cleanText(q.outputFormat || ''),
+    constraints: cleanText(q.constraints || ''),
+    sampleInput: cleanText(q.sampleInput || ''),
+    sampleOutput: cleanText(q.sampleOutput || ''),
+    explanation: cleanText(q.explanation || ''),
+    hints: (q.hints || []).map((h: string) => cleanText(h)),
+    tags: (q.tags || []).map((t: string) => cleanText(t))
+  }
+}
 
 // Extract questions from uploaded file content
 async function extractQuestionsFromFile(fileContent: string, language: string, numQuestions: number): Promise<NextResponse> {
@@ -38,6 +78,12 @@ ${fileContent.substring(0, 4000)}
 
 Return ONLY valid JSON with extracted questions. If no questions found, return empty questions array.`
 
+  const GROQ_API_KEY = getSecureApiKey('GROQ_API_KEY')
+  if (!GROQ_API_KEY) {
+    logSecurityEvent({ type: 'unauthorized_access', details: 'Missing GROQ_API_KEY' })
+    return NextResponse.json({ error: 'Service unavailable' }, { status: 503 })
+  }
+  
   try {
     const response = await fetch(GROQ_API_URL, {
       method: "POST",
@@ -186,6 +232,20 @@ IMPORTANT: Use only plain text with letters, numbers, spaces, and basic punctuat
       userPrompt += `\n\nDO NOT repeat these previous question titles: ${previousQuestions.slice(0, 10).join(', ')}`
     }
 
+    // Rate limiting
+    const clientIp = request.headers.get('x-forwarded-for') || 'unknown'
+    const rateCheck = checkRateLimit(`exam-questions-${clientIp}`, 10, 60000)
+    if (!rateCheck.allowed) {
+      logSecurityEvent({ type: 'rate_limit', ip: clientIp, details: 'Exam question generation' })
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+    }
+    
+    const GROQ_API_KEY = getSecureApiKey('GROQ_API_KEY')
+    if (!GROQ_API_KEY) {
+      logSecurityEvent({ type: 'unauthorized_access', details: 'Missing GROQ_API_KEY' })
+      return NextResponse.json({ error: 'Service unavailable' }, { status: 503 })
+    }
+    
     // Call Groq API
     const response = await fetch(GROQ_API_URL, {
       method: "POST",
@@ -258,24 +318,27 @@ IMPORTANT: Use only plain text with letters, numbers, spaces, and basic punctuat
     }
 
     // Ensure each question has required fields with proper structure
-    const validatedQuestions = questions.map((q: any, index: number) => ({
-      id: q.id || `q${index + 1}`,
-      title: q.title || `Question ${index + 1}`,
-      description: q.description || q.problemStatement || "Solve the given problem",
-      difficulty: q.difficulty || difficulty || "medium",
-      marks: q.marks || Math.floor((totalMarks || 100) / (numQuestions || 3)),
-      timeLimit: q.timeLimit || `${Math.floor((examDuration || 120) / (numQuestions || 3))} minutes`,
-      inputFormat: q.inputFormat || "See problem description",
-      outputFormat: q.outputFormat || "See problem description",
-      constraints: q.constraints || "Standard constraints apply",
-      sampleInput: q.sampleInput || "",
-      sampleOutput: q.sampleOutput || "",
-      explanation: q.explanation || "",
-      testCases: q.testCases || [{ input: q.sampleInput || "", expectedOutput: q.sampleOutput || "", isHidden: false }],
-      conceptsTested: q.conceptsTested || q.tags || [language.toLowerCase()],
-      hints: q.hints || [],
-      tags: q.conceptsTested || q.tags || [language.toLowerCase()]
-    }))
+    const validatedQuestions = questions.map((q: any, index: number) => {
+      const cleaned = cleanQuestion(q)
+      return {
+        id: cleaned.id || `q${index + 1}`,
+        title: cleaned.title || `Question ${index + 1}`,
+        description: cleaned.description || "Solve the given problem",
+        difficulty: cleaned.difficulty || difficulty || "medium",
+        marks: cleaned.marks || Math.floor((totalMarks || 100) / (numQuestions || 3)),
+        timeLimit: cleaned.timeLimit || `${Math.floor((examDuration || 120) / (numQuestions || 3))} minutes`,
+        inputFormat: cleaned.inputFormat || "See problem description",
+        outputFormat: cleaned.outputFormat || "See problem description",
+        constraints: cleaned.constraints || "Standard constraints apply",
+        sampleInput: cleaned.sampleInput || "",
+        sampleOutput: cleaned.sampleOutput || "",
+        explanation: cleaned.explanation || "",
+        testCases: cleaned.testCases || [{ input: cleaned.sampleInput || "", expectedOutput: cleaned.sampleOutput || "", isHidden: false }],
+        conceptsTested: cleaned.conceptsTested || cleaned.tags || [language.toLowerCase()],
+        hints: cleaned.hints || [],
+        tags: cleaned.tags || [language.toLowerCase()]
+      }
+    })
 
     return NextResponse.json({
       success: true,

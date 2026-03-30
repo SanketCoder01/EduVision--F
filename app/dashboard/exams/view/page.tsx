@@ -28,6 +28,8 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { toast } from "@/hooks/use-toast"
+import { supabase } from "@/lib/supabase"
+import { getCurrentFaculty } from "@/lib/supabase-utils"
 
 interface Exam {
   id: number
@@ -67,29 +69,42 @@ export default function ViewExamsPage() {
     filterExams()
   }, [exams, searchTerm, statusFilter, departmentFilter])
 
-  const loadExams = () => {
+  const loadExams = async () => {
     try {
-      // Load from localStorage for demo
-      const storedAssignments = JSON.parse(localStorage.getItem('coding_assignments') || '[]')
-      const examData = storedAssignments.filter((item: any) => item.isExam)
-      
-      // Add mock data for active monitoring
-      const examsWithStats = examData.map((exam: Exam) => ({
-        ...exam,
-        active_students: Math.floor(Math.random() * 25) + 5,
-        completed_submissions: Math.floor(Math.random() * 30) + 10,
-        pending_submissions: Math.floor(Math.random() * 15) + 5,
-        created_at: exam.created_at || new Date().toISOString()
+      setIsLoading(true)
+      const fac = await getCurrentFaculty()
+      if (!fac) { setIsLoading(false); return }
+
+      const { data, error } = await supabase
+        .from('exams')
+        .select('*')
+        .eq('faculty_id', fac.id)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+
+      // Count submissions for stats
+      const examsWithStats = await Promise.all((data || []).map(async (exam: any) => {
+        const { count } = await supabase.from('exam_submissions').select('*', { count: 'exact', head: true }).eq('exam_id', exam.id)
+        const { count: completedCount } = await supabase.from('exam_submissions').select('*', { count: 'exact', head: true }).eq('exam_id', exam.id).eq('status', 'submitted')
+        return {
+          ...exam,
+          questions: exam.problems || [],
+          active_students: 0,
+          completed_submissions: completedCount || 0,
+          pending_submissions: Math.max(0, (count || 0) - (completedCount || 0)),
+          status: exam.is_published ? 'published' : 'draft',
+          enable_security: true,
+          exam_date: exam.start_time,
+          duration: exam.duration_minutes,
+          max_marks: exam.total_marks,
+        }
       }))
-      
+
       setExams(examsWithStats)
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error loading exams:", error)
-      toast({
-        title: "Error",
-        description: "Failed to load exams",
-        variant: "destructive"
-      })
+      toast({ title: "Error", description: "Failed to load exams", variant: "destructive" })
     } finally {
       setIsLoading(false)
     }
@@ -119,25 +134,14 @@ export default function ViewExamsPage() {
     setFilteredExams(filtered)
   }
 
-  const handleDeleteExam = (examId: number) => {
+  const handleDeleteExam = async (examId: string | number) => {
     try {
-      const storedAssignments = JSON.parse(localStorage.getItem('coding_assignments') || '[]')
-      const updatedAssignments = storedAssignments.filter((a: any) => a.id !== examId)
-      localStorage.setItem('coding_assignments', JSON.stringify(updatedAssignments))
-      
-      const updatedExams = exams.filter(e => e.id !== examId)
-      setExams(updatedExams)
-      
-      toast({
-        title: "Exam Deleted",
-        description: "Exam has been successfully deleted"
-      })
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to delete exam",
-        variant: "destructive"
-      })
+      const { error } = await supabase.from('exams').delete().eq('id', String(examId))
+      if (error) throw error
+      setExams(prev => prev.filter(e => (e as any).id !== examId))
+      toast({ title: "Exam Deleted", description: "Exam has been successfully deleted" })
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to delete exam", variant: "destructive" })
     }
   }
 
