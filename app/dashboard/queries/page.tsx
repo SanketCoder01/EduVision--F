@@ -424,30 +424,44 @@ export default function FacultyQueriesPage() {
     <div className="h-screen flex flex-col bg-[#f0f2f5]">
       <div className="flex-1 flex overflow-hidden">
 
-        {/* ─── LEFT SIDEBAR ────────────────────────────────────── */}
+        {/* ─── LEFT SIDEBAR ─── */}
         <div className={`${isMobileView && selectedStudent ? 'hidden' : 'w-full md:w-[360px]'} bg-white border-r flex flex-col shadow-sm`}>
 
-          {/* Header */}
-          <div className="bg-[#075e54] px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Avatar className="h-10 w-10 ring-2 ring-white/30">
-                <AvatarImage src={faculty?.face_image} />
-                <AvatarFallback className="bg-white/20 text-white font-bold">
-                  {faculty?.name?.charAt(0) || "F"}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="text-white font-semibold text-sm leading-tight">{faculty?.name || "Faculty"}</p>
-                <p className="text-white/70 text-xs">{faculty?.department}</p>
-              </div>
+          {/* Faculty Profile Header */}
+          <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-4 flex items-center gap-3">
+            <Avatar className="h-14 w-14 ring-2 ring-white/30 border-2 border-white/20">
+              <AvatarImage src={faculty?.face_image} />
+              <AvatarFallback className="bg-white/20 text-white font-bold text-xl">{faculty?.name?.charAt(0) || "F"}</AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-bold text-base leading-tight truncate">{faculty?.name || "Faculty"}</p>
+              <p className="text-white/80 text-xs mt-0.5">{faculty?.department?.toUpperCase()} Department</p>
+              {faculty?.email && <p className="text-white/60 text-[10px] truncate">{faculty.email}</p>}
             </div>
-            <div className="flex items-center gap-3 text-white/80">
-              {totalUnread > 0 && (
-                <span className="bg-[#25d366] text-white text-xs rounded-full px-2 py-0.5 font-bold flex items-center gap-1">
-                  <Bell className="h-3 w-3" />{totalUnread}
-                </span>
-              )}
-            </div>
+            {totalUnread > 0 && (
+              <span className="bg-white text-indigo-600 text-xs rounded-full px-2.5 py-1 font-bold flex items-center gap-1 shadow-md">
+                <Bell className="h-3 w-3" />{totalUnread}
+              </span>
+            )}
+          </div>
+
+          {/* Year Filter Tabs */}
+          <div className="flex gap-1 p-2 bg-gray-50 border-b overflow-x-auto">
+            <button
+              onClick={() => setSelectedYear(null)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${!selectedYear ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 border'}`}
+            >
+              All Years
+            </button>
+            {YEARS.map(yr => (
+              <button
+                key={yr}
+                onClick={() => setSelectedYear(yr)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${selectedYear === yr ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 border'}`}
+              >
+                {yr} Year
+              </button>
+            ))}
           </div>
 
           {/* Search */}
@@ -463,22 +477,14 @@ export default function FacultyQueriesPage() {
             </div>
           </div>
 
-          {/* Year Filter */}
-          <div className="flex gap-1 px-3 py-2 overflow-x-auto bg-white border-b hide-scrollbar">
-            <button
-              onClick={() => setSelectedYear(null)}
-              className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${!selectedYear ? 'bg-[#075e54] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-            >All</button>
-            {YEARS.map(yr => (
-              <button
-                key={yr}
-                onClick={() => setSelectedYear(selectedYear === yr ? null : yr)}
-                className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${selectedYear === yr ? 'bg-[#075e54] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-              >{yr} Year</button>
-            ))}
+          {/* Department Students Info */}
+          <div className="px-4 py-2 bg-indigo-50 border-b">
+            <p className="text-xs text-indigo-700 font-medium">
+              👥 {filteredStudents.length} students from {faculty?.department?.toUpperCase()} department
+            </p>
           </div>
 
-          {/* Students list */}
+          {/* Student list */}
           <div className="flex-1 overflow-y-auto">
             {filteredStudents.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center p-6">
@@ -487,9 +493,7 @@ export default function FacultyQueriesPage() {
                 </div>
                 <p className="text-gray-500 font-medium text-sm">No students found</p>
                 <p className="text-gray-400 text-xs mt-1">
-                  {students.length === 0
-                    ? "Run the SQL script in Supabase first"
-                    : `No students match the current filter`}
+                  {students.length === 0 ? "No students in your department yet" : "Try a different search or year filter"}
                 </p>
               </div>
             ) : (
@@ -510,7 +514,7 @@ export default function FacultyQueriesPage() {
                     </Avatar>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
-                        <p className={`font-semibold text-[14px] truncate ${unread > 0 ? 'text-[#111b21]' : 'text-[#111b21]'}`}>{st.name}</p>
+                        <p className="font-semibold text-[14px] truncate text-[#111b21]">{st.name}</p>
                         {unread > 0 && (
                           <span className="ml-2 shrink-0 bg-[#25d366] text-white text-[11px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
                             {unread > 9 ? '9+' : unread}
@@ -529,7 +533,7 @@ export default function FacultyQueriesPage() {
           </div>
         </div>
 
-        {/* ─── RIGHT CHAT PANEL ────────────────────────────────── */}
+        {/* ─── RIGHT CHAT PANEL ─── */}
         <div className={`${isMobileView && !selectedStudent ? 'hidden' : 'flex-1'} flex flex-col relative`}
           style={{ backgroundImage: 'url("https://i.pinimg.com/736x/8c/98/99/8c98994518b575bfd8c949e91d20548b.jpg")', backgroundRepeat: 'repeat', backgroundSize: '400px' }}>
 
@@ -643,7 +647,7 @@ export default function FacultyQueriesPage() {
                 </div>
                 <h2 className="text-[26px] font-light text-[#41525d] mb-2">EduVision Chat</h2>
                 <p className="text-[#667781] text-sm leading-relaxed">
-                  Select a student from the left panel to start messaging. All conversations are private and end-to-end secured within your department.
+                  Select a student from the left panel to start messaging. All conversations are private and secured within your department.
                 </p>
                 <p className="text-[#667781] text-xs mt-3">
                   Showing students from <strong>{faculty?.department}</strong>

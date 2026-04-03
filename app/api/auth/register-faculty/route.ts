@@ -13,10 +13,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "All required fields must be filled" }, { status: 400 })
     }
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    // Validate email format - must be set@sanjivani.edu.in for faculty
+    const emailRegex = /^[^\s@]+@set\.sanjivani\.edu\.in$/
     if (!emailRegex.test(email)) {
-      return NextResponse.json({ success: false, message: "Please enter a valid email address" }, { status: 400 })
+      return NextResponse.json({ success: false, message: "Faculty email must be in format: name@set.sanjivani.edu.in" }, { status: 400 })
     }
 
     const supabase = createServerSupabaseClient()

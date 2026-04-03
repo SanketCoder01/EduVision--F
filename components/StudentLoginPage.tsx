@@ -27,6 +27,30 @@ export default function StudentLoginPage() {
     setIsLoading(true)
     setError("")
 
+    // Validate email domain for student login
+    if (!email.endsWith('@sanjivani.edu.in')) {
+      setError("Student login requires @sanjivani.edu.in email address.")
+      toast({
+        title: "Invalid Email",
+        description: "Students must use @sanjivani.edu.in email to login.",
+        variant: "destructive",
+      })
+      setIsLoading(false)
+      return
+    }
+    
+    // Block faculty emails from student login
+    if (email.endsWith('@set.sanjivani.edu.in')) {
+      setError("Faculty emails cannot login as students. Use the faculty login page.")
+      toast({
+        title: "Invalid Email",
+        description: "Faculty must use the faculty login page.",
+        variant: "destructive",
+      })
+      setIsLoading(false)
+      return
+    }
+
     try {
       // Use Supabase Auth for authentication
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({

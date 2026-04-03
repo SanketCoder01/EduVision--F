@@ -38,6 +38,18 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+// Format department/year into display name like SY-CSE, TY-AIML
+const formatDeptYear = (dept: string, year: string): string => {
+  const deptUpper = (dept || '').toUpperCase().replace('CYBER', 'CY')
+  const yearShort = (year || '').toLowerCase()
+  let prefix = 'FY' // First Year default
+  if (yearShort.includes('2') || yearShort.includes('second')) prefix = 'SY'
+  else if (yearShort.includes('3') || yearShort.includes('third')) prefix = 'TY'
+  else if (yearShort.includes('4') || yearShort.includes('fourth')) prefix = 'FY' // Final Year
+  else prefix = 'FY' // First Year
+  return `${prefix}-${deptUpper}`
+}
+
 interface StudyGroup {
   id: string
   name: string
@@ -104,6 +116,8 @@ export default function StudyGroupsPage() {
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
   const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null)
   const [myMemberships, setMyMemberships] = useState<StudyGroupMember[]>([])
+  const [selectedSubject, setSelectedSubject] = useState("all")
+  const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
 
   // Chat state
   const [messages, setMessages] = useState<any[]>([])
@@ -203,6 +217,7 @@ export default function StudyGroupsPage() {
         
         // Load study groups for this department/year
         await loadStudyGroups(studentData.department, studentData.year)
+        await loadSubjects(studentData.department, studentData.year)
         await loadMemberships()
       } else {
         setError("Could not find your student profile.")
@@ -235,6 +250,26 @@ export default function StudyGroupsPage() {
       setGroupRequests(requests)
     } catch (error) {
       console.error("Error loading study groups:", error)
+    }
+  }
+
+  // Load subjects assigned by dean for this department/year
+  const loadSubjects = async (department: string, year: string) => {
+    try {
+      const normalizedDept = department.toLowerCase()
+      const { data, error } = await supabase
+        .from('subjects')
+        .select('*')
+        .eq('department', normalizedDept)
+        .eq('year', year)
+        .eq('is_active', true)
+        .order('name', { ascending: true })
+      
+      if (!error && data) {
+        setAvailableSubjects(data)
+      }
+    } catch (error) {
+      console.error("Error loading subjects:", error)
     }
   }
 
@@ -497,22 +532,25 @@ export default function StudyGroupsPage() {
 
     // Store message in Supabase if group has a class_id context
     if (selectedGroup?.id) {
-      await supabase.from('study_group_tasks').insert({
-        class_id: selectedGroup.id,
-        group_name: selectedGroup.name,
-        title: `[MSG:${studentProfile?.name || 'Student'}] ${newMessage.substring(0, 200)}`,
-        status: 'active',
-      })
+      try {
+        if (studentProfile) {
+          // Save to dedicated messages table
+          const { error } = await supabase.from('study_group_messages').insert({
+            group_id: selectedGroup.id,
+            sender_name: studentProfile.name,
+            sender_id: studentProfile.id,
+            text: newMessage,
+            type: 'text'
+          })
+          if (error) throw error
+        }
+      } catch (e) {
+        console.error("Error sending message", e)
+      }
     }
 
-    const newMsg = {
-      id: Date.now().toString(),
-      text: newMessage,
-      sender: studentProfile?.name || "Student",
-      timestamp: new Date().toISOString(),
-      type: "text",
-    }
-    setMessages((prev: any[]) => [...prev, newMsg])
+    // Note: We do NOT optimistically add the message to the state anymore.
+    // The real-time subscription will catch the insert and append it.
     setNewMessage("")
   }
 
@@ -549,22 +587,61 @@ export default function StudyGroupsPage() {
     setMessages(updatedMessages)
   }
 
-  const openChat = (group: any) => {
-    setSelectedGroup(group)
-    setMessages(group.messages || [])
-    setShowChatDialog(true)
+  const loadMessages = async (groupId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('study_group_messages')
+        .select('*')
+        .eq('group_id', groupId)
+        .order('timestamp', { ascending: true })
+      
+      if (!error && data) {
+        setMessages(data)
+      } else {
+        setMessages([])
+      }
+    } catch (e) { console.error('Error fetching messages', e) }
   }
 
-  // Filter study groups based on search query
+  const openChat = (group: any) => {
+    setSelectedGroup(group)
+    setShowChatDialog(true)
+    loadMessages(group.id)
+  }
+
+  // Effect to handle Real-time messages for active chat
+  useEffect(() => {
+    if (!selectedGroup || !showChatDialog) return
+
+    const messageChannel = supabase
+      .channel(`chat_${selectedGroup.id}`)
+      .on('postgres_changes', 
+        { event: 'INSERT', schema: 'public', table: 'study_group_messages', filter: `group_id=eq.${selectedGroup.id}` },
+        (payload) => {
+           setMessages(prev => [...prev, payload.new])
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(messageChannel)
+    }
+  }, [selectedGroup, showChatDialog])
+
+  // Filter study groups based on search query and selected subject
   const filteredGroups = studyGroups.filter((group) => {
-    if (searchQuery === "") return true
+    if (searchQuery === "" && selectedSubject === "all") return true
 
     const query = searchQuery.toLowerCase()
-    return (
+    const matchesSearch = searchQuery === "" || 
       group.name.toLowerCase().includes(query) ||
       group.subject?.toLowerCase().includes(query) ||
       group.faculty?.toLowerCase().includes(query)
-    )
+    
+    const matchesSubject = selectedSubject === "all" || 
+      group.subject?.toLowerCase() === selectedSubject.toLowerCase()
+    
+    return matchesSearch && matchesSubject
   })
 
   // Get groups based on tab
@@ -660,15 +737,17 @@ export default function StudyGroupsPage() {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-        <Select defaultValue="all">
+        <Select value={selectedSubject} onValueChange={setSelectedSubject}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Filter by subject" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Subjects</SelectItem>
-            <SelectItem value="cs">Computer Science</SelectItem>
-            <SelectItem value="math">Mathematics</SelectItem>
-            <SelectItem value="physics">Physics</SelectItem>
+            {availableSubjects.map((subject) => (
+              <SelectItem key={subject.id} value={subject.name}>
+                {subject.name}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -751,7 +830,14 @@ export default function StudyGroupsPage() {
                           </div>
 
                           <p className="text-gray-700 mb-2">Faculty: {request.faculty}</p>
-                          <p className="text-gray-700 mb-4">Class: {request.name}</p>
+                          <p className="text-gray-700 mb-2">Class: {request.name}</p>
+                          
+                          {/* Department/Year Display */}
+                          <div className="mb-4">
+                            <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200">
+                              {formatDeptYear(request.department, request.year)}
+                            </Badge>
+                          </div>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                             <div className="flex items-start">
@@ -844,6 +930,13 @@ export default function StudyGroupsPage() {
                             </div>
 
                             <p className="text-gray-700 mb-4">Faculty: {group.faculty}</p>
+
+                            {/* Department/Year Display */}
+                            <div className="mb-4">
+                              <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200">
+                                {formatDeptYear(group.department, group.year)}
+                              </Badge>
+                            </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                               <div className="flex items-start">
@@ -1038,23 +1131,29 @@ export default function StudyGroupsPage() {
                   <p>No messages yet. Start the conversation!</p>
                 </div>
               ) : (
-                messages.map((message) => (
+                messages.map((msg) => (
                   <div
-                    key={message.id}
-                    className={`flex ${message.sender === "Current Student" ? "justify-end" : "justify-start"}`}
+                    key={msg.id}
+                    className={`flex flex-col ${
+                      msg.sender_id === studentProfile?.id ? "items-end" : "items-start"
+                    }`}
                   >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-medium text-gray-700">{msg.sender_name || msg.sender}</span>
+                      <span className="text-xs text-gray-500">
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
                     <div
-                      className={`max-w-[70%] p-3 rounded-lg ${
-                        message.type === "system"
-                          ? "bg-gray-100 text-gray-600 text-center text-sm"
-                          : message.sender === "Current Student"
-                            ? "bg-blue-600 text-white"
-                            : "bg-gray-200 text-gray-800"
+                      className={`px-4 py-2 rounded-2xl max-w-[80%] ${
+                        msg.type === "system"
+                          ? "bg-gray-100 text-gray-600 text-center mx-auto rounded-full text-sm font-medium"
+                          : msg.sender_id === studentProfile?.id
+                          ? "bg-blue-600 text-white rounded-tr-none"
+                          : "bg-gray-100 text-gray-800 rounded-tl-none"
                       }`}
                     >
-                      {message.type !== "system" && <p className="text-xs opacity-70 mb-1">{message.sender}</p>}
-                      <p className="text-sm">{message.text}</p>
-                      <p className="text-xs opacity-70 mt-1">{new Date(message.timestamp).toLocaleTimeString()}</p>
+                      {msg.text}
                     </div>
                   </div>
                 ))

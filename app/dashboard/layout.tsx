@@ -42,7 +42,7 @@ import { toast } from "@/hooks/use-toast"
 import AttendanceExpiryService from "@/lib/attendance-expiry-service"
 import { supabase } from "@/lib/supabase"
 
-const sidebarItems = [
+const defaultSidebarItems = [
   { icon: Home, label: "Dashboard", href: "/dashboard", color: "text-blue-600" },
   { icon: ClipboardCheck, label: "Attendance", href: "/dashboard/attendance", color: "text-emerald-600" },
   { icon: BookOpen, label: "Assignments", href: "/dashboard/assignments", color: "text-green-600" },
@@ -55,6 +55,11 @@ const sidebarItems = [
   { icon: Clock, label: "Timetable", href: "/dashboard/timetable", color: "text-cyan-600" },
   { icon: FileText, label: "Study Materials", href: "/dashboard/study-materials", color: "text-violet-600" },
   { icon: Settings, label: "Other Services", href: "/dashboard/other-services", color: "text-purple-600" },
+]
+
+const cafeteriaSidebarItems = [
+  { icon: Home, label: "Dashboard", href: "/dashboard", color: "text-blue-600" },
+  { icon: Settings, label: "Cafeteria Menu", href: "/dashboard/cafeteria", color: "text-orange-600" },
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -147,8 +152,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     )
   }
 
-  // Always show all items with lock icons if registration not completed
-  const displaySidebarItems = sidebarItems
+  // Choose sidebar items based on user role
+  const isCafeAdmin = user?.role === 'cafeteria_admin'
+  const displaySidebarItems = isCafeAdmin ? cafeteriaSidebarItems : defaultSidebarItems
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
@@ -401,7 +407,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       </li>
                     )}
                     
-                    {sidebarItems.map((item) => {
+                    {displaySidebarItems.map((item) => {
                       const isActive = pathname === item.href
                       const isLocked = !registrationCompleted && item.href !== "/dashboard"
                       

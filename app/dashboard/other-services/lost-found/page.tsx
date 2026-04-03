@@ -292,11 +292,9 @@ export default function LostFoundPage() {
                       <Button variant="outline" size="sm" onClick={() => { setSelectedItem(item); setShowDetailsDialog(true) }}><Eye className="h-4 w-4 mr-1" /> Details</Button>
                       <div className="flex gap-2">
                         {item.status !== "resolved" && <Button size="sm" onClick={() => handleResolve(item.id)}>Mark Resolved</Button>}
-                        {item.reporter_id === facultyId && (
-                          <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => handleDelete(item.id)}>
-                            <Trash2 className="h-3 w-3 mr-1" /> Delete
-                          </Button>
-                        )}
+                        <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => handleDelete(item.id)}>
+                          <Trash2 className="h-3 w-3 mr-1" /> Delete
+                        </Button>
                       </div>
                     </CardFooter>
                   </Card>

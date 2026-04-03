@@ -178,8 +178,24 @@ export default function DashboardPage() {
         sum + (a.submissions?.filter((s: any) => s.status === 'submitted').length || 0), 0
       )
       
+      // Get real student count from faculty's department
+      let totalStudents = 0
+      const deptCode = (user.department || '').toLowerCase()
+      const years = ['1st', '2nd', '3rd', '4th']
+      
+      for (const year of years) {
+        const tableName = `students_${deptCode}_${year}_year`
+        const { count, error } = await supabase
+          .from(tableName)
+          .select('*', { count: 'exact', head: true })
+        
+        if (!error && count) {
+          totalStudents += count
+        }
+      }
+      
       setStats({
-        totalStudents: 45, // This would come from department enrollment
+        totalStudents,
         activeAssignments,
         pendingReviews: totalSubmissions - completedSubmissions,
         completionRate: totalSubmissions > 0 ? Math.round((completedSubmissions / totalSubmissions) * 100) : 0,

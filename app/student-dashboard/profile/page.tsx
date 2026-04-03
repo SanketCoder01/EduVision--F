@@ -87,7 +87,7 @@ export default function StudentProfilePage() {
         prn: studentData.prn || "",
         department: foundDept || "",
         year: foundYear || "",
-        photo: studentData.photo || ""
+        photo: studentData.face_image || studentData.photo || studentData.avatar || studentData.face_url || ""
       })
     } catch (error) {
       console.error('Error loading profile:', error)
@@ -172,7 +172,10 @@ export default function StudentProfilePage() {
         name: formData.name,
         college_name: formData.college_name,
         prn: formData.prn,
+        photo: finalPhotoUrl,
         face_image: finalPhotoUrl,
+        avatar: finalPhotoUrl,
+        face_url: finalPhotoUrl,
         updated_at: new Date().toISOString()
       }
 

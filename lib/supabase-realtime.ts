@@ -47,6 +47,7 @@ export interface Assignment {
   status: 'draft' | 'published' | 'closed'
   created_at: string
   faculty?: Faculty
+  resources?: any[]
 }
 
 export interface Announcement {

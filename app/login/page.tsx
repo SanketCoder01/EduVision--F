@@ -38,6 +38,18 @@ function LoginContent() {
     setIsLoading(true)
     setError("")
 
+    // Validate email domain for faculty login
+    if (!email.endsWith('@set.sanjivani.edu.in')) {
+      setError("Faculty login requires @set.sanjivani.edu.in email address.")
+      toast({
+        title: "Invalid Email",
+        description: "Faculty must use @set.sanjivani.edu.in email to login.",
+        variant: "destructive",
+      })
+      setIsLoading(false)
+      return
+    }
+
     try {
       // Use Supabase Auth for authentication
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({

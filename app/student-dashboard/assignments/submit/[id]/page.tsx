@@ -99,7 +99,7 @@ export default function SubmitAssignmentPage({ params }: { params: { id: string 
             name: foundAssignment.faculty?.name || "Faculty Member",
             email: foundAssignment.faculty?.email || "faculty@sanjivani.edu.in"
           },
-          resources: foundAssignment.resources || []
+          resources: (foundAssignment as any).resources || []
         }
         setAssignment(assignmentData)
         

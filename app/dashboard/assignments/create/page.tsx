@@ -25,7 +25,7 @@ import { FileUploader } from "@/components/file-uploader"
 
 const departments = [
   "CSE",
-  "CY", 
+  "CY",
   "AIDS",
   "AIML"
 ]
@@ -70,7 +70,7 @@ export default function CreateAssignmentPage() {
     passingMarks: 40,
     timeLimit: 0,
   })
-  
+
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [fileContent, setFileContent] = useState<string>("")
   const [questions, setQuestions] = useState<any[]>([])
@@ -87,37 +87,21 @@ export default function CreateAssignmentPage() {
     // Get current user from Supabase Auth
     const getUser = async () => {
       const { data: { user }, error: authError } = await supabase.auth.getUser()
-      
+
       if (authError || !user) {
         router.push("/login?type=faculty")
         return
       }
-      
-      // Check if user has sanjivani.edu.in email
-      const email = user.email
-      if (!email?.endsWith('@sanjivani.edu.in')) {
-        toast({
-          title: "Access Denied",
-          description: "Only Sanjivani faculty members can access this system.",
-          variant: "destructive"
-        })
-        router.push("/login")
-        return
-      }
 
-      // Fetch faculty record
+      const email = user.email || ''
+
+      // Fetch faculty record — this is the source of truth for access
       const { data: facultyData, error } = await supabase
         .from('faculty')
         .select('*')
         .eq('email', email)
         .maybeSingle()
-      
-      if (!facultyData) {
-        // No faculty record - redirect to complete profile
-        router.push('/complete-profile')
-        return
-      }
-      
+
       if (error) {
         console.error("Error fetching faculty record:", error)
         toast({
@@ -127,7 +111,13 @@ export default function CreateAssignmentPage() {
         })
         return
       }
-      
+
+      if (!facultyData) {
+        // Faculty email but no profile yet — redirect to complete profile
+        router.push('/dashboard/complete-registration')
+        return
+      }
+
       setCurrentUser({
         id: facultyData.id,
         email: facultyData.email,
@@ -171,12 +161,12 @@ export default function CreateAssignmentPage() {
         setIsLoading(false)
         return
       }
-      
+
       // Normalize department to lowercase for consistent matching
       const normalizedDept = (formData.department || currentUser.department || '').toLowerCase().trim()
-      
+
       console.log('DEBUG: Creating assignment with department:', normalizedDept, 'target_years:', selectedYears)
-      
+
       const assignmentData = {
         title: formData.title,
         description: formData.description,
@@ -198,7 +188,7 @@ export default function CreateAssignmentPage() {
       }
 
       const createdAssignment = await SupabaseAssignmentService.createAssignment(assignmentData)
-      
+
       // If user wants to publish immediately, use secure publish function
       if (status === 'published') {
         const publishResult = await SupabaseAssignmentService.publishAssignment(createdAssignment.id)
@@ -441,7 +431,7 @@ export default function CreateAssignmentPage() {
         let description = ''
         const descMatch = content.match(/Description:\s*([\s\S]*?)(?=Objectives:|Questions:|Requirements:|Evaluation:|$)/i)
         const objMatch = content.match(/Objectives:\s*([\s\S]*?)(?=Questions:|Requirements:|Evaluation:|$)/i)
-        
+
         if (descMatch) {
           description = 'Description:\n' + descMatch[1].trim()
         }
@@ -457,7 +447,7 @@ export default function CreateAssignmentPage() {
         let submissionGuidelines = ''
         const reqMatch = content.match(/Requirements:\s*([\s\S]*?)(?=Evaluation:|Submission:|Guidelines:|$)/i)
         const evalMatch = content.match(/Evaluation:\s*([\s\S]*?)(?=Submission:|Guidelines:|$)/i)
-        
+
         if (reqMatch) {
           submissionGuidelines = 'Requirements:\n' + reqMatch[1].trim()
         }
@@ -475,7 +465,7 @@ export default function CreateAssignmentPage() {
 
         toast({
           title: "Assignment Generated",
-          description: data.fallback ? 
+          description: data.fallback ?
             "Assignment generated using fallback template. You can review and modify it before publishing." :
             "AI has generated your assignment content. You can review and modify it before publishing.",
         })
@@ -568,9 +558,8 @@ export default function CreateAssignmentPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <Card
-                className={`cursor-pointer transition-all duration-200 ${
-                  assignmentType === "normal" ? "ring-2 ring-blue-500 bg-blue-50" : "hover:shadow-md"
-                }`}
+                className={`cursor-pointer transition-all duration-200 ${assignmentType === "normal" ? "ring-2 ring-blue-500 bg-blue-50" : "hover:shadow-md"
+                  }`}
                 onClick={() => setAssignmentType("normal")}
               >
                 <CardContent className="p-6 text-center">
@@ -586,9 +575,8 @@ export default function CreateAssignmentPage() {
 
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <Card
-                className={`cursor-pointer transition-all duration-200 ${
-                  assignmentType === "ai" ? "ring-2 ring-purple-500 bg-purple-50" : "hover:shadow-md"
-                }`}
+                className={`cursor-pointer transition-all duration-200 ${assignmentType === "ai" ? "ring-2 ring-purple-500 bg-purple-50" : "hover:shadow-md"
+                  }`}
                 onClick={() => setAssignmentType("ai")}
               >
                 <CardContent className="p-6 text-center">
@@ -854,7 +842,7 @@ export default function CreateAssignmentPage() {
                         <span className="text-sm text-gray-500 px-3">OR</span>
                         <div className="w-full h-px bg-gray-300"></div>
                       </div>
-                      
+
                       <div className="space-y-2">
                         <Label htmlFor="fileUpload">Upload File to Generate Questions</Label>
                         <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-purple-400 transition-colors">
@@ -881,7 +869,7 @@ export default function CreateAssignmentPage() {
                             </div>
                           </label>
                         </div>
-                        
+
                         {uploadedFile && (
                           <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
                             <div className="flex items-center gap-2">
@@ -949,36 +937,112 @@ export default function CreateAssignmentPage() {
                     </Button>
 
                     {/* AI Generated Content Preview */}
-                    {formData.questions && (
-                      <div className="mt-8 space-y-6 bg-white p-5 rounded-lg border border-purple-100 shadow-sm">
-                        <div className="flex items-center gap-2 mb-4 border-b border-purple-100 pb-2">
-                          <Sparkles className="h-5 w-5 text-purple-600" />
-                          <h4 className="font-semibold text-purple-900">Generated Assignment Setup</h4>
-                        </div>
-                        
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="aiGeneratedQuestions">Generated Questions</Label>
-                            <Textarea
-                              id="aiGeneratedQuestions"
-                              value={formData.questions}
-                              onChange={(e) => setFormData((prev) => ({ ...prev, questions: e.target.value }))}
-                              rows={10}
-                              className="font-mono text-sm"
-                            />
+                    {(formData.questions || formData.description) && (
+                      <div className="mt-8 space-y-6">
+                        {/* Assignment Questions Section */}
+                        {formData.questions && (
+                          <div className="bg-white p-6 rounded-xl border-2 border-purple-200 shadow-lg">
+                            <div className="flex items-center justify-between mb-4 border-b border-purple-100 pb-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                                  <Sparkles className="h-4 w-4 text-purple-600" />
+                                </div>
+                                <h4 className="font-semibold text-purple-900 text-lg">Assignment Questions</h4>
+                                <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100">
+                                  {formData.questions.split('\n').filter(line => line.trim().match(/^\d+\./)).length} Questions
+                                </Badge>
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setFormData((prev) => ({ ...prev, questions: "" }))}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Clear
+                              </Button>
+                            </div>
+
+                            <div className="bg-gray-50 rounded-lg p-4 max-h-[400px] overflow-y-auto">
+                              <div className="space-y-3">
+                                {formData.questions.split('\n').map((line, idx) => {
+                                  const trimmedLine = line.trim()
+                                  if (!trimmedLine) return null
+
+                                  // Check if it's a question line (starts with number followed by period)
+                                  const isQuestion = trimmedLine.match(/^\d+\./)
+
+                                  return (
+                                    <div
+                                      key={idx}
+                                      className={`py-2 px-3 rounded-lg ${isQuestion
+                                          ? 'bg-white border border-purple-100 shadow-sm'
+                                          : 'text-gray-600 text-sm'
+                                        }`}
+                                    >
+                                      {isQuestion ? (
+                                        <div className="flex items-start gap-3">
+                                          <span className="font-semibold text-purple-600 min-w-[24px]">
+                                            {trimmedLine.match(/^\d+/)?.[0]}.
+                                          </span>
+                                          <span className="text-gray-800">{trimmedLine.replace(/^\d+\.\s*/, '')}</span>
+                                        </div>
+                                      ) : (
+                                        trimmedLine
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+
+                            <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
+                              <span>Review the questions above before publishing</span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const textarea = document.getElementById('aiGeneratedQuestions') as HTMLTextAreaElement
+                                  if (textarea) textarea.focus()
+                                }}
+                              >
+                                Edit Questions
+                              </Button>
+                            </div>
                           </div>
-                          
-                          <div className="space-y-2">
-                            <Label htmlFor="aiGeneratedGuidelines">Generated Requirements and Evaluation</Label>
-                            <Textarea
-                              id="aiGeneratedGuidelines"
-                              value={formData.submissionGuidelines}
-                              onChange={(e) => setFormData((prev) => ({ ...prev, submissionGuidelines: e.target.value }))}
-                              rows={6}
-                              className="font-mono text-sm"
-                            />
+                        )}
+
+                        {/* Requirements and Evaluation Section */}
+                        {formData.submissionGuidelines && (
+                          <div className="bg-white p-6 rounded-xl border border-blue-200 shadow-sm">
+                            <div className="flex items-center gap-2 mb-4 border-b border-blue-100 pb-2">
+                              <FileText className="h-5 w-5 text-blue-600" />
+                              <h4 className="font-semibold text-blue-900">Requirements and Evaluation</h4>
+                            </div>
+
+                            <div className="space-y-3">
+                              {formData.submissionGuidelines.split('\n').map((line, idx) => {
+                                const trimmedLine = line.trim()
+                                if (!trimmedLine) return null
+
+                                return (
+                                  <div key={idx} className="text-gray-700 text-sm leading-relaxed">
+                                    {trimmedLine}
+                                  </div>
+                                )
+                              })}
+                            </div>
                           </div>
-                        </div>
+                        )}
+
+                        {/* Hidden textarea for editing */}
+                        <Textarea
+                          id="aiGeneratedQuestions"
+                          value={formData.questions}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, questions: e.target.value }))}
+                          rows={10}
+                          className="hidden"
+                        />
                       </div>
                     )}
                   </div>

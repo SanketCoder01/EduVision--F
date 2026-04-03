@@ -39,10 +39,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate email domain
+    // Validate email domain - must be @sanjivani.edu.in for students
     if (!email.endsWith('@sanjivani.edu.in')) {
       return NextResponse.json(
-        { error: 'Invalid email domain. Please use @sanjivani.edu.in email.' },
+        { error: 'Invalid email domain. Students must use @sanjivani.edu.in email.' },
+        { status: 400 }
+      )
+    }
+    
+    // Block faculty emails from student registration
+    if (email.endsWith('@set.sanjivani.edu.in')) {
+      return NextResponse.json(
+        { error: 'Faculty emails cannot register as students. Please use student registration.' },
+        { status: 400 }
+      )
+    }
+    
+    // Block cafeteria emails
+    if (email.endsWith('@cafe.in')) {
+      return NextResponse.json(
+        { error: 'Cafeteria emails are not allowed for student registration.' },
         { status: 400 }
       )
     }

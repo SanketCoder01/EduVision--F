@@ -150,13 +150,18 @@ export default function StudentStudyMaterialsPage() {
         return m
       })
 
+      // Only show materials posted by faculty (must have faculty_id)
       const filtered = enhancedData.filter(m => {
         const mDept = normalizeDept(m.department || '')
         const mYear = normalizeYear(m.year || '')
         // We match if the material's department matches the student's department, or if material was uploaded across all depts/years.
         const matchesDept = !mDept || mDept === 'all' || mDept === myDept
         const matchesYear = !mYear || mYear === 'all' || mYear === myYear
-        return matchesDept && matchesYear
+        
+        // Only show faculty posts - must have faculty_id (exclude cafe owner posts)
+        const isFacultyPost = !!m.faculty_id
+        
+        return matchesDept && matchesYear && isFacultyPost
       })
 
       setStudyMaterials(filtered)
@@ -185,9 +190,9 @@ export default function StudentStudyMaterialsPage() {
   // Get faculty info from first material in group
   const getFacultyInfo = (key: string) => {
     const first = (grouped[key] || [])[0]
-    let name = first?.faculty_name || key
-    if (isUUID(name)) name = "Unknown Faculty" // hide raw UUID
-    return { name, email: first?.faculty_email || '' }
+    let name = first?.faculty_name || 'Faculty Member'
+    if (isUUID(name)) name = "Faculty Member" // hide raw UUID
+    return { name }
   }
 
   if (loading) return (
@@ -265,7 +270,6 @@ export default function StudentStudyMaterialsPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <h4 className="font-semibold text-gray-900 truncate">{info.name}</h4>
-                          {info.email && <p className="text-xs text-gray-400 truncate flex items-center gap-1 mt-0.5"><Mail className="w-3 h-3" />{info.email}</p>}
                         </div>
                         <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
                       </div>
@@ -301,9 +305,6 @@ export default function StudentStudyMaterialsPage() {
                 </div>
                 <div>
                   <CardTitle className="text-base">{getFacultyInfo(selectedFacultyKey).name}</CardTitle>
-                  {getFacultyInfo(selectedFacultyKey).email && (
-                    <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5"><Mail className="w-3 h-3" />{getFacultyInfo(selectedFacultyKey).email}</p>
-                  )}
                 </div>
               </div>
               {/* Search */}

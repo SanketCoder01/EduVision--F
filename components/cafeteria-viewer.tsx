@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Loader2, MapPin, Phone, Mail, ChefHat, Search, ChevronLeft, ChevronRight, Package, X, User, IndianRupee, Star, ZoomIn } from "lucide-react"
+import { Loader2, MapPin, Phone, Mail, ChefHat, Search, ChevronLeft, ChevronRight, Package, X, User, Star } from "lucide-react"
 
 interface CafeOwner {
   id: string; cafe_name: string; owner_name: string; address: string; phone: string
@@ -27,7 +27,6 @@ export default function CafeteriaViewer({ backHref = "/" }: { backHref?: string 
   const [selectedCafe, setSelectedCafe] = useState<CafeOwner | null>(null)
   const [selectedCategory, setSelectedCategory] = useState("All")
   const [search, setSearch] = useState("")
-  const [zoomedImage, setZoomedImage] = useState<string | null>(null)
   const [outerSlide, setOuterSlide] = useState<Record<string, number>>({})
   const [innerSlide, setInnerSlide] = useState(0)
   const channelRef = useRef<any>(null)
@@ -210,8 +209,8 @@ export default function CafeteriaViewer({ backHref = "/" }: { backHref?: string 
                     <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search dishes..." className="pl-9 h-9 text-sm" />
                   </div>
 
-                  {/* Item List */}
-                  <div className="space-y-2 max-h-96 overflow-y-auto pr-0.5">
+                  {/* Item List - Simple name-price format, no images */}
+                  <div className="space-y-1 max-h-96 overflow-y-auto pr-0.5">
                     {cafeItems(selectedCafe.id).length === 0 ? (
                       <div className="text-center py-10 text-gray-400">
                         <Package className="w-10 h-10 mx-auto mb-2 text-gray-200" />
@@ -219,28 +218,12 @@ export default function CafeteriaViewer({ backHref = "/" }: { backHref?: string 
                       </div>
                     ) : (
                       cafeItems(selectedCafe.id).map(item => (
-                        <motion.div key={item.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3 p-3 rounded-xl border border-gray-100 hover:border-orange-200 hover:bg-orange-50/40 transition-all">
-                          {item.image_url
-                            ? (
-                                <div className="relative w-20 h-20 flex-shrink-0 group/item cursor-pointer" onClick={() => setZoomedImage(item.image_url)}>
-                                  <img src={item.image_url} alt={item.name} className="w-full h-full object-cover rounded-xl border border-gray-100" />
-                                  <div className="absolute inset-0 bg-black/20 rounded-xl opacity-0 group-hover/item:opacity-100 transition-opacity flex items-center justify-center">
-                                    <ZoomIn className="w-5 h-5 text-white" />
-                                  </div>
-                                </div>
-                              )
-                            : <div className="w-20 h-20 bg-orange-50 rounded-xl flex items-center justify-center flex-shrink-0 border border-orange-100"><Package className="w-7 h-7 text-orange-200" /></div>
-                          }
+                        <motion.div key={item.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:border-orange-200 hover:bg-orange-50/40 transition-all">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <p className="font-semibold text-gray-900 text-sm">{item.name}</p>
-                                <Badge variant="outline" className="text-[10px] mt-0.5">{CAT_EMOJI[item.category]} {item.category}</Badge>
-                              </div>
-                              <span className="font-bold text-orange-500 text-base flex-shrink-0 bg-orange-50 px-2 py-0.5 rounded-lg">₹{item.price}</span>
-                            </div>
-                            {item.description && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{item.description}</p>}
+                            <p className="font-medium text-gray-900 text-sm">{item.name}</p>
+                            <Badge variant="outline" className="text-[10px] mt-0.5">{CAT_EMOJI[item.category]} {item.category}</Badge>
                           </div>
+                          <span className="font-bold text-orange-600 text-base flex-shrink-0">₹{item.price}</span>
                         </motion.div>
                       ))
                     )}
@@ -248,27 +231,6 @@ export default function CafeteriaViewer({ backHref = "/" }: { backHref?: string 
                 </div>
               </div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Full Screen Image Zoom Overlay */}
-      <AnimatePresence>
-        {zoomedImage && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm"
-            onClick={() => setZoomedImage(null)}
-          >
-            <button className="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center text-white transition-colors">
-              <X className="w-6 h-6" />
-            </button>
-            <img 
-              src={zoomedImage} 
-              alt="Zoomed preview" 
-              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl ring-1 ring-white/10" 
-              onClick={e => e.stopPropagation()} 
-            />
           </motion.div>
         )}
       </AnimatePresence>

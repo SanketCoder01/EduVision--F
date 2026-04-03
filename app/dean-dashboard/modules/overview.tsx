@@ -6,15 +6,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { 
-  Users, 
-  TrendingUp, 
-  BookOpen, 
-  Award, 
-  Calendar, 
-  Code, 
-  BarChart3, 
-  GraduationCap, 
+import {
+  Users,
+  TrendingUp,
+  BookOpen,
+  Award,
+  Calendar,
+  Code,
+  BarChart3,
+  GraduationCap,
   Bot,
   Activity,
   CheckCircle,
@@ -43,10 +43,30 @@ const DEPT_COLORS: Record<string, string> = {
 }
 const YEAR_KEYS = ['1st', '2nd', '3rd', '4th']
 
+const DEPT_ALIASES: Record<string, string> = {
+  "computer science & engineering": "Computer Science & Engineering",
+  "computer science and engineering": "Computer Science & Engineering",
+  "cse": "Computer Science & Engineering",
+  "cyber security": "Cyber Security",
+  "cybersecurity": "Cyber Security",
+  "cyber": "Cyber Security",
+  "cy": "Cyber Security",
+  "ai & data science": "AI & Data Science",
+  "ai and data science": "AI & Data Science",
+  "aids": "AI & Data Science",
+  "ai & machine learning": "AI & Machine Learning",
+  "ai and machine learning": "AI & Machine Learning",
+  "aiml": "AI & Machine Learning",
+}
+function normalizeDept(raw: string) {
+  return DEPT_ALIASES[raw?.toLowerCase()?.trim()] || raw
+}
+
 interface DeptStats {
   name: string
   code: string
   students: number
+  faculty: number
   passRate: number
   color: string
 }
@@ -80,6 +100,19 @@ export default function OverviewModule({ dean }: { dean: any }) {
 
   const fetchOverviewData = async () => {
     try {
+      // 0. Fetch ALL faculty upfront and count by normalized dept
+      const { data: allFaculty } = await supabase
+        .from('faculty')
+        .select('id, department')
+      const facultyByDept: Record<string, number> = {}
+      Object.keys(DEPT_MAP).forEach(d => { facultyByDept[d] = 0 })
+        ; (allFaculty || []).forEach(f => {
+          const canonical = normalizeDept(f.department || '')
+          if (facultyByDept[canonical] !== undefined) {
+            facultyByDept[canonical]++
+          }
+        })
+
       // 1. Count students across all 16 sharded tables
       let totalStudents = 0
       const deptStatsArr: DeptStats[] = []
@@ -109,10 +142,12 @@ export default function OverviewModule({ dean }: { dean: any }) {
           name: deptName,
           code: DEPT_CODES[deptName],
           students: deptTotal,
+          faculty: facultyByDept[deptName] || 0,
           passRate,
           color: DEPT_COLORS[deptName],
         })
       }
+
 
       // 2. Count active faculty
       const { count: facultyCount } = await supabase

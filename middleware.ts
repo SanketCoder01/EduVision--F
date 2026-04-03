@@ -86,26 +86,44 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(new URL('/login', req.url))
     }
 
-    // Check role-based access
-    const userType = session.user.user_metadata?.user_type || 
-                    session.user.app_metadata?.user_type
+    // Check role-based access using email domain
+    const userEmail = session.user.email || ''
+    const isSanjivaniEmail = userEmail.endsWith('@sanjivani.edu.in') || userEmail.endsWith('@set.sanjivani.edu.in')
+    const isStudentEmail = userEmail.endsWith('@sanjivani.edu.in') && !userEmail.endsWith('@set.sanjivani.edu.in')
+    const isCafeEmail = userEmail.endsWith('@cafe.in')
+    
+    // Look for user_metadata.user_type if it exists (set by our trigger/auth config)
+    const userType = session.user.user_metadata?.user_type || session.user.app_metadata?.user_type
 
     // Faculty routes protection
     if (facultyRoutes.some(r => pathname.startsWith(r))) {
-      if (userType !== 'faculty') {
+      // Block cafe emails from faculty dashboard
+      if (isCafeEmail) {
+        return NextResponse.redirect(new URL('/login', req.url))
+      }
+      
+      // We allow anyone with a sanjivani email or explicitly tagged as faculty
+      if (!isSanjivaniEmail && userType !== 'faculty') {
         return NextResponse.redirect(new URL('/student-dashboard', req.url))
       }
     }
 
     // Student routes protection
     if (studentRoutes.some(r => pathname.startsWith(r))) {
-      if (userType !== 'student') {
+      // Block cafe emails from student dashboard
+      if (isCafeEmail) {
+        return NextResponse.redirect(new URL('/login', req.url))
+      }
+      // Only allow student emails
+      if (!isStudentEmail) {
         return NextResponse.redirect(new URL('/dashboard', req.url))
       }
     }
 
     // Admin routes protection
     if (adminRoutes.some(r => pathname.startsWith(r))) {
+      const userType = session.user.user_metadata?.user_type || 
+                      session.user.app_metadata?.user_type
       if (userType !== 'admin') {
         return NextResponse.redirect(new URL('/login', req.url))
       }

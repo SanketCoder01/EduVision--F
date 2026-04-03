@@ -62,16 +62,15 @@ export default function CreateStudyGroupsPage() {
           return
         }
 
-        setFacultyId(user.id) // This is the real auth UUID that study_groups list will query
-
-        // Fetch faculty profile from DB
+        // Fetch faculty profile from DB to get actual faculty record ID
         const { data, error } = await supabase
           .from('faculty')
-          .select('department, name')
+          .select('id, department, name')
           .eq('id', user.id)
           .maybeSingle()
 
         if (data) {
+          setFacultyId(data.id) // Use the actual faculty record ID
           if (data.department) {
             setFacultyDepartment(data.department)
             setDepartment(data.department)
@@ -83,10 +82,11 @@ export default function CreateStudyGroupsPage() {
           // Fallback to email-based lookup
           const { data: emailData } = await supabase
             .from('faculty')
-            .select('department, name')
+            .select('id, department, name')
             .eq('email', user.email)
             .maybeSingle()
           if (emailData) {
+            setFacultyId(emailData.id) // Use the actual faculty record ID
             if (emailData.department) {
               setFacultyDepartment(emailData.department)
               setDepartment(emailData.department)
@@ -302,6 +302,16 @@ export default function CreateStudyGroupsPage() {
         let_students_decide: letStudentsDecide,
         created_at: new Date().toISOString(),
       }
+
+      console.log('Creating study group with faculty_id:', facultyId, 'faculty_name:', facultyName)
+      console.log('Faculty data being inserted:', {
+        name: className,
+        subject: subject,
+        faculty_id: facultyId,
+        faculty: facultyName,
+        department: department,
+        year: year
+      })
 
       // Save to Supabase
       const { data: savedClass, error: saveError } = await supabase
