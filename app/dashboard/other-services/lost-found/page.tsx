@@ -21,8 +21,8 @@ import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { CalendarIcon, Search, MapPin, Clock, User, Phone, Mail, Info, ThumbsUp, Eye, AlertTriangle, ArrowLeft, Upload, Loader2, Package } from "lucide-react"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co')
+const supabaseKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder')
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 interface LostFoundItem {

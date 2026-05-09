@@ -22,8 +22,8 @@ import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { AlertCircle, Search, Calendar, User, MessageSquare, FileText, AlertTriangle, CheckCircle, Eye, Lock, ArrowLeft, Send, Loader2, Upload, XCircle } from "lucide-react"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co')
+const supabaseKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder')
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 interface Grievance {

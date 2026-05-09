@@ -487,8 +487,8 @@ export default function StudentAssignmentCompilerPage({ params }: { params: { id
     try {
       // Get current user
       const { createClient } = await import("@supabase/supabase-js")
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co')
+      const supabaseKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder')
       const supabase = createClient(supabaseUrl, supabaseKey)
       
       const { data: { user } } = await supabase.auth.getUser()

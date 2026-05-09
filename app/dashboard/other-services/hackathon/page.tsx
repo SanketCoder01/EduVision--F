@@ -23,8 +23,8 @@ import {
   Upload, Globe, Zap, Trash2, Loader2, AlertCircle, Eye, Download
 } from "lucide-react"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co')
+const supabaseKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder')
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 const categories = [
