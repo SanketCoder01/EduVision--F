@@ -8,8 +8,8 @@ export async function POST(request: NextRequest) {
   
   try {
     // Create Supabase client with service role for storage operations
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+    const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co')
+    const supabaseServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder')
     
     console.log('DEBUG UPLOAD: Supabase URL:', supabaseUrl ? 'Set' : 'Missing')
     console.log('DEBUG UPLOAD: Service key:', supabaseServiceKey ? 'Set' : 'Missing')

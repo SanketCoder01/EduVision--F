@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder'
 const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
 
 // GET - Fetch announcements for student or faculty
@@ -88,8 +88,8 @@ export async function POST(request: NextRequest) {
 
     // Validate required fields
     if (!title || !content || !faculty_id) {
-      return NextResponse.json({ 
-        error: 'Title, content, and faculty ID are required' 
+      return NextResponse.json({
+        error: 'Title, content, and faculty ID are required'
       }, { status: 400 })
     }
 
@@ -117,8 +117,8 @@ export async function POST(request: NextRequest) {
     console.log('DEBUG API: Insert error:', error)
 
     if (error) {
-      return NextResponse.json({ 
-        error: `Failed to create announcement: ${error.message}` 
+      return NextResponse.json({
+        error: `Failed to create announcement: ${error.message}`
       }, { status: 500 })
     }
 
@@ -133,10 +133,10 @@ export async function POST(request: NextRequest) {
       priority
     )
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       data: announcement,
-      message: 'Announcement created successfully' 
+      message: 'Announcement created successfully'
     })
   } catch (error: any) {
     console.error('Error creating announcement:', error)
@@ -166,15 +166,15 @@ export async function PUT(request: NextRequest) {
       .single()
 
     if (error) {
-      return NextResponse.json({ 
-        error: `Failed to update announcement: ${error.message}` 
+      return NextResponse.json({
+        error: `Failed to update announcement: ${error.message}`
       }, { status: 500 })
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       data: announcement,
-      message: 'Announcement updated successfully' 
+      message: 'Announcement updated successfully'
     })
   } catch (error: any) {
     console.error('Error updating announcement:', error)
@@ -199,14 +199,14 @@ export async function DELETE(request: NextRequest) {
       .eq('id', id)
 
     if (error) {
-      return NextResponse.json({ 
-        error: `Failed to delete announcement: ${error.message}` 
+      return NextResponse.json({
+        error: `Failed to delete announcement: ${error.message}`
       }, { status: 500 })
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
-      message: 'Announcement deleted successfully' 
+      message: 'Announcement deleted successfully'
     })
   } catch (error: any) {
     console.error('Error deleting announcement:', error)
