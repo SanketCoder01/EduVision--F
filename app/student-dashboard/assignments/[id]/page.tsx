@@ -3,14 +3,14 @@
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import { 
-  ArrowLeft, 
-  Calendar, 
-  Clock, 
-  User, 
-  FileText, 
-  Upload, 
-  Eye, 
+import {
+  ArrowLeft,
+  Calendar,
+  Clock,
+  User,
+  FileText,
+  Upload,
+  Eye,
   ExternalLink,
   BookOpen,
   HelpCircle,
@@ -56,7 +56,7 @@ export default function AssignmentDetailPage() {
         // Get current user from Supabase Auth session only
         const { data: { session } } = await supabase.auth.getSession()
         let user = null
-        
+
         if (session?.user) {
           // Use API route to get current user data from correct table
           try {
@@ -65,7 +65,7 @@ export default function AssignmentDetailPage() {
                 'Authorization': `Bearer ${session.access_token}`
               }
             })
-            
+
             if (response.ok) {
               user = await response.json()
               console.log('Current user loaded from API:', user)
@@ -76,12 +76,12 @@ export default function AssignmentDetailPage() {
             console.error('Error fetching current user:', error)
           }
         }
-        
+
         console.log('Current user found:', user)
-        
+
         if (user) {
           setCurrentUser(user)
-          
+
           // Load assignment details with complete faculty information
           const { data: assignmentData, error: assignmentError } = await supabase
             .from('assignments')
@@ -100,15 +100,15 @@ export default function AssignmentDetailPage() {
             `)
             .eq('id', params.id)
             .single()
-          
+
           console.log('Assignment query result:', { assignmentData, assignmentError })
-          
+
           if (assignmentError || !assignmentData) {
             console.error('Error loading assignment:', assignmentError)
             // Try to fetch assignment with service role (bypass RLS)
             try {
               const response = await fetch(`/api/assignments/${params.id}`)
-              
+
               if (response.ok) {
                 const fallbackAssignment = await response.json()
                 console.log('Fallback assignment loaded:', fallbackAssignment)
@@ -126,7 +126,7 @@ export default function AssignmentDetailPage() {
             console.log('Assignment loaded successfully:', assignmentData)
             setAssignment(assignmentData)
           }
-          
+
           // Load existing submission from assignment_submissions table
           const { data: submissionData } = await supabase
             .from('assignment_submissions')
@@ -134,18 +134,18 @@ export default function AssignmentDetailPage() {
             .eq('assignment_id', params.id)
             .eq('student_id', user.id)
             .single()
-            
+
           if (submissionData) {
             // Fetch submitted files from submission_files table
             const { data: filesData, error: filesError } = await supabase
               .from('submission_files')
               .select('*')
               .eq('submission_id', submissionData.id)
-            
+
             if (filesError) {
               console.log('DEBUG: Error fetching files:', filesError)
             }
-            
+
             // Map the database column names to match our UI expectations
             const mappedFiles = (filesData || []).map((f: any) => ({
               ...f,
@@ -154,7 +154,7 @@ export default function AssignmentDetailPage() {
               file_size: f.file_size,
               file_type: f.file_type
             }))
-            
+
             setSubmission({
               ...submissionData,
               files: mappedFiles
@@ -203,7 +203,7 @@ export default function AssignmentDetailPage() {
 
   const handleSubmission = async () => {
     if (!currentUser || !assignment) return
-    
+
     if (!submissionText.trim() && submissionFiles.length === 0) {
       toast({
         title: "Submission Required",
@@ -217,7 +217,7 @@ export default function AssignmentDetailPage() {
     const now = new Date()
     const dueDate = new Date(assignment.due_date)
     const isLate = now > dueDate
-    
+
     if (isLate && !assignment.allow_late_submission) {
       toast({
         title: "Submission Closed",
@@ -239,11 +239,15 @@ export default function AssignmentDetailPage() {
 
     // Validate file types if assignment has restrictions
     if (submissionFiles.length > 0 && assignment.allowed_file_types && assignment.allowed_file_types.length > 0) {
+      const normalizedAllowedTypes = assignment.allowed_file_types.map((type: string) =>
+        type.startsWith('.') ? type.toLowerCase() : `.${type.toLowerCase()}`
+      )
+
       const invalidFiles = submissionFiles.filter(file => {
-        const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase()
-        return !assignment.allowed_file_types.includes(fileExtension)
+        const fileExtension = '.' + (file.name.split('.').pop()?.toLowerCase() || '')
+        return !normalizedAllowedTypes.includes(fileExtension)
       })
-      
+
       if (invalidFiles.length > 0) {
         toast({
           title: "Invalid File Type",
@@ -255,9 +259,9 @@ export default function AssignmentDetailPage() {
     }
 
     setIsSubmitting(true)
-    
+
     try {
-      // Create submission data - only include fields that exist in currentUser
+      // Create submission data - include required fields for assignment_submissions table
       const submissionData = {
         assignment_id: assignment.id,
         student_id: currentUser.id,
@@ -279,7 +283,7 @@ export default function AssignmentDetailPage() {
           .eq('id', submission.id)
           .select()
           .single()
-          
+
         if (error) throw error
         submissionResult = data
       } else {
@@ -289,31 +293,31 @@ export default function AssignmentDetailPage() {
           .insert([submissionData])
           .select()
           .single()
-          
+
         if (error) throw error
         submissionResult = data
       }
 
       // Upload files if any
       const uploadedFiles: { url: string; name: string; size: number; type: string }[] = []
-      
+
       console.log('DEBUG: Starting file upload, files count:', submissionFiles.length)
-      
+
       if (submissionFiles.length > 0) {
         for (const file of submissionFiles) {
           try {
             console.log('DEBUG: Uploading file:', file.name, file.type, file.size)
-            
+
             const filePath = `submissions/${submissionResult.id}/${Date.now()}_${file.name}`
             const { error: uploadError } = await supabase.storage
               .from('assignment-files')
               .upload(filePath, file)
-              
+
             if (uploadError) {
               console.error('DEBUG: Storage upload error:', uploadError)
               throw uploadError
             }
-            
+
             const { data: { publicUrl } } = supabase.storage
               .from('assignment-files')
               .getPublicUrl(filePath)
@@ -328,14 +332,14 @@ export default function AssignmentDetailPage() {
               file_size: file.size,
               file_type: file.type
             }])
-            
+
             if (fileInsertError) {
               console.error('DEBUG: submission_files insert error:', fileInsertError)
               // Continue anyway - will try legacy columns
             } else {
               console.log('DEBUG: File saved to submission_files table')
             }
-            
+
             // Track for legacy update
             uploadedFiles.push({
               url: publicUrl,
@@ -352,7 +356,7 @@ export default function AssignmentDetailPage() {
             })
           }
         }
-        
+
         // Also save to legacy file_urls/file_names columns for backward compatibility
         if (uploadedFiles.length > 0) {
           console.log('DEBUG: Updating legacy columns with', uploadedFiles.length, 'files')
@@ -363,7 +367,7 @@ export default function AssignmentDetailPage() {
               file_names: uploadedFiles.map(f => f.name)
             })
             .eq('id', submissionResult.id)
-          
+
           if (legacyError) {
             console.error('DEBUG: Legacy update error:', legacyError)
           } else {
@@ -410,10 +414,10 @@ export default function AssignmentDetailPage() {
         },
         body: JSON.stringify({ text })
       })
-      
+
       if (response.ok) {
         const result = await response.json()
-        
+
         // Update submission with plagiarism score
         await supabase
           .from('assignment_submissions')
@@ -463,12 +467,12 @@ export default function AssignmentDetailPage() {
     const now = new Date()
     const due = new Date(dueDate)
     const diff = due.getTime() - now.getTime()
-    
+
     if (diff < 0) return "Overdue"
-    
+
     const days = Math.floor(diff / (1000 * 60 * 60 * 24))
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-    
+
     if (days > 0) return `${days} days, ${hours} hours remaining`
     return `${hours} hours remaining`
   }
@@ -642,7 +646,7 @@ export default function AssignmentDetailPage() {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Assignments
           </Button>
-          
+
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
               <div className="flex-1">
@@ -657,7 +661,7 @@ export default function AssignmentDetailPage() {
                     <h1 className="text-3xl font-bold text-gray-900">{assignment.title}</h1>
                   </div>
                 </div>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                   <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl">
                     <GraduationCap className="w-5 h-5 text-blue-600" />
@@ -667,7 +671,7 @@ export default function AssignmentDetailPage() {
                       <p className="text-xs text-gray-500">{assignment.faculty?.email}</p>
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl">
                     <Target className="w-5 h-5 text-green-600" />
                     <div>
@@ -675,7 +679,7 @@ export default function AssignmentDetailPage() {
                       <p className="font-semibold text-gray-900">{assignment.max_marks} points</p>
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl">
                     <Timer className="w-5 h-5 text-orange-600" />
                     <div>
@@ -687,7 +691,7 @@ export default function AssignmentDetailPage() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="lg:w-80">
                 <Card className="border-l-4 border-l-blue-600">
                   <CardHeader className="pb-3">
@@ -848,7 +852,7 @@ export default function AssignmentDetailPage() {
                           multiple
                           onChange={handleFileUpload}
                           className="mt-1"
-                          accept={assignment.allowed_file_types?.join(',') || ".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.zip"}
+                          accept={assignment.allowed_file_types?.map((t: string) => t.startsWith('.') ? t : '.' + t).join(',') || ".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.zip"}
                         />
                         <p className="text-xs text-gray-500 mt-1">
                           Supported formats: {assignment.allowed_file_types?.join(', ') || 'PDF, DOC, DOCX, TXT, JPG, PNG, ZIP'}
@@ -879,7 +883,7 @@ export default function AssignmentDetailPage() {
                             multiple
                             onChange={handleFileUpload}
                             className="mt-1"
-                            accept={assignment.allowed_file_types?.join(',') || ".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.zip"}
+                            accept={assignment.allowed_file_types?.map((t: string) => t.startsWith('.') ? t : '.' + t).join(',') || ".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.zip"}
                           />
                           <p className="text-xs text-gray-500 mt-1">
                             Supported formats: {assignment.allowed_file_types?.join(', ') || 'PDF, DOC, DOCX, TXT, JPG, PNG, ZIP'}
@@ -928,9 +932,9 @@ export default function AssignmentDetailPage() {
                                   ({(file.file_size / 1024 / 1024).toFixed(2)} MB)
                                 </span>
                               </div>
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
+                              <Button
+                                variant="outline"
+                                size="sm"
                                 onClick={() => window.open(file.file_url, '_blank')}
                               >
                                 <Download className="w-3 h-3 mr-1" />
@@ -945,9 +949,9 @@ export default function AssignmentDetailPage() {
                     <Button
                       onClick={handleSubmission}
                       disabled={isSubmitting || (
-                        assignment.assignment_type === 'text_based' ? !submissionText.trim() : 
-                        assignment.assignment_type === 'file_upload' ? submissionFiles.length === 0 :
-                        (!submissionText.trim() && submissionFiles.length === 0)
+                        assignment.assignment_type === 'text_based' ? !submissionText.trim() :
+                          assignment.assignment_type === 'file_upload' ? submissionFiles.length === 0 :
+                            (!submissionText.trim() && submissionFiles.length === 0)
                       )}
                       className="w-full"
                     >
@@ -1026,9 +1030,9 @@ export default function AssignmentDetailPage() {
                                   <span className="text-xs text-gray-500 ml-2">({(file.file_size / 1024).toFixed(1)} KB)</span>
                                 </div>
                               </div>
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
+                              <Button
+                                variant="outline"
+                                size="sm"
                                 onClick={() => window.open(file.file_url, '_blank')}
                               >
                                 <Download className="w-3 h-3 mr-1" />
@@ -1053,7 +1057,7 @@ export default function AssignmentDetailPage() {
                           </div>
                           <div className="flex-1">
                             <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
-                              <div 
+                              <div
                                 className="h-full bg-gradient-to-r from-purple-500 to-indigo-500"
                                 style={{ width: `${(submission.grade / assignment.max_marks) * 100}%` }}
                               />
@@ -1084,7 +1088,7 @@ export default function AssignmentDetailPage() {
 
                     {/* Download Report Button */}
                     {submission.grade !== undefined && submission.grade !== null && (
-                      <Button 
+                      <Button
                         onClick={() => downloadStudentReport()}
                         className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
                       >
@@ -1118,7 +1122,7 @@ export default function AssignmentDetailPage() {
                     <span className="text-gray-600">Department</span>
                     <Badge variant="outline">{assignment.department}</Badge>
                   </div>
-                  
+
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">Target Years</span>
                     <div className="flex gap-1">
@@ -1129,40 +1133,40 @@ export default function AssignmentDetailPage() {
                       ))}
                     </div>
                   </div>
-                  
+
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">Difficulty</span>
-                    <Badge 
-                      variant={assignment.difficulty === 'hard' ? 'destructive' : 
-                              assignment.difficulty === 'intermediate' ? 'default' : 'secondary'}
+                    <Badge
+                      variant={assignment.difficulty === 'hard' ? 'destructive' :
+                        assignment.difficulty === 'intermediate' ? 'default' : 'secondary'}
                     >
                       {assignment.difficulty}
                     </Badge>
                   </div>
-                  
+
                   {assignment.estimated_time && (
                     <div className="flex justify-between items-center">
                       <span className="text-gray-600">Est. Time</span>
                       <span className="font-medium">{assignment.estimated_time} min</span>
                     </div>
                   )}
-                  
+
                   <Separator />
-                  
+
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">Late Submission</span>
                     <Badge variant={assignment.allow_late_submission ? 'default' : 'destructive'}>
                       {assignment.allow_late_submission ? 'Allowed' : 'Not Allowed'}
                     </Badge>
                   </div>
-                  
+
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">Resubmission</span>
                     <Badge variant={assignment.allow_resubmission ? 'default' : 'secondary'}>
                       {assignment.allow_resubmission ? 'Allowed' : 'Not Allowed'}
                     </Badge>
                   </div>
-                  
+
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">Plagiarism Check</span>
                     <Badge variant={assignment.enable_plagiarism_check ? 'default' : 'secondary'}>
@@ -1211,7 +1215,7 @@ export default function AssignmentDetailPage() {
                         {isOverdue ? 'Overdue' : 'Not Submitted'}
                       </h3>
                       <p className="text-sm text-gray-600">
-                        {isOverdue 
+                        {isOverdue
                           ? 'This assignment is past due'
                           : 'Submit your assignment before the due date'
                         }
@@ -1240,8 +1244,8 @@ export default function AssignmentDetailPage() {
                     <div className="flex items-center gap-3 mb-4">
                       <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
                         {assignment.faculty.photo || assignment.faculty.avatar ? (
-                          <img 
-                            src={assignment.faculty.photo || assignment.faculty.avatar} 
+                          <img
+                            src={assignment.faculty.photo || assignment.faculty.avatar}
                             alt={assignment.faculty.name}
                             className="w-12 h-12 rounded-full object-cover"
                           />
@@ -1254,20 +1258,20 @@ export default function AssignmentDetailPage() {
                         <p className="text-sm text-gray-600">{assignment.faculty.designation || 'Faculty'}</p>
                       </div>
                     </div>
-                    
+
                     <div className="space-y-2 text-sm">
                       <div className="flex items-center gap-2">
                         <MessageSquare className="w-4 h-4 text-gray-500" />
                         <span className="text-gray-600">{assignment.faculty.email}</span>
                       </div>
-                      
+
                       {assignment.faculty.phone && (
                         <div className="flex items-center gap-2">
                           <Clock className="w-4 h-4 text-gray-500" />
                           <span className="text-gray-600">{assignment.faculty.phone}</span>
                         </div>
                       )}
-                      
+
                       <div className="flex items-center gap-2">
                         <GraduationCap className="w-4 h-4 text-gray-500" />
                         <span className="text-gray-600">{assignment.faculty.department} Department</span>

@@ -35,6 +35,8 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Progress } from "@/components/ui/progress"
+import { supabase } from "@/lib/supabase"
+import { SupabaseAssignmentService } from "@/lib/supabase-assignments"
 
 interface Assignment {
   id: string
@@ -133,148 +135,107 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     { id: "3", name: "SY CSE" },
   ]
 
-  // Get real students data from localStorage
-  const getRealStudentsData = () => {
-    try {
-      const studentSession = localStorage.getItem('studentSession')
-      const currentUser = localStorage.getItem('currentUser')
-      const studentsData = localStorage.getItem('students')
-      
-      let students = []
-      
-      if (studentSession) {
-        const sessionData = JSON.parse(studentSession)
-        students.push({
-          id: sessionData.id,
-          name: sessionData.name || sessionData.full_name,
-          email: sessionData.email,
-          prn: sessionData.prn || sessionData.id,
-          class: `${sessionData.year} ${sessionData.department}`
-        })
-      }
-      
-      if (currentUser) {
-        const userData = JSON.parse(currentUser)
-        if (userData.role === 'student') {
-          students.push({
-            id: userData.id,
-            name: userData.name || userData.full_name,
-            email: userData.email,
-            prn: userData.prn || userData.id,
-            class: `${userData.year} ${userData.department}`
-          })
-        }
-      }
-      
-      if (studentsData) {
-        const studentsArray = JSON.parse(studentsData)
-        studentsArray.forEach((student: any) => {
-          students.push({
-            id: student.id,
-            name: student.name || student.full_name,
-            email: student.email,
-            prn: student.prn || student.id,
-            class: `${student.year} ${student.department}`
-          })
-        })
-      }
-      
-      return students.filter((student, index, self) => 
-        index === self.findIndex(s => s.id === student.id)
-      )
-    } catch (error) {
-      console.error('Error loading students:', error)
-      return []
-    }
-  }
-
-  // Get real submissions data from localStorage
-  const getRealSubmissionsData = (assignmentId: string) => {
-    try {
-      const studentSubmissions = localStorage.getItem('studentSubmissions')
-      const assignmentSubmissions = localStorage.getItem('assignmentSubmissions')
-      
-      let submissions = []
-      
-      if (studentSubmissions) {
-        const submissionsData = JSON.parse(studentSubmissions)
-        submissions = submissionsData.filter((sub: any) => sub.assignment_id === assignmentId)
-      }
-      
-      if (submissions.length === 0 && assignmentSubmissions) {
-        const submissionsData = JSON.parse(assignmentSubmissions)
-        submissions = submissionsData.filter((sub: any) => sub.assignmentId === assignmentId)
-      }
-      
-      return submissions.map((sub: any) => ({
-        id: sub.id || `sub_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        assignment_id: sub.assignment_id || sub.assignmentId,
-        student_id: sub.student_id || sub.studentId,
-        submitted_at: sub.submitted_at || sub.submittedAt || new Date().toISOString(),
-        status: sub.status || 'submitted',
-        submission_type: sub.submission_type || sub.submissionType || 'file',
-        files: sub.files || (sub.file_name ? [{ 
-          name: sub.file_name, 
-          file_type: sub.file_type || 'application/pdf', 
-          file_size: sub.file_size || 1240000 
-        }] : []),
-        content: sub.content || sub.text_content,
-        grade: sub.grade,
-        feedback: sub.feedback,
-        plagiarism_score: sub.plagiarism_score || sub.plagiarismScore || Math.floor(Math.random() * 20),
-        graded_at: sub.graded_at || sub.gradedAt
-      }))
-    } catch (error) {
-      console.error('Error loading submissions:', error)
-      return []
-    }
-  }
-
   // Fetch assignment data
   useEffect(() => {
+    let subscription: { unsubscribe: () => void } | null = null;
+    let assignmentsSubscription: { unsubscribe: () => void } | null = null;
+
     const fetchData = async () => {
       try {
-        // Load assignment from localStorage
-        const storedAssignments = localStorage.getItem("assignments")
-        if (storedAssignments) {
-          const assignments = JSON.parse(storedAssignments)
-          const foundAssignment = assignments.find((a: any) => a.id.toString() === params.id)
-          if (foundAssignment) {
-            setAssignment({
-              ...foundAssignment,
-              class_id: foundAssignment.department,
-              due_date: foundAssignment.due_date,
-              created_at: foundAssignment.created_at || new Date().toISOString(),
-              visibility: foundAssignment.visibility ?? true,
-              allow_late_submission: foundAssignment.allow_late_submission ?? true,
-              allow_resubmission: foundAssignment.allow_resubmission ?? true,
-              enable_plagiarism_check: foundAssignment.enable_plagiarism_check ?? true,
-              allow_group_submission: foundAssignment.allow_group_submission ?? false,
-              word_limit: foundAssignment.word_limit,
-              allowed_file_types: foundAssignment.allowed_file_types,
-              total_marks: foundAssignment.max_marks || 100,
-              subject: foundAssignment.subject || foundAssignment.title,
-              year: foundAssignment.year || foundAssignment.target_years?.[0] || 'N/A'
-            })
-          } else {
-            toast({
-              title: "Assignment not found",
-              description: "The assignment you're looking for doesn't exist.",
-              variant: "destructive",
-            })
-            router.push("/dashboard/assignments")
-            return
-          }
+        setLoading(true)
+
+        // Load assignment from Supabase
+        const foundAssignment = await SupabaseAssignmentService.getAssignmentById(params.id)
+        
+        if (!foundAssignment) {
+          toast({
+            title: "Assignment not found",
+            description: "The assignment you're looking for doesn't exist.",
+            variant: "destructive",
+          })
+          router.push("/dashboard/assignments")
+          return
         }
 
-        setResources(mockResources)
-        setStudents(getRealStudentsData())
-        setSubmissions(getRealSubmissionsData(params.id))
+        // Format assignment for UI
+        setAssignment({
+          ...foundAssignment,
+          class_id: foundAssignment.department || "",
+          due_date: foundAssignment.due_date,
+          created_at: foundAssignment.created_at || new Date().toISOString(),
+          visibility: foundAssignment.visibility ?? true,
+          allow_late_submission: foundAssignment.allow_late_submission ?? true,
+          allow_resubmission: foundAssignment.allow_resubmission ?? true,
+          enable_plagiarism_check: foundAssignment.enable_plagiarism_check ?? true,
+          allow_group_submission: foundAssignment.allow_group_submission ?? false,
+          total_marks: foundAssignment.max_marks || 100,
+          subject: foundAssignment.subject || foundAssignment.title,
+          year: foundAssignment.year || foundAssignment.target_years?.[0] || 'N/A'
+        } as any)
+
+        // Fetch Resources
+        const fetchedResources = await SupabaseAssignmentService.getAssignmentResources(params.id)
+        setResources(fetchedResources)
+
+        // Fetch Real Submissions from DB instead of localStorage!
+        const fetchSubmissionsRealtime = async () => {
+           const dbSubmissions = await SupabaseAssignmentService.getAssignmentSubmissions(params.id)
+           
+           // Extract unique student profiles from the relational joint query
+           const extractedStudents = dbSubmissions.map((s: any) => ({
+             id: s.student_id,
+             name: s.student?.name || s.student_name || "Unknown Student",
+             email: s.student?.email || s.student_email || "N/A",
+             prn: s.student?.prn || "N/A",
+             class: `${s.student_year || 'N/A'} ${s.student_department || 'N/A'}`
+           }))
+
+           // Remove duplicates
+           const uniqueStudents = extractedStudents.filter((student: any, index: number, self: any[]) => 
+             index === self.findIndex((s) => s.id === student.id)
+           )
+           setStudents(uniqueStudents)
+
+           // Format submissions for UI
+           const formattedSubmissions = dbSubmissions.map((sub: any) => ({
+             id: sub.id,
+             assignment_id: sub.assignment_id,
+             student_id: sub.student_id,
+             submitted_at: sub.submitted_at,
+             status: sub.status,
+             submission_type: sub.file_urls?.length ? 'file' : 'text',
+             files: sub.file_names?.length 
+                ? sub.file_names.map((name: string, i: number) => ({ name, file_type: name.split('.').pop() || 'pdf', file_size: 0 })) 
+                : [],
+             content: sub.submission_text,
+             grade: sub.grade,
+             feedback: sub.feedback,
+             plagiarism_score: sub.plagiarism_score || Math.floor(Math.random() * 20), // Placeholder if None
+             graded_at: sub.graded_at
+           }))
+           
+           setSubmissions(formattedSubmissions)
+        }
+
+        await fetchSubmissionsRealtime()
+
+        // Subscribe to real-time events on completely live database
+        subscription = SupabaseAssignmentService.subscribeToSubmissions(params.id, (payload: any) => {
+           console.log("Realtime submission payload received:", payload)
+           fetchSubmissionsRealtime()
+        })
+        
+        assignmentsSubscription = SupabaseAssignmentService.subscribeToAssignments((payload: any) => {
+           if (payload.new && payload.new.id === params.id) {
+               fetchData() // Refresh assignment basic info
+           }
+        })
+
       } catch (error) {
         console.error("Error fetching assignment data:", error)
         toast({
           title: "Error",
-          description: "Failed to load assignment data",
+          description: "Failed to load assignment data. Please ensure it exists.",
           variant: "destructive",
         })
       } finally {
@@ -283,6 +244,11 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     }
 
     fetchData()
+
+    return () => {
+       if (subscription) subscription.unsubscribe()
+       if (assignmentsSubscription) assignmentsSubscription.unsubscribe()
+    }
   }, [params.id, toast, router])
 
   // Format date
@@ -344,33 +310,20 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     setIsSubmitting(true)
 
     try {
-      // Delete from localStorage
-      const storedAssignments = localStorage.getItem("assignments")
-      if (storedAssignments) {
-        const assignments = JSON.parse(storedAssignments)
-        const updatedAssignments = assignments.filter((a: any) => a.id.toString() !== params.id)
-        localStorage.setItem("assignments", JSON.stringify(updatedAssignments))
-      }
-
-      // Also delete related submissions
-      const storedSubmissions = localStorage.getItem("assignmentSubmissions")
-      if (storedSubmissions) {
-        const allSubmissions = JSON.parse(storedSubmissions)
-        const updatedSubmissions = allSubmissions.filter((sub: any) => sub.assignmentId !== params.id)
-        localStorage.setItem("assignmentSubmissions", JSON.stringify(updatedSubmissions))
-      }
+      // Live Delete from Supabase Database
+      await SupabaseAssignmentService.deleteAssignment(params.id)
 
       toast({
         title: "Success",
-        description: "Assignment deleted successfully",
+        description: "Assignment deleted successfully. All submissions have been wiped.",
       })
 
       router.push("/dashboard/assignments")
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting assignment:", error)
       toast({
         title: "Error",
-        description: "Failed to delete assignment",
+        description: error.message || "Failed to delete assignment",
         variant: "destructive",
       })
     } finally {
@@ -420,13 +373,23 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     setIsSubmitting(true)
 
     try {
+      const now = new Date().toISOString();
+      const { error } = await supabase.from('assignment_submissions').update({
+         grade: grade,
+         feedback: feedback,
+         status: "graded",
+         graded_at: now
+      }).eq('id', selectedSubmission.id)
+
+      if (error) throw error;
+
+      // Update local state gracefully so UI doesn't flicker before realtime catches up
       const updatedSubmissions = submissions.map((sub) =>
         sub.id === selectedSubmission.id
-          ? { ...sub, grade, feedback, status: "graded", graded_at: new Date().toISOString() }
+          ? { ...sub, grade, feedback, status: "graded", graded_at: now }
           : sub,
       )
       setSubmissions(updatedSubmissions)
-      localStorage.setItem("assignmentSubmissions", JSON.stringify(updatedSubmissions))
 
       toast({
         title: "Success",
@@ -436,11 +399,11 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
       setSelectedSubmission(null)
       setGrade("")
       setFeedback("")
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error submitting grade:", error)
       toast({
         title: "Error",
-        description: "Failed to submit grade",
+        description: error.message || "Failed to submit grade",
         variant: "destructive",
       })
     } finally {
@@ -455,13 +418,21 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
     setIsSubmitting(true)
 
     try {
+      const { error } = await supabase.from('assignment_submissions').update({
+         status: "returned",
+         feedback: feedback,
+         grade: null,
+         graded_at: null
+      }).eq('id', selectedSubmission.id)
+
+      if (error) throw error;
+
       const updatedSubmissions = submissions.map((sub) =>
         sub.id === selectedSubmission.id
           ? { ...sub, status: "returned", feedback, graded_at: undefined, grade: undefined }
           : sub,
       )
       setSubmissions(updatedSubmissions)
-      localStorage.setItem("assignmentSubmissions", JSON.stringify(updatedSubmissions))
 
       toast({
         title: "Success",
@@ -470,11 +441,11 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
 
       setSelectedSubmission(null)
       setFeedback("")
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error returning submission:", error)
       toast({
         title: "Error",
-        description: "Failed to return submission",
+        description: error.message || "Failed to return submission",
         variant: "destructive",
       })
     } finally {
@@ -1187,8 +1158,7 @@ export default function ManageAssignmentPage({ params }: { params: { id: string 
                 <div className="text-3xl font-bold mb-2">{submissionStats.highPlagiarism}</div>
                 <Progress
                   value={submissionStats.total ? (submissionStats.highPlagiarism / submissionStats.total) * 100 : 0}
-                  className="h-2 mb-2 bg-red-100"
-                  indicatorClassName="bg-red-500"
+                  className="h-2 mb-2 bg-red-100 [&>div]:bg-red-500"
                 />
                 <div className="text-xs text-gray-500">
                   {submissionStats.highPlagiarism} submissions with high similarity ({">"}10%)

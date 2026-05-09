@@ -42,6 +42,13 @@ export default function FacultyCompleteProfilePage() {
         return
       }
 
+      // DOMAIN GUARD: Only faculty emails allowed on this page
+      if (!user.email?.endsWith('@set.sanjivani.edu.in') && !user.email?.endsWith('@sanjivani.org.in')) {
+        // This is a student — send them to their complete-profile page
+        router.push('/student-complete-profile')
+        return
+      }
+
       setUserEmail(user.email || "")
 
       // Check faculty table
@@ -57,17 +64,18 @@ export default function FacultyCompleteProfilePage() {
           ...prev,
           name: data.name || prev.name,
           department: data.department || prev.department,
-          photo: data.photo || prev.photo
+          college_name: data.college_name || prev.college_name,
+          photo: data.photo || data.avatar || prev.photo
         }))
         
-        // If profile has all required fields, redirect to dashboard
-        if (data.department && data.college_name) {
+        // Profile is complete if they have name and department
+        if (data.name && data.department) {
           router.push('/dashboard')
           return
         }
       }
 
-      // Pre-fill name from Google auth if available
+      // Pre-fill name from Google/email auth if available
       if (user.user_metadata?.full_name) {
         setFormData(prev => ({ ...prev, name: user.user_metadata.full_name }))
       }

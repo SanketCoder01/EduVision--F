@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 
 // Groq API configuration
-const GROQ_API_KEY = process.env.GROQ_API_KEY || "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"
+const GROQ_API_KEY = process.env.GROQ_API_KEY || ""
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 export async function POST(request: NextRequest) {
@@ -14,10 +14,10 @@ export async function POST(request: NextRequest) {
 
     // Enhanced prompt with difficulty and file content
     let enhancedPrompt = prompt
-    
+
     if (difficulty) {
       enhancedPrompt += `\n\nDifficulty Level: ${difficulty}`
-      
+
       switch (difficulty.toLowerCase()) {
         case 'normal':
         case 'beginner':
@@ -32,19 +32,19 @@ export async function POST(request: NextRequest) {
           break
       }
     }
-    
+
     if (fileContent) {
       enhancedPrompt += `\n\nBased on the following file content, generate relevant questions and assignments:\n${fileContent}`
     }
 
     // System prompt for clean output
-    const systemPrompt = "You are an educational content creator. Generate assignments in simple plain text format.\n\nIMPORTANT RULES:\n1. Do NOT use any markdown symbols like asterisks, dashes, hash, underscores, backticks, tildes, or any special characters\n2. Do NOT use bold, italic, or any formatting\n3. Use plain numbers like 1, 2, 3 for lists (not bullets or dashes)\n4. Keep language simple and easy to understand\n5. Use clear section headings without symbols\n6. If file content is provided (PDF, DOCX, PPT), generate questions based on ALL pages and slides content\n7. For presentations, consider each slide as a topic and generate relevant questions\n8. For documents, cover all sections and key concepts\n9. Add blank lines between each section for readability\n10. Add blank lines between each question for readability\n\nOutput format should be:\n\nTitle: [Assignment Title]\n\nDescription: [Brief description]\n\nObjectives:\n\n1. [First objective]\n\n2. [Second objective]\n\nQuestions:\n\n1. [First question]\n\n2. [Second question]\n\nRequirements:\n\n1. [First requirement]\n\n2. [Second requirement]\n\nEvaluation:\n\n[How it will be graded]"
+    const systemPrompt = "You are an educational content creator. Generate assignments in simple plain text format.\n\nIMPORTANT RULES:\n1. Do NOT use any markdown symbols like asterisks, dashes, hash, underscores, backticks, tildes, or any special characters\n2. Do NOT use bold, italic, or any formatting\n3. Use plain numbers like 1, 2, 3 for lists (not bullets or dashes)\n4. Keep language simple and easy to understand\n5. Use clear section headings without symbols\n6. If file content is provided (PDF, DOCX, PPT), generate questions based on ALL pages and slides content\n7. For presentations, consider each slide as a topic and generate relevant questions\n8. For documents, cover all sections and key concepts\n9. ADD PROPER BLANK LINES between each section and between each question so they appear one by one, not as a single paragraph.\n10. DO NOT generate or include any 'Maximum Marks' or 'Total Marks' text inside your response. This is handled by our system automatically.\n11. STRICTLY MATCH the number of questions the user asks for in their prompt. If they ask for 2, 3, 4, 5, or any number, generate EXACTLY that many questions. If not specified, default to 3-5 questions.\n12. Ensure all questions generated are SIMPLE and straightforward.\n13. IMPORTANT FORMATTING: All the questions MUST be placed at the VERY END of the assignment text under the heading 'Questions:'. Number them cleanly as 1, 2, 3, etc.\n\nOutput format should be:\n\nTitle: [Assignment Title]\n\nDescription: [Brief description]\n\nObjectives:\n\n1. [First objective]\n\n2. [Second objective]\n\nRequirements:\n\n1. [First requirement]\n\n2. [Second requirement]\n\nEvaluation:\n\n[How it will be graded]\n\nQuestions:\n\n1. [First simple question]\n\n2. [Second simple question]\n\n3. [Third simple question]"
 
     // Call Groq API
     const response = await fetch(GROQ_API_URL, {
       method: "POST",
       headers: {
-        "Authorization": "Bearer " + GROQ_API_KEY,
+        "Authorization": "Bearer " + GROQ_API_KEY,/*  */
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -59,9 +59,10 @@ export async function POST(request: NextRequest) {
             content: enhancedPrompt
           }
         ],
-        temperature: 0.7,
-        max_completion_tokens: 8192,
+        temperature: 1,
+        max_completion_tokens: 4096,
         top_p: 1,
+        reasoning_effort: "medium",
         stream: false
       }),
     })
@@ -69,10 +70,10 @@ export async function POST(request: NextRequest) {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
       console.error("Groq API error:", response.status, errorData)
-      
+
       // Fallback to template-based generation
       const fallbackContent = generateSmartContent(prompt, difficulty)
-      return NextResponse.json({ 
+      return NextResponse.json({
         content: fallbackContent,
         fallback: true,
         message: "Generated using fallback template due to API issues"
@@ -88,12 +89,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ content })
   } catch (error) {
     console.error("Error calling Groq API:", error)
-    
+
     // Fallback to template-based generation
     const { prompt, difficulty } = await request.json().catch(() => ({ prompt: "", difficulty: "intermediate" }))
     const fallbackContent = generateSmartContent(prompt, difficulty)
-    
-    return NextResponse.json({ 
+
+    return NextResponse.json({
       content: fallbackContent,
       fallback: true,
       message: "Generated using fallback template due to API issues"
@@ -139,7 +140,7 @@ function cleanContent(content: string): string {
     .replace(/[*_~-]{2,}/g, '')
     // Clean up excessive whitespace
     .replace(/\n{3,}/g, '\n\n')
-    .replace(/\s{2,}/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
     // Remove any remaining special formatting characters at line starts
     .replace(/^[\s*_-]+/gm, '')
     .trim()
@@ -184,7 +185,7 @@ Submission Guidelines:
 3. Provide test cases and results
 4. Document any assumptions made`
     }
-    
+
     if (lowerPrompt.includes("database") || lowerPrompt.includes("sql") || lowerPrompt.includes("data")) {
       const difficultyText = getDifficultyBasedContent(difficulty)
       return `Database Assignment: Data Modeling and Query Design (${difficulty.toUpperCase()} Level)
@@ -219,7 +220,7 @@ Submission Guidelines:
 3. Provide sample data
 4. Document design decisions`
     }
-    
+
     if (lowerPrompt.includes("web") || lowerPrompt.includes("frontend") || lowerPrompt.includes("ui")) {
       const difficultyText = getDifficultyBasedContent(difficulty)
       return `Web Development Assignment: Frontend Application (${difficulty.toUpperCase()} Level)

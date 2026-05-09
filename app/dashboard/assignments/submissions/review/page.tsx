@@ -30,6 +30,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { supabase } from "@/lib/supabase"
+import { SupabaseAssignmentService } from "@/lib/supabase-assignments"
 
 export default function FacultySubmissionReviewPage() {
   const { toast } = useToast()
@@ -41,67 +43,55 @@ export default function FacultySubmissionReviewPage() {
   const [filterStatus, setFilterStatus] = useState("all")
 
   useEffect(() => {
-    const loadSubmissions = () => {
-      const storedSubmissions = JSON.parse(localStorage.getItem("assignment_submissions") || "[]")
-      
-      // Add sample submissions if none exist
-      if (storedSubmissions.length === 0) {
-        const sampleSubmissions = [
-          {
-            id: "sub_001",
-            assignmentId: "assignment-1",
-            assignmentTitle: "Data Structures Implementation",
-            studentId: "student_001",
-            studentName: "Alice Johnson",
-            code: `#include <iostream>\nusing namespace std;\n\nclass BST {\nprivate:\n    struct Node {\n        int data;\n        Node* left;\n        Node* right;\n        Node(int val) : data(val), left(nullptr), right(nullptr) {}\n    };\n    Node* root;\n\npublic:\n    BST() : root(nullptr) {}\n    \n    void insert(int val) {\n        root = insertHelper(root, val);\n    }\n    \n    Node* insertHelper(Node* node, int val) {\n        if (node == nullptr) {\n            return new Node(val);\n        }\n        if (val < node->data) {\n            node->left = insertHelper(node->left, val);\n        } else {\n            node->right = insertHelper(node->right, val);\n        }\n        return node;\n    }\n    \n    bool search(int val) {\n        return searchHelper(root, val);\n    }\n    \n    bool searchHelper(Node* node, int val) {\n        if (node == nullptr) return false;\n        if (node->data == val) return true;\n        if (val < node->data) {\n            return searchHelper(node->left, val);\n        }\n        return searchHelper(node->right, val);\n    }\n};`,
-            language: "cpp",
-            submittedAt: new Date(Date.now() - 3600000).toISOString(),
+    const loadSubmissions = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+
+        // Fetch all assignments created by this faculty
+        const { data: assignments } = await supabase
+          .from('assignments')
+          .select('id, title')
+          .eq('faculty_id', user.id)
+
+        if (!assignments || assignments.length === 0) {
+          setSubmissions([])
+          return
+        }
+
+        const assignmentIds = assignments.map(a => a.id)
+
+        // Fetch all submissions for those assignments
+        const { data: rawSubmissions } = await supabase
+          .from('assignment_submissions')
+          .select(`
+            *,
+            profiles!student_id(full_name),
+            assignments!assignment_id(title)
+          `)
+          .in('assignment_id', assignmentIds)
+
+        if (rawSubmissions) {
+          const mapped = rawSubmissions.map(sub => ({
+            id: sub.id,
+            assignmentId: sub.assignment_id,
+            assignmentTitle: sub.assignments?.title || "Unknown Assignment",
+            studentId: sub.student_id,
+            studentName: sub.profiles?.full_name || "Unknown Student",
+            code: sub.content || "",
+            language: "Code",
+            submittedAt: sub.submitted_at,
             warnings: 0,
-            status: "submitted",
-            aiEvaluation: {
-              score: 85,
-              feedback: [
-                "✓ Excellent class implementation",
-                "✓ Proper BST structure",
-                "✓ Insert and search methods implemented",
-                "✗ Missing delete method",
-                "✗ No traversal methods"
-              ]
-            },
-            grade: 85,
-            timeSpent: 45,
-            facultyReviewed: false
-          },
-          {
-            id: "sub_002",
-            assignmentId: "assignment-1",
-            assignmentTitle: "Data Structures Implementation",
-            studentId: "student_002",
-            studentName: "Bob Smith",
-            code: `class BST:\n    def __init__(self):\n        self.root = None\n    \n    def insert(self, val):\n        if self.root is None:\n            self.root = TreeNode(val)\n        else:\n            self._insert_helper(self.root, val)\n    \n    def _insert_helper(self, node, val):\n        if val < node.val:\n            if node.left is None:\n                node.left = TreeNode(val)\n            else:\n                self._insert_helper(node.left, val)\n        else:\n            if node.right is None:\n                node.right = TreeNode(val)\n            else:\n                self._insert_helper(node.right, val)\n\nclass TreeNode:\n    def __init__(self, val):\n        self.val = val\n        self.left = None\n        self.right = None`,
-            language: "python",
-            submittedAt: new Date(Date.now() - 7200000).toISOString(),
-            warnings: 1,
-            status: "submitted",
-            aiEvaluation: {
-              score: 65,
-              feedback: [
-                "✓ Basic class structure",
-                "✓ Insert method implemented",
-                "✗ Missing search method",
-                "✗ Missing delete method",
-                "✗ Incomplete implementation"
-              ]
-            },
-            grade: 65,
-            timeSpent: 30,
-            facultyReviewed: false
-          }
-        ]
-        localStorage.setItem("assignment_submissions", JSON.stringify(sampleSubmissions))
-        setSubmissions(sampleSubmissions)
-      } else {
-        setSubmissions(storedSubmissions)
+            status: sub.grade ? "reviewed" : "submitted",
+            aiEvaluation: { score: sub.grade || 0, feedback: ["Manual grading mode"] },
+            grade: sub.grade || 0,
+            facultyFeedback: sub.feedback,
+            facultyReviewed: !!sub.grade
+          }))
+          setSubmissions(mapped)
+        }
+      } catch (err) {
+        console.error("Error loading submissions:", err)
       }
     }
 
@@ -115,7 +105,7 @@ export default function FacultySubmissionReviewPage() {
     setShowGradingDialog(true)
   }
 
-  const submitGrade = () => {
+  const submitGrade = async () => {
     if (!manualGrade || !facultyFeedback) {
       toast({
         title: "Missing Information",
@@ -125,27 +115,41 @@ export default function FacultySubmissionReviewPage() {
       return
     }
 
-    const updatedSubmissions = submissions.map(sub => 
-      sub.id === selectedSubmission.id 
-        ? {
+    try {
+      await SupabaseAssignmentService.gradeSubmission(
+        selectedSubmission.id,
+        parseInt(manualGrade),
+        facultyFeedback
+      )
+
+      const updatedSubmissions = submissions.map(sub =>
+        sub.id === selectedSubmission.id
+          ? {
             ...sub,
             grade: parseInt(manualGrade),
             facultyFeedback,
             facultyReviewed: true,
             reviewedAt: new Date().toISOString()
           }
-        : sub
-    )
+          : sub
+      )
 
-    setSubmissions(updatedSubmissions)
-    localStorage.setItem("assignment_submissions", JSON.stringify(updatedSubmissions))
+      setSubmissions(updatedSubmissions)
 
-    toast({
-      title: "Grade Submitted",
-      description: `Grade ${manualGrade}/100 assigned to ${selectedSubmission.studentName}`,
-    })
+      toast({
+        title: "Grade Submitted",
+        description: `Grade ${manualGrade}/100 assigned to ${selectedSubmission.studentName}`,
+      })
 
-    setShowGradingDialog(false)
+      setShowGradingDialog(false)
+    } catch (e: any) {
+      console.error(e)
+      toast({
+        title: "Error Assigning Grade",
+        description: e.message || "Failed to submit grade.",
+        variant: "destructive"
+      })
+    }
   }
 
   const runCode = (code: string, language: string) => {
@@ -153,7 +157,7 @@ export default function FacultySubmissionReviewPage() {
       title: "Code Execution",
       description: "Simulating code execution...",
     })
-    
+
     setTimeout(() => {
       toast({
         title: "Execution Complete",
@@ -169,7 +173,7 @@ export default function FacultySubmissionReviewPage() {
     return true
   })
 
-  const averageGrade = submissions.length > 0 
+  const averageGrade = submissions.length > 0
     ? Math.round(submissions.reduce((sum, sub) => sum + (sub.grade || 0), 0) / submissions.length)
     : 0
 
@@ -182,7 +186,7 @@ export default function FacultySubmissionReviewPage() {
             <h1 className="text-3xl font-bold text-gray-900">Student Submissions Review</h1>
             <p className="text-gray-600 mt-1">Review and grade student code submissions with AI assistance</p>
           </div>
-          
+
           <div className="flex items-center gap-4 mt-4 md:mt-0">
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger className="w-40">
@@ -385,7 +389,7 @@ export default function FacultySubmissionReviewPage() {
                 Grade Submission - {selectedSubmission?.studentName}
               </DialogTitle>
             </DialogHeader>
-            
+
             <div className="space-y-4">
               <div className="bg-blue-50 p-4 rounded-lg">
                 <h4 className="font-semibold text-blue-900 mb-2">AI Recommendation</h4>
@@ -424,7 +428,7 @@ export default function FacultySubmissionReviewPage() {
                 />
               </div>
             </div>
-            
+
             <DialogFooter className="flex space-x-2">
               <Button variant="outline" onClick={() => setShowGradingDialog(false)}>
                 Cancel

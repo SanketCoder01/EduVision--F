@@ -54,7 +54,7 @@ export async function middleware(req: NextRequest) {
   res.headers.set('X-Content-Type-Options', 'nosniff')
   res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
   res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
-  
+
   // Content Security Policy
   const cspHeader = `
     default-src 'self';
@@ -65,7 +65,7 @@ export async function middleware(req: NextRequest) {
     connect-src 'self' https://jtguryzyprgqraimyimt.supabase.co wss://jtguryzyprgqraimyimt.supabase.co https://api.groq.com;
     frame-ancestors 'none';
   `.replace(/\s{2,}/g, ' ').trim()
-  
+
   res.headers.set('Content-Security-Policy', cspHeader)
 
   try {
@@ -74,26 +74,23 @@ export async function middleware(req: NextRequest) {
 
     // No session - redirect to appropriate login
     if (!session) {
-      const loginType = facultyRoutes.some(r => pathname.startsWith(r)) ? 'faculty' : 
-                       studentRoutes.some(r => pathname.startsWith(r)) ? 'student' : ''
-      
+      const loginType = facultyRoutes.some(r => pathname.startsWith(r)) ? 'faculty' :
+        studentRoutes.some(r => pathname.startsWith(r)) ? 'student' : ''
+
       if (loginType) {
         const redirectUrl = new URL(`/login?type=${loginType}`, req.url)
         redirectUrl.searchParams.set('redirect', pathname)
         return NextResponse.redirect(redirectUrl)
       }
-      
+
       return NextResponse.redirect(new URL('/login', req.url))
     }
 
     // Check role-based access using email domain
     const userEmail = session.user.email || ''
-    const isSanjivaniEmail = userEmail.endsWith('@sanjivani.edu.in') || userEmail.endsWith('@set.sanjivani.edu.in')
     const isStudentEmail = userEmail.endsWith('@sanjivani.edu.in') && !userEmail.endsWith('@set.sanjivani.edu.in')
+    const isFacultyEmail = userEmail.endsWith('@set.sanjivani.edu.in')
     const isCafeEmail = userEmail.endsWith('@cafe.in')
-    
-    // Look for user_metadata.user_type if it exists (set by our trigger/auth config)
-    const userType = session.user.user_metadata?.user_type || session.user.app_metadata?.user_type
 
     // Faculty routes protection
     if (facultyRoutes.some(r => pathname.startsWith(r))) {
@@ -101,9 +98,8 @@ export async function middleware(req: NextRequest) {
       if (isCafeEmail) {
         return NextResponse.redirect(new URL('/login', req.url))
       }
-      
-      // We allow anyone with a sanjivani email or explicitly tagged as faculty
-      if (!isSanjivaniEmail && userType !== 'faculty') {
+      // Only allow faculty emails
+      if (!isFacultyEmail) {
         return NextResponse.redirect(new URL('/student-dashboard', req.url))
       }
     }
@@ -122,8 +118,8 @@ export async function middleware(req: NextRequest) {
 
     // Admin routes protection
     if (adminRoutes.some(r => pathname.startsWith(r))) {
-      const userType = session.user.user_metadata?.user_type || 
-                      session.user.app_metadata?.user_type
+      const userType = session.user.user_metadata?.user_type ||
+        session.user.app_metadata?.user_type
       if (userType !== 'admin') {
         return NextResponse.redirect(new URL('/login', req.url))
       }

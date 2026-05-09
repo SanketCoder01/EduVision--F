@@ -25,6 +25,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { useToast } from "@/components/ui/use-toast"
+import { supabase } from "@/lib/supabase"
+import { SupabaseAssignmentService } from "@/lib/supabase-assignments"
 
 export default function StudentScorecardPage() {
   const { toast } = useToast()
@@ -33,79 +35,54 @@ export default function StudentScorecardPage() {
   const [assignments, setAssignments] = useState<any[]>([])
 
   useEffect(() => {
-    const loadStudentData = () => {
-      // Load student submissions
-      const storedSubmissions = JSON.parse(localStorage.getItem("coding_submissions") || "[]")
-      
-      // Add sample data if none exists
-      if (storedSubmissions.length === 0) {
-        const sampleSubmissions = [
-          {
-            id: "sub_001",
-            assignmentId: "assignment-1",
-            assignmentTitle: "Data Structures Implementation",
-            code: "class BST { /* implementation */ }",
-            language: "cpp",
-            submittedAt: new Date(Date.now() - 86400000).toISOString(),
-            grade: 85,
-            aiEvaluation: { score: 85, feedback: ["Good implementation", "Missing edge cases"] },
-            timeSpent: 45,
-            status: "graded"
-          },
-          {
-            id: "sub_002",
-            assignmentId: "assignment-2",
-            assignmentTitle: "Algorithm Optimization",
-            code: "def quicksort(arr): /* implementation */",
-            language: "python",
-            submittedAt: new Date(Date.now() - 172800000).toISOString(),
-            grade: 92,
-            aiEvaluation: { score: 92, feedback: ["Excellent optimization", "Clean code"] },
-            timeSpent: 60,
-            status: "graded"
-          },
-          {
-            id: "sub_003",
-            assignmentId: "assignment-3",
-            assignmentTitle: "Web API Development",
-            code: "app.get('/api/users', (req, res) => { /* implementation */ })",
-            language: "javascript",
-            submittedAt: new Date(Date.now() - 259200000).toISOString(),
-            grade: 78,
-            aiEvaluation: { score: 78, feedback: ["Good structure", "Needs error handling"] },
-            timeSpent: 90,
-            status: "graded"
-          }
-        ]
-        localStorage.setItem("coding_submissions", JSON.stringify(sampleSubmissions))
-        setSubmissions(sampleSubmissions)
-      } else {
-        setSubmissions(storedSubmissions)
+    const loadStudentData = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+
+        // Fetch actual submissions
+        const rawSubmissions = await SupabaseAssignmentService.getStudentAllSubmissions(user.id)
+        
+        let processedSubmissions: any[] = []
+        if (rawSubmissions && rawSubmissions.length > 0) {
+          processedSubmissions = rawSubmissions.map((sub: any) => ({
+             id: sub.id,
+             assignmentId: sub.assignment_id,
+             assignmentTitle: sub.assignment?.title,
+             code: sub.submission_text || "",
+             language: "text", // Mocked language for now
+             submittedAt: sub.submitted_at,
+             grade: sub.grade || 0,
+             timeSpent: 60, // Mocked spent time
+             status: sub.grade ? "graded" : "pending"
+          }))
+        } else {
+           processedSubmissions = [] 
+        }
+
+        setSubmissions(processedSubmissions)
+        
+        const totalSubmissions = processedSubmissions.length
+        const gradedSubmissions = processedSubmissions.filter((s: any) => s.status === "graded")
+        const averageGrade = gradedSubmissions.length > 0 
+          ? Math.round(gradedSubmissions.reduce((sum: number, sub: any) => sum + (sub.grade || 0), 0) / gradedSubmissions.length)
+          : 0
+        const totalTimeSpent = gradedSubmissions.reduce((sum: number, sub: any) => sum + (sub.timeSpent || 0), 0)
+
+        setStudentData({
+          name: "Current Student",
+          id: user.id,
+          totalSubmissions,
+          gradedSubmissions: gradedSubmissions.length,
+          averageGrade,
+          totalTimeSpent,
+          strongestLanguage: "C++", // Fallback text for now until language is strictly tracked
+          improvementAreas: ["Error Handling", "Code Documentation"],
+          achievements: ["First Submission", "High Scorer", "Consistent Performer"]
+        })
+      } catch (e) {
+        console.error("Scorecard Load error", e)
       }
-
-      // Load assignments
-      const storedAssignments = JSON.parse(localStorage.getItem("coding_assignments") || "[]")
-      setAssignments(storedAssignments)
-
-      // Calculate student performance data
-      const totalSubmissions = storedSubmissions.length || sampleSubmissions.length
-      const gradedSubmissions = (storedSubmissions.length > 0 ? storedSubmissions : sampleSubmissions).filter((s: any) => s.status === "graded")
-      const averageGrade = gradedSubmissions.length > 0 
-        ? Math.round(gradedSubmissions.reduce((sum: number, sub: any) => sum + (sub.grade || 0), 0) / gradedSubmissions.length)
-        : 0
-      const totalTimeSpent = gradedSubmissions.reduce((sum: number, sub: any) => sum + (sub.timeSpent || 0), 0)
-
-      setStudentData({
-        name: "Current Student",
-        id: "student_123",
-        totalSubmissions,
-        gradedSubmissions: gradedSubmissions.length,
-        averageGrade,
-        totalTimeSpent,
-        strongestLanguage: "C++",
-        improvementAreas: ["Error Handling", "Code Documentation"],
-        achievements: ["First Submission", "High Scorer", "Consistent Performer"]
-      })
     }
 
     loadStudentData()

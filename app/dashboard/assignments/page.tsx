@@ -77,17 +77,12 @@ export default function AssignmentsPage() {
           })
         }
       } else {
-        // Fallback to localStorage for demo
-        const facultySession = localStorage.getItem("facultySession")
-        if (facultySession) {
-          try {
-            const user = JSON.parse(facultySession)
-            setCurrentUser(user)
-            loadAssignments(user)
-          } catch (error) {
-            console.error("Error parsing faculty session:", error)
-          }
-        }
+        toast({
+          title: "Session Expired",
+          description: "Please login again to access assignments.",
+          variant: "destructive"
+        })
+        window.location.href = "/login?type=faculty"
       }
       setIsLoading(false)
     }

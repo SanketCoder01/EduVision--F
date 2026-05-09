@@ -21,6 +21,8 @@ import {
   Target,
   Zap
 } from "lucide-react"
+import { supabase } from "@/lib/supabase"
+import { SupabaseAssignmentService } from "@/lib/supabase-assignments"
 
 interface ExamSubmission {
   examId: string
@@ -69,78 +71,57 @@ export default function ExamResultsPage() {
     loadExamResults()
   }, [examId])
 
-  const loadExamResults = () => {
+  const loadExamResults = async () => {
     try {
+      setLoading(true)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+         router.push('/login')
+         return
+      }
+
       // Load exam data
-      const storedExams = JSON.parse(localStorage.getItem("coding_exams") || "[]")
-      const examData = storedExams.find((e: any) => e.id === examId)
+      const examData = await SupabaseAssignmentService.getAssignmentById(examId)
       
       if (!examData) {
         router.push('/student-dashboard/exams')
         return
       }
-      setExam(examData)
+      
+      const mappedExam: ExamData = {
+          id: examData.id,
+          title: examData.title,
+          facultyName: examData.faculty?.name || "Faculty",
+          totalMarks: examData.max_marks?.toString() || "100",
+          passingMarks: "40", // Set a mock threshold since DB doesn't have passing_marks natively
+          duration: (examData.estimated_time || 60).toString(),
+          language: "cpp"
+      }
+      
+      setExam(mappedExam)
 
       // Load submission data
-      const submissions = JSON.parse(localStorage.getItem("exam_submissions") || "[]")
-      let userSubmission = submissions.find((s: ExamSubmission) => s.examId === examId)
+      const dbSubmission = await SupabaseAssignmentService.getStudentSubmission(examId, user.id)
       
-      if (!userSubmission) {
-        // Create mock submission for demo
-        userSubmission = {
+      let userSubmission: ExamSubmission | null = null
+      
+      if (dbSubmission) {
+         userSubmission = {
           examId,
-          studentId: "current_student",
-          code: `#include <iostream>
-using namespace std;
-
-int main() {
-    int n;
-    cout << "Enter a number: ";
-    cin >> n;
-    
-    if (n % 2 == 0) {
-        cout << n << " is even" << endl;
-    } else {
-        cout << n << " is odd" << endl;
-    }
-    
-    return 0;
-}`,
+          studentId: user.id,
+          code: dbSubmission.content || "",
           language: "cpp",
-          submittedAt: new Date().toISOString(),
-          timeSpent: 3600, // 1 hour
-          violations: [
-            {
-              type: "tab_switch",
-              timestamp: new Date(Date.now() - 1800000), // 30 min ago
-              description: "Student switched tabs"
-            }
-          ],
-          tabSwitches: 1,
+          submittedAt: dbSubmission.submitted_at,
+          timeSpent: 3600, // mock since DB doesn't have timeSpent
+          violations: [],
+          tabSwitches: 0,
           isAutoSubmitted: false,
-          grade: 85,
-          feedback: "Good solution! Your code correctly identifies even and odd numbers. Consider adding input validation for better robustness.",
-          testCases: [
-            {
-              input: "4",
-              expectedOutput: "4 is even",
-              actualOutput: "4 is even",
-              passed: true
-            },
-            {
-              input: "7",
-              expectedOutput: "7 is odd",
-              actualOutput: "7 is odd",
-              passed: true
-            },
-            {
-              input: "0",
-              expectedOutput: "0 is even",
-              actualOutput: "0 is even",
-              passed: true
-            }
-          ]
+          grade: dbSubmission.grade,
+          feedback: dbSubmission.feedback,
+          testCases: []
         }
+      } else {
+        // Create pure fallback if missing (or we could just leave it null)
       }
       
       setSubmission(userSubmission)

@@ -77,58 +77,73 @@ export default function StudentDashboardLayout({ children }: { children: React.R
     return () => {
       AttendanceExpiryService.stop()
     }
-  }, [router])
+  }, []) // Empty deps — only run once on mount, NOT on every route change
 
   const checkRegistrationStatus = async () => {
     try {
       // Get authenticated user from Supabase Auth
       const { data: { user }, error: authError } = await supabase.auth.getUser()
-      
+
       if (authError || !user) {
         console.error('Auth error:', authError)
         router.push("/login?type=student")
         return
       }
 
-      // Search for student across all department-year tables
+      // STRICT DOMAIN CHECK: Faculty cannot access student dashboard
+      if (user.email?.endsWith('@set.sanjivani.edu.in') || user.email?.endsWith('@sanjivani.org.in')) {
+        console.log('Faculty domain detected on student dashboard, redirecting to faculty login')
+        // Do NOT sign out — just redirect faculty away from student area
+        router.push("/login?type=faculty")
+        return
+      }
+
+      // Search for student across all department-year tables IN PARALLEL
       const departments = ['cse', 'cyber', 'aids', 'aiml']
       const years = ['1st', '2nd', '3rd', '4th']
-      let student = null
 
-      for (const dept of departments) {
-        for (const year of years) {
+      const searchPromises = departments.flatMap(dept =>
+        years.map(async year => {
           const tableName = `students_${dept}_${year}_year`
           const { data, error } = await supabase
             .from(tableName)
             .select('*')
             .eq('email', user.email)
             .maybeSingle()
-
           if (data && !error) {
-            student = { ...data, department: dept, year }
-            break
+            return { ...data, department: dept, year }
           }
-        }
-        if (student) break
-      }
+          return null
+        })
+      )
+
+      const results = await Promise.all(searchPromises)
+      const student = results.find(r => r !== null) || null
+
+      const isCompleteProfilePage = pathname === '/student-complete-profile' || pathname.includes('complete-profile')
 
       if (!student) {
-        // No student record, redirect to complete profile
-        router.push('/student-complete-profile')
+        // No student record found at all - send to complete-profile for first-time setup
+        if (!isCompleteProfilePage) {
+          console.log('No student profile found, redirecting to complete-profile')
+          router.push('/student-complete-profile')
+        }
         return
       }
 
-      setUser(student)
-      
-      // Check if profile has required fields (department, year, college_name, prn are mandatory)
-      const hasRequiredFields = student.department && student.year && student.college_name && student.prn
-      setRegistrationCompleted(hasRequiredFields)
-      
-      if (!hasRequiredFields) {
-        // Redirect to complete profile page
-        router.push('/student-complete-profile')
+      // Student record exists - check if profile was fully completed (name + prn required)
+      if (!student.name || !student.prn) {
+        // Profile incomplete - send to complete-profile
+        if (!isCompleteProfilePage) {
+          console.log('Student profile incomplete (missing name or prn), redirecting to complete-profile')
+          router.push('/student-complete-profile')
+        }
         return
       }
+
+      // Profile is fully complete — never show complete-profile again
+      setUser(student)
+      setRegistrationCompleted(true)
     } catch (error) {
       console.error('Error checking registration:', error)
       router.push("/login?type=student")
@@ -211,11 +226,11 @@ export default function StudentDashboardLayout({ children }: { children: React.R
                       </Link>
                     </motion.li>
                   )}
-                  
+
                   {displaySidebarItems.map((item, index) => {
                     const isActive = pathname === item.href
                     const isLocked = !registrationCompleted && item.href !== "/student-dashboard"
-                    
+
                     return (
                       <motion.li
                         key={item.href}
@@ -235,18 +250,16 @@ export default function StudentDashboardLayout({ children }: { children: React.R
                               })
                             }
                           }}
-                          className={`group flex gap-x-3 rounded-xl p-3 text-sm leading-6 font-semibold transition-all duration-200 ${
-                            isActive
-                              ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-md border border-emerald-200/50"
-                              : isLocked
+                          className={`group flex gap-x-3 rounded-xl p-3 text-sm leading-6 font-semibold transition-all duration-200 ${isActive
+                            ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-md border border-emerald-200/50"
+                            : isLocked
                               ? "text-gray-400 cursor-not-allowed opacity-60"
                               : "text-gray-700 hover:text-emerald-700 hover:bg-gray-50"
-                          }`}
+                            }`}
                         >
                           <item.icon
-                            className={`h-6 w-6 shrink-0 transition-colors ${
-                              isActive ? "text-emerald-600" : isLocked ? "text-gray-400" : `${item.color} group-hover:text-emerald-600`
-                            }`}
+                            className={`h-6 w-6 shrink-0 transition-colors ${isActive ? "text-emerald-600" : isLocked ? "text-gray-400" : `${item.color} group-hover:text-emerald-600`
+                              }`}
                           />
                           {item.label}
                           {isLocked && (
@@ -415,11 +428,11 @@ export default function StudentDashboardLayout({ children }: { children: React.R
                         </Link>
                       </li>
                     )}
-                    
+
                     {sidebarItems.map((item) => {
                       const isActive = pathname === item.href
                       const isLocked = !registrationCompleted && item.href !== "/student-dashboard"
-                      
+
                       return (
                         <li key={item.href}>
                           <Link
@@ -436,18 +449,16 @@ export default function StudentDashboardLayout({ children }: { children: React.R
                                 setIsMobileMenuOpen(false)
                               }
                             }}
-                            className={`group flex gap-x-3 rounded-xl p-3 text-sm leading-6 font-semibold transition-all duration-200 ${
-                              isActive
-                                ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-md border border-emerald-200/50"
-                                : isLocked
+                            className={`group flex gap-x-3 rounded-xl p-3 text-sm leading-6 font-semibold transition-all duration-200 ${isActive
+                              ? "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 shadow-md border border-emerald-200/50"
+                              : isLocked
                                 ? "text-gray-400 cursor-not-allowed opacity-60"
                                 : "text-gray-700 hover:text-emerald-700 hover:bg-gray-50"
-                            }`}
+                              }`}
                           >
                             <item.icon
-                              className={`h-6 w-6 shrink-0 transition-colors ${
-                                isActive ? "text-emerald-600" : isLocked ? "text-gray-400" : `${item.color} group-hover:text-emerald-600`
-                              }`}
+                              className={`h-6 w-6 shrink-0 transition-colors ${isActive ? "text-emerald-600" : isLocked ? "text-gray-400" : `${item.color} group-hover:text-emerald-600`
+                                }`}
                             />
                             {item.label}
                             {isLocked && (

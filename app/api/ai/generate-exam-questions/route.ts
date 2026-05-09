@@ -92,13 +92,15 @@ Return ONLY valid JSON with extracted questions. If no questions found, return e
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        model: "openai/gpt-oss-120b",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        temperature: 0.3,
-        max_tokens: 4096
+        temperature: 1,
+        max_completion_tokens: 4096,
+        top_p: 1,
+        reasoning_effort: "medium"
       }),
     })
 
@@ -265,9 +267,10 @@ IMPORTANT: Use only plain text with letters, numbers, spaces, and basic punctuat
             content: userPrompt
           }
         ],
-        temperature: 0.9,
-        max_completion_tokens: 8192,
+        temperature: 1,
+        max_completion_tokens: 4096,
         top_p: 1,
+        reasoning_effort: "medium",
         stream: false
       }),
     })

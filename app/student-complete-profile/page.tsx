@@ -44,42 +44,58 @@ export default function StudentCompleteProfilePage() {
         return
       }
 
+      // DOMAIN GUARD: Faculty must NOT use the student complete-profile page
+      if (user.email?.endsWith('@set.sanjivani.edu.in') || user.email?.endsWith('@sanjivani.org.in')) {
+        router.push('/faculty-complete-profile')
+        return
+      }
+
       setUserEmail(user.email || "")
 
-      // Check if profile already exists in department tables
-      const departments = ['cse', 'cyber', 'aids', 'aiml']
-      const years = ['1st', '2nd', '3rd', '4th']
+      // Check if profile already exists in department tables (parallel search)
+      const depts = ['cse', 'cyber', 'aids', 'aiml']
+      const yrs = ['1st', '2nd', '3rd', '4th']
 
-      for (const dept of departments) {
-        for (const year of years) {
+      const searchPromises = depts.flatMap(dept =>
+        yrs.map(async year => {
           const tableName = `students_${dept}_${year}_year`
           const { data, error } = await supabase
             .from(tableName)
             .select('*')
             .eq('email', user.email)
             .maybeSingle()
-
           if (data && !error) {
-            setExistingProfile(data)
-            setFormData(prev => ({
-              ...prev,
-              name: data.name || prev.name,
-              department: data.department || dept,
-              year: data.year || year,
-              prn: data.prn || prev.prn,
-              photo: data.photo || prev.photo
-            }))
-            
-            // If profile has all required fields, redirect to dashboard
-            if (data.department && data.year && data.college_name && data.prn) {
-              router.push('/student-dashboard')
-              return
-            }
+            // Dept & year come from table name — they are always set
+            return { ...data, _dept: dept, _year: year }
           }
+          return null
+        })
+      )
+
+      const results = await Promise.all(searchPromises)
+      const existing = results.find(r => r !== null)
+
+      if (existing) {
+        setExistingProfile(existing)
+        setFormData(prev => ({
+          ...prev,
+          name: existing.name || prev.name,
+          department: existing._dept,
+          year: existing._year,
+          prn: existing.prn || prev.prn,
+          college_name: existing.college_name || 'Sanjivani University',
+          photo: existing.photo || existing.face_image || existing.avatar || prev.photo
+        }))
+        
+        // Profile is complete if they have submitted name and prn
+        // dept & year are already known from the table they are in
+        if (existing.name && existing.prn) {
+          router.push('/student-dashboard')
+          return
         }
       }
 
-      // Pre-fill name from Google auth if available
+      // Pre-fill name from Google/email auth if available
       if (user.user_metadata?.full_name) {
         setFormData(prev => ({ ...prev, name: user.user_metadata.full_name }))
       }

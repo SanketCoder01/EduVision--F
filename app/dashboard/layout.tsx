@@ -81,7 +81,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => {
     //   AttendanceExpiryService.stop()
     }
-  }, [router])
+  }, []) // Empty deps — only run once on mount, NOT on every route change
 
   const checkRegistrationStatus = async () => {
     try {
@@ -94,7 +94,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         return
       }
 
-      // Fetch faculty profile from database
+      // STRICT DOMAIN CHECK: Students cannot access faculty dashboard
+      if (user.email && !user.email.endsWith('@set.sanjivani.edu.in') && !user.email.endsWith('@sanjivani.org.in')) {
+        console.log('Non-faculty domain detected on faculty dashboard, redirecting to student login')
+        // Do NOT sign out — just redirect students away from faculty area
+        router.push("/login?type=student")
+        return
+      }
+
       const { data: faculty, error } = await supabase
         .from('faculty')
         .select('*')
@@ -105,23 +112,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         console.error('Error fetching faculty:', error)
       }
 
+      const isCompleteProfilePage = pathname === '/faculty-complete-profile' || pathname.includes('complete-profile')
+
       if (!faculty) {
-        // No faculty record, redirect to complete profile
-        router.push('/faculty-complete-profile')
+        // No faculty record found at all - send to complete-profile for first-time setup
+        if (!isCompleteProfilePage) {
+          console.log('No faculty profile found, redirecting to complete-profile')
+          router.push('/faculty-complete-profile')
+        }
         return
       }
 
-      setUser(faculty)
-      
-      // Check if profile has required fields (department and college_name are mandatory)
-      const hasRequiredFields = faculty.department && faculty.college_name
-      setRegistrationCompleted(hasRequiredFields)
-      
-      if (!hasRequiredFields) {
-        // Redirect to complete profile page
-        router.push('/faculty-complete-profile')
+      // Faculty record exists - check if profile was fully completed (name + department required)
+      if (!faculty.name || !faculty.department) {
+        // Profile incomplete - send to complete-profile
+        if (!isCompleteProfilePage) {
+          console.log('Faculty profile incomplete (missing name or department), redirecting to complete-profile')
+          router.push('/faculty-complete-profile')
+        }
         return
       }
+
+      // Profile is fully complete — never show complete-profile again
+      setUser(faculty)
+      setRegistrationCompleted(true)
     } catch (error) {
       console.error('Error checking registration:', error)
       router.push("/login?type=faculty")

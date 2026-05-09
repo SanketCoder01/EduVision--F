@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY || "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"
+const GROQ_API_KEY = process.env.GROQ_API_KEY || ""
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 export async function POST(request: NextRequest) {
@@ -168,9 +168,10 @@ REMEMBER: Extract EVERY lecture, practical, lab you see. Classes are the priorit
       body: JSON.stringify({
         model,
         messages,
-        temperature: 0.1,
-        max_completion_tokens: 8192,
+        temperature: 1,
+        max_completion_tokens: 4096,
         top_p: 1,
+        reasoning_effort: "medium",
       }),
     })
 

@@ -67,7 +67,10 @@ export default function FacultyTodaysHubPage() {
           setCurrentUser(faculty)
           await loadTodaysHubData(faculty)
           setupRealtimeSubscriptions(faculty)
-        } else { router.push('/complete-profile') }
+        } else {
+          // No faculty profile — layout will handle proper redirect
+          console.warn('No faculty profile found for this user on todays-hub')
+        }
       } catch (error) {
         console.error("Error loading user data:", error)
         toast({ title: "Error", description: "Failed to load user data.", variant: "destructive" })

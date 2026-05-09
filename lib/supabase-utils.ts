@@ -45,7 +45,7 @@ export async function getCurrentFaculty() {
   return byEmail
 }
 
-/** Get the currently logged-in student by scanning sharded tables. */
+/** Get the currently logged-in student by scanning sharded tables. Returns null if not found in any table. */
 export async function getCurrentStudent() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
@@ -67,14 +67,9 @@ export async function getCurrentStudent() {
     }
   }
 
-  // Last resort: use metadata
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.user_metadata?.name || user.user_metadata?.full_name,
-    department: user.user_metadata?.department || 'cse',
-    year: user.user_metadata?.year || '1st'
-  }
+  // No student record found in any table - return null instead of metadata
+  // This ensures the layout properly handles new users vs existing users
+  return null
 }
 
 /** Fetch students for a specific dept+year from sharded table */

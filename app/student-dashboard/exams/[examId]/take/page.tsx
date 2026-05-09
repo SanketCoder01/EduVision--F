@@ -24,6 +24,8 @@ import {
   Play,
   Square
 } from "lucide-react"
+import { supabase } from "@/lib/supabase"
+import { SupabaseAssignmentService, Assignment } from "@/lib/supabase-assignments"
 
 interface ExamData {
   id: string
@@ -38,13 +40,14 @@ interface ExamData {
   description: string
   instructions: string
   totalMarks: string
+  allowTabSwitch: boolean
+  maxTabSwitches: string
+  warningThreshold: string
+  // Extend for compatibility
   enableSecurity: boolean
   enableCamera: boolean
   enableMicrophone: boolean
   enableScreenShare: boolean
-  allowTabSwitch: boolean
-  maxTabSwitches: string
-  warningThreshold: string
 }
 
 interface SecurityViolation {
@@ -75,32 +78,70 @@ export default function TakeExamPage() {
   const examStartTime = useRef<Date | null>(null)
 
   useEffect(() => {
-    // Load exam data
-    const storedExams = JSON.parse(localStorage.getItem("coding_exams") || "[]")
-    const examData = storedExams.find((e: any) => e.id === examId)
-    
-    if (!examData) {
-      toast({
-        title: "Exam Not Found",
-        description: "The requested exam could not be found.",
-        variant: "destructive",
-      })
-      router.push('/student-dashboard/exams')
-      return
+    const loadExam = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          router.push('/login')
+          return
+        }
+
+        const examData = await SupabaseAssignmentService.getAssignmentById(examId)
+        
+        if (!examData) {
+          toast({
+            title: "Exam Not Found",
+            description: "The requested exam could not be found.",
+            variant: "destructive",
+          })
+          router.push('/student-dashboard/exams')
+          return
+        }
+
+        const facultyDataStr = examData.faculty?.name || "Faculty"
+
+        // Map Supabase assignment DB schema to the local ExamData interface expectations
+        const mappedExam: ExamData = {
+          id: examData.id,
+          title: examData.title,
+          facultyName: facultyDataStr,
+          examDate: examData.due_date,
+          startTime: examData.created_at,
+          duration: (examData.estimated_time || 60).toString(),
+          department: examData.department,
+          studyingYear: examData.target_years?.[0] || "1",
+          language: "cpp", // Mock default for coding exams
+          description: examData.description || "No description provided.",
+          instructions: examData.submission_guidelines || "",
+          totalMarks: examData.max_marks?.toString() || "100",
+          enableSecurity: true, // Defaulting security on for DB exams
+          enableCamera: true,
+          enableMicrophone: false,
+          enableScreenShare: false,
+          allowTabSwitch: false,
+          maxTabSwitches: "3",
+          warningThreshold: "4"
+        }
+
+        setExam(mappedExam)
+        setLanguage("cpp")
+        
+        // Calculate time remaining
+        const duration = parseInt(mappedExam.duration) * 60 // Convert to seconds
+        setTimeRemaining(duration)
+        examStartTime.current = new Date()
+
+        // Initialize security features
+        if (mappedExam.enableSecurity) {
+          initializeSecurity(mappedExam)
+        }
+
+      } catch (err) {
+        console.error("Error loading exam:", err)
+      }
     }
 
-    setExam(examData)
-    setLanguage(examData.language.toLowerCase())
-    
-    // Calculate time remaining
-    const duration = parseInt(examData.duration) * 60 // Convert to seconds
-    setTimeRemaining(duration)
-    examStartTime.current = new Date()
-
-    // Initialize security features
-    if (examData.enableSecurity) {
-      initializeSecurity(examData)
-    }
+    loadExam()
 
     // Start timer
     const timer = setInterval(() => {
@@ -218,37 +259,39 @@ export default function TakeExamPage() {
     }
   }
 
-  const handleSubmit = (isAuto = false) => {
+  const handleSubmit = async (isAuto = false) => {
     if (isSubmitted) return
-
-    const submission = {
-      examId,
-      studentId: "current_student", // This would come from auth context
-      code,
-      language,
-      submittedAt: new Date().toISOString(),
-      timeSpent: exam ? (parseInt(exam.duration) * 60 - timeRemaining) : 0,
-      violations,
-      tabSwitches,
-      isAutoSubmitted: isAuto
-    }
-
-    // Save submission to localStorage
-    const existingSubmissions = JSON.parse(localStorage.getItem("exam_submissions") || "[]")
-    existingSubmissions.push(submission)
-    localStorage.setItem("exam_submissions", JSON.stringify(existingSubmissions))
-
     setIsSubmitted(true)
     cleanupStreams()
 
-    toast({
-      title: isAuto ? "Exam Auto-Submitted" : "Exam Submitted",
-      description: isAuto ? "Time limit reached or violation threshold exceeded." : "Your exam has been submitted successfully.",
-    })
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error("Not logged in")
 
-    setTimeout(() => {
-      router.push('/student-dashboard/exams')
-    }, 2000)
+      await SupabaseAssignmentService.submitAssignment({
+        assignment_id: examId,
+        student_id: user.id,
+        content: code,
+        status: 'submitted'
+      })
+
+      toast({
+        title: isAuto ? "Exam Auto-Submitted" : "Exam Submitted",
+        description: isAuto ? "Time limit reached or violation threshold exceeded." : "Your exam has been submitted successfully.",
+      })
+
+      setTimeout(() => {
+        router.push('/student-dashboard/submissions')
+      }, 2000)
+    } catch (e: any) {
+      console.error(e)
+      setIsSubmitted(false) // Revert so they can try again if error
+      toast({
+        title: "Submission Error",
+        description: e.message || "Failed to submit exam.",
+        variant: "destructive"
+      })
+    }
   }
 
   const formatTime = (seconds: number) => {
@@ -499,8 +542,7 @@ export default function TakeExamPage() {
                 variant="outline"
                 className="w-full"
                 onClick={() => {
-                  localStorage.setItem(`exam_${examId}_draft`, code)
-                  toast({ title: "Draft Saved", description: "Your code has been saved as draft." })
+                  toast({ title: "Draft Unavailable", description: "Draft saving is currently disabled for live exams." })
                 }}
               >
                 <Save className="w-4 h-4 mr-2" />

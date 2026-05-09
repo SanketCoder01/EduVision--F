@@ -169,7 +169,7 @@ export class SupabaseAssignmentService {
     try {
       // Remove updated_at from updates since it doesn't exist in database schema
       const { updated_at, ...validUpdates } = updates
-      
+
       const { data, error } = await supabase
         .from('assignments')
         .update(validUpdates)
@@ -214,16 +214,16 @@ export class SupabaseAssignmentService {
   static async getStudentAssignments(studentDepartment: string, studentYear: string): Promise<Assignment[]> {
     try {
       console.log('DEBUG: Fetching assignments for:', { department: studentDepartment, year: studentYear })
-      
+
       // Normalize department to lowercase for consistent matching
       const normalizedDept = studentDepartment.toLowerCase().trim()
-      
+
       // Convert year format to match database format 
       // Database stores: 'first', 'second', 'third', 'fourth'
       // Students might have: '1', '2', '3', '4' or '1st', '2nd', '3rd', '4th' or 'first', 'second', etc.
       const yearMapping: { [key: string]: string } = {
         '1': 'first',
-        '2': 'second', 
+        '2': 'second',
         '3': 'third',
         '4': 'fourth',
         '1st': 'first',
@@ -235,10 +235,10 @@ export class SupabaseAssignmentService {
         'third': 'third',
         'fourth': 'fourth'
       }
-      
+
       const normalizedYear = yearMapping[studentYear.toLowerCase().trim()] || studentYear.toLowerCase().trim()
       console.log('DEBUG: Normalized - department:', normalizedDept, 'year:', normalizedYear, 'from input:', studentDepartment, studentYear)
-      
+
       // First, let's check all published assignments to debug
       const { data: allAssignments, error: allError } = await supabase
         .from('assignments')
@@ -269,11 +269,11 @@ export class SupabaseAssignmentService {
         .contains('target_years', [normalizedYear])
         .order('created_at', { ascending: false })
 
-      console.log('DEBUG: Filtered assignments result:', { 
+      console.log('DEBUG: Filtered assignments result:', {
         count: data?.length,
         error,
-        filters: { 
-          status: 'published', 
+        filters: {
+          status: 'published',
           department: normalizedDept,
           target_years_contains: normalizedYear
         }
@@ -294,16 +294,16 @@ export class SupabaseAssignmentService {
           .eq('status', 'published')
           .or(`department.eq.${normalizedDept},department.eq.${normalizedDept.toUpperCase()}`)
           .order('created_at', { ascending: false })
-        
+
         console.log('DEBUG: Fallback query (no year filter):', fallbackData?.length, fallbackData?.map(a => ({
           title: a.title,
           dept: a.department,
           years: a.target_years
         })))
-        
+
         if (fallbackData && !fallbackError) {
           // Filter by year on client side
-          const filtered = fallbackData.filter(a => 
+          const filtered = fallbackData.filter(a =>
             a.target_years && a.target_years.includes(normalizedYear)
           )
           console.log('DEBUG: Client-side filtered:', filtered.length)
@@ -323,7 +323,7 @@ export class SupabaseAssignmentService {
   static async getAssignmentById(id: string): Promise<Assignment | null> {
     try {
       console.log('DEBUG: Fetching assignment by ID:', id)
-      
+
       const { data, error } = await supabase
         .from('assignments')
         .select(`
@@ -373,7 +373,7 @@ export class SupabaseAssignmentService {
     try {
       const fileExt = file.name.split('.').pop()
       const fileName = `${assignmentId}/${Date.now()}.${fileExt}`
-      
+
       const { data, error } = await supabase.storage
         .from('assignment-resources')
         .upload(fileName, file)
@@ -437,48 +437,39 @@ export class SupabaseAssignmentService {
     }
   }
 
-  // Submit assignment
-  static async submitAssignment(submissionData: Partial<AssignmentSubmission>): Promise<AssignmentSubmission> {
+  // Submit assignment (student side) - upsert to avoid duplicate submissions
+  static async submitAssignment(data: {
+    assignment_id: string
+    student_id: string
+    content?: string
+    file_urls?: string[]
+    file_names?: string[]
+    status?: 'submitted' | 'graded' | 'returned'
+  }): Promise<void> {
     try {
-      // Get current user to fetch student details
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        throw new Error('User not authenticated')
-      }
+      if (!user) throw new Error('User not authenticated')
 
-      // Get student details from user_profiles
-      const { data: studentProfile } = await supabase
-        .from('user_profiles')
-        .select('department, year')
-        .eq('email', user.email)
-        .single()
-
-      if (!studentProfile) {
-        throw new Error('Student profile not found')
-      }
-
-      const { data, error } = await supabase
+      // Upsert to handle updates if needed
+      const { error } = await supabase
         .from('assignment_submissions')
-        .insert([{
-          assignment_id: submissionData.assignment_id,
-          student_id: submissionData.student_id,
+        .upsert({
+          assignment_id: data.assignment_id,
+          student_id: data.student_id,
           student_email: user.email,
-          student_department: studentProfile.department,
-          student_year: studentProfile.year,
-          submission_text: submissionData.content,
-          file_urls: submissionData.file_urls || [],
-          file_names: submissionData.file_names || [],
-          status: 'submitted'
-        }])
-        .select()
-        .single()
+          submission_text: data.content || null,
+          file_urls: data.file_urls || [],
+          file_names: data.file_names || [],
+          status: data.status || 'submitted',
+          submitted_at: new Date().toISOString()
+        }, {
+          onConflict: 'assignment_id,student_id'
+        })
 
       if (error) {
         console.error('Error submitting assignment:', error)
         throw new Error(error.message)
       }
-
-      return data
     } catch (error) {
       console.error('Error in submitAssignment:', error)
       throw error
@@ -504,6 +495,73 @@ export class SupabaseAssignmentService {
     } catch (error) {
       console.error('Error in getStudentSubmission:', error)
       return null
+    }
+  }
+
+  // Get all submissions for a single student (for their personal tracking area)
+  static async getStudentAllSubmissions(studentId: string): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('assignment_submissions')
+        .select(`
+          *,
+          assignment:assignment_id (
+            title,
+            max_marks,
+            assignment_type
+          )
+        `)
+        .eq('student_id', studentId)
+        .order('submitted_at', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching student submissions:', error)
+        return []
+      }
+
+      return data || []
+    } catch (error) {
+      console.error('Error in getStudentAllSubmissions:', error)
+      return []
+    }
+  }
+
+  // Grade a submission (faculty side)
+  static async gradeSubmission(submissionId: string, grade: number, feedback: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('assignment_submissions')
+        .update({
+          grade,
+          feedback,
+          status: 'graded',
+          graded_at: new Date().toISOString()
+        })
+        .eq('id', submissionId)
+
+      if (error) {
+        console.error('Error grading submission:', error)
+        throw new Error(error.message)
+      }
+    } catch (error) {
+      console.error('Error in gradeSubmission:', error)
+      throw error
+    }
+  }
+
+  // Submission files helper (optional if used elsewhere)
+  static async getSubmissionFiles(submissionId: string): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('submission_files')
+        .select('*')
+        .eq('submission_id', submissionId)
+
+      if (error) throw error
+      return data || []
+    } catch (error) {
+      console.error('Error fetching submission files:', error)
+      return []
     }
   }
 
@@ -540,7 +598,7 @@ export class SupabaseAssignmentService {
     try {
       const fileExt = file.name.split('.').pop()
       const fileName = `${assignmentId}/${studentId}/${Date.now()}_${file.name}`
-      
+
       const { data, error } = await supabase.storage
         .from('assignment-submissions')
         .upload(fileName, file)
@@ -566,8 +624,8 @@ export class SupabaseAssignmentService {
   static subscribeToAssignments(callback: (payload: any) => void) {
     return supabase
       .channel('assignments')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'assignments' }, 
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'assignments' },
         callback
       )
       .subscribe()
@@ -577,13 +635,13 @@ export class SupabaseAssignmentService {
   static subscribeToSubmissions(assignmentId: string, callback: (payload: any) => void) {
     return supabase
       .channel(`submissions-${assignmentId}`)
-      .on('postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
+      .on('postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
           table: 'assignment_submissions',
           filter: `assignment_id=eq.${assignmentId}`
-        }, 
+        },
         callback
       )
       .subscribe()

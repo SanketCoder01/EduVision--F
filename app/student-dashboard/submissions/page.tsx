@@ -22,6 +22,8 @@ import {
   Target,
   Download
 } from "lucide-react"
+import { supabase } from "@/lib/supabase"
+import { SupabaseAssignmentService } from "@/lib/supabase-assignments"
 
 interface Submission {
   id: string
@@ -52,117 +54,53 @@ export default function StudentSubmissionsPage() {
     loadSubmissions()
   }, [])
 
-  const loadSubmissions = () => {
-    // Load regular coding submissions
-    const codingSubmissions = JSON.parse(localStorage.getItem("coding_submissions") || "[]")
-    
-    // Load exam submissions
-    const examSubmissions = JSON.parse(localStorage.getItem("exam_submissions") || "[]")
-    const exams = JSON.parse(localStorage.getItem("coding_exams") || "[]")
-    
-    // Combine and format submissions
-    const allSubmissions: Submission[] = []
-    
-    // Add coding assignments
-    codingSubmissions.forEach((sub: any) => {
-      allSubmissions.push({
-        id: sub.id,
-        type: 'assignment',
-        title: sub.assignmentTitle || sub.title,
-        submittedAt: sub.submittedAt,
-        grade: sub.grade,
-        totalMarks: 100,
-        language: sub.language,
-        status: sub.grade ? 'graded' : 'pending'
+  const loadSubmissions = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const results = await SupabaseAssignmentService.getStudentAllSubmissions(user.id);
+
+      const allSubmissions: Submission[] = results.map((sub: any) => {
+          const type = (sub.assignment?.assignment_type === 'quiz' || sub.assignment?.assignment_type === 'coding') ? 'exam' : 'assignment';
+          return {
+            id: sub.id,
+            type: type,
+            title: sub.assignment?.title || 'Unknown Title',
+            submittedAt: sub.submitted_at,
+            grade: sub.grade,
+            totalMarks: sub.assignment?.max_marks || 100,
+            language: sub.language || 'text',
+            status: sub.grade ? 'graded' : 'pending',
+            passed: sub.grade && sub.assignment?.max_marks ? (sub.grade / sub.assignment.max_marks >= 0.4) : undefined,
+            examId: sub.assignment_id
+          };
+      });
+
+      setSubmissions(allSubmissions)
+      
+      // Calculate stats
+      const gradedSubmissions = allSubmissions.filter(s => s.grade !== undefined && s.grade !== null && !isNaN(s.grade))
+      const examSubs = allSubmissions.filter(s => s.type === 'exam')
+      const passedExams = examSubs.filter(s => s.passed).length
+      
+      setStats({
+        totalSubmissions: allSubmissions.length,
+        averageGrade: gradedSubmissions.length > 0 ? 
+          gradedSubmissions.reduce((sum, s) => sum + ((s.grade || 0) / (s.totalMarks || 100) * 100), 0) / gradedSubmissions.length : 0,
+        passedExams,
+        totalExams: examSubs.length
       })
-    })
-    
-    // Add exam submissions
-    examSubmissions.forEach((sub: any) => {
-      const exam = exams.find((e: any) => e.id === sub.examId)
-      if (exam) {
-        allSubmissions.push({
-          id: sub.examId,
-          type: 'exam',
-          title: exam.title,
-          submittedAt: sub.submittedAt,
-          grade: sub.grade,
-          totalMarks: parseInt(exam.totalMarks),
-          language: sub.language,
-          status: sub.grade ? 'graded' : 'pending',
-          timeSpent: sub.timeSpent,
-          violations: sub.violations?.length || 0,
-          passed: sub.grade >= parseInt(exam.passingMarks),
-          examId: sub.examId
-        })
-      }
-    })
-
-    // Add sample data if empty
-    if (allSubmissions.length === 0) {
-      allSubmissions.push(
-        {
-          id: "sub_001",
-          type: 'assignment',
-          title: "Data Structures - Arrays",
-          submittedAt: new Date(Date.now() - 86400000).toISOString(),
-          grade: 85,
-          totalMarks: 100,
-          language: "cpp",
-          status: "graded"
-        },
-        {
-          id: "sub_002",
-          type: 'exam',
-          title: "Mid-term Programming Exam",
-          submittedAt: new Date(Date.now() - 172800000).toISOString(),
-          grade: 78,
-          totalMarks: 100,
-          language: "java",
-          status: "graded",
-          timeSpent: 3600,
-          violations: 1,
-          passed: true,
-          examId: "exam_001"
-        },
-        {
-          id: "sub_003",
-          type: 'assignment',
-          title: "Sorting Algorithms",
-          submittedAt: new Date(Date.now() - 259200000).toISOString(),
-          grade: 92,
-          totalMarks: 100,
-          language: "python",
-          status: "graded"
-        }
-      )
+    } catch (e) {
+      console.error("Failed to load live submissions:", e);
     }
-
-    // Sort by submission date (newest first)
-    allSubmissions.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
-    
-    setSubmissions(allSubmissions)
-    
-    // Calculate stats
-    const gradedSubmissions = allSubmissions.filter(s => s.grade !== undefined)
-    const examSubs = allSubmissions.filter(s => s.type === 'exam')
-    const passedExams = examSubs.filter(s => s.passed).length
-    
-    setStats({
-      totalSubmissions: allSubmissions.length,
-      averageGrade: gradedSubmissions.length > 0 ? 
-        gradedSubmissions.reduce((sum, s) => sum + (s.grade || 0), 0) / gradedSubmissions.length : 0,
-      passedExams,
-      totalExams: examSubs.length
-    })
   }
 
   const handleViewSubmission = (submission: Submission) => {
     if (submission.type === 'exam' && submission.examId) {
       router.push(`/student-dashboard/exams/${submission.examId}/results`)
     } else {
-      // Navigate to assignment view (to be implemented)
-      router.push(`/student-dashboard/assignments/${submission.id}`)
+      router.push(`/student-dashboard/assignments/submit/${submission.examId}`)
     }
   }
 

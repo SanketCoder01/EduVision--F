@@ -66,8 +66,12 @@ export default function DashboardPage() {
           .eq('email', user.email)
           .maybeSingle()
         
+        const isCompleteProfilePage = window.location.pathname === '/complete-profile' || window.location.pathname === '/faculty-complete-profile'
+        
         if (!faculty) {
-          router.push('/complete-profile')
+          if (!isCompleteProfilePage) {
+            router.push('/faculty-complete-profile')
+          }
           return
         }
         
@@ -75,8 +79,8 @@ export default function DashboardPage() {
         const isComplete = faculty.department && faculty.college_name
         setRegistrationCompleted(isComplete)
         
-        if (!isComplete) {
-          router.push('/complete-profile')
+        if (!isComplete && !isCompleteProfilePage) {
+          router.push('/faculty-complete-profile')
           return
         }
         

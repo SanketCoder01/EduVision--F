@@ -31,6 +31,7 @@ import { useToast } from "@/hooks/use-toast"
 
 export default function StudentDashboardPage() {
   const router = useRouter()
+  const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(true)
   const [currentUser, setCurrentUser] = useState<Student | null>(null)
   const [registrationCompleted, setRegistrationCompleted] = useState<boolean>(true)
@@ -79,8 +80,12 @@ export default function StudentDashboardPage() {
           if (student) break
         }
         
+        const isCompleteProfilePage = window.location.pathname === '/complete-profile' || window.location.pathname === '/student-complete-profile'
+        
         if (!student) {
-          router.push('/complete-profile')
+          if (!isCompleteProfilePage) {
+            router.push('/student-complete-profile')
+          }
           return
         }
         
@@ -88,8 +93,8 @@ export default function StudentDashboardPage() {
         const isComplete = student.department && student.year && student.college_name && student.prn
         setRegistrationCompleted(isComplete)
         
-        if (!isComplete) {
-          router.push('/complete-profile')
+        if (!isComplete && !isCompleteProfilePage) {
+          router.push('/student-complete-profile')
           return
         }
         

@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { AdminPortal as TSAdminPortal } from "../../Responsive TechSynergy Website/src/components/pages/AdminPortal";
-import type { PageType, ContentData } from "../../Responsive TechSynergy Website/src/types";
+import { AdminPortal as TSAdminPortal } from "../../Responsive-Website/src/components/pages/AdminPortal";
+import type { PageType, ContentData } from "../../Responsive-Website/src/types";
 
 export default function AdminPage() {
   const router = useRouter();

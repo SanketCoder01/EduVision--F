@@ -139,7 +139,9 @@ export default function SubmissionsPage() {
           .maybeSingle()
 
         if (facultyError || !facultyData) {
-          router.push('/faculty-complete-profile')
+          console.error('Faculty profile check in page failed or missing profile:', facultyError)
+          // Don't force redirect here if layout already handles it
+          setLoading(false)
           return
         }
 

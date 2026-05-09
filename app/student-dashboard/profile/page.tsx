@@ -72,7 +72,7 @@ export default function StudentProfilePage() {
 
       if (!studentData) {
         setDebugInfo(`Student not found in any table for email: ${user.email}`)
-        router.push('/complete-profile')
+        router.push('/student-complete-profile')
         return
       }
 

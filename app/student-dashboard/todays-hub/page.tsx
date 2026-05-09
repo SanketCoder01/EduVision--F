@@ -126,7 +126,9 @@ export default function StudentTodaysHubPage() {
           await loadTodaysHubData(studentData)
           setupRealtimeSubscriptions(studentData)
         } else {
-          router.push('/complete-profile')
+          console.error("Student profile not found in Today's Hub initialization")
+          // Don't force redirect here if layout already handles it
+          setIsLoading(false)
         }
       } catch (error) {
         console.error("Error loading user data:", error)

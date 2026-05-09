@@ -513,18 +513,7 @@ export class SupabaseRealtimeService {
     try {
       const { data, error } = await supabase
         .from('grievances')
-        .select(`
-          *,
-          student:student_id (
-            id,
-            name,
-            full_name,
-            email,
-            department,
-            year,
-            prn
-          )
-        `)
+        .select('*')
         .eq('department', facultyDepartment)
         .order('created_at', { ascending: false })
 

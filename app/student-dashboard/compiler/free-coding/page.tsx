@@ -6,6 +6,7 @@ import { Code, Sparkles, Save } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import CodeEditor from "@/components/compiler/CodeEditor"
+import { supabase } from "@/lib/supabase"
 
 const LANGUAGES = [
   { id: 'c', name: 'C' },
@@ -27,9 +28,8 @@ export default function FreeCodingPage() {
 
   const loadStudentData = async () => {
     try {
-      const studentSession = localStorage.getItem("studentSession")
-      if (studentSession) {
-        const user = JSON.parse(studentSession)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
         setStudentId(user.id)
       }
     } catch (error) {

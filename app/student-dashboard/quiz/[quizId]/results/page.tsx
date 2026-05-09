@@ -107,7 +107,7 @@ export default function StudentQuizResultPage() {
       // Get current user
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
-        router.push('/auth/login')
+        router.push('/login?type=student')
         return
       }
       setStudentId(user.id)

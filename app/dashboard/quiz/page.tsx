@@ -97,8 +97,8 @@ const QuizDashboard = () => {
       if (facultyData) {
         setFaculty(facultyData)
       } else {
-        // Not a faculty, redirect to student
-        router.push('/student-dashboard')
+        // Not found in faculty table — layout will handle proper redirect
+        console.warn('No faculty profile found for this user')
       }
     } catch (error) {
       console.error('Error fetching faculty:', error)

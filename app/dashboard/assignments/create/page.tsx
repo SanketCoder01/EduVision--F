@@ -180,6 +180,7 @@ export default function CreateAssignmentPage() {
         due_date: `${formData.dueDate}T${formData.dueTime}:00`,
         allow_late_submission: formData.allowLateSubmission,
         allow_resubmission: formData.allowResubmission,
+        allowed_file_types: formData.allowedFileTypes,
         visibility: formData.visibility,
         difficulty: formData.difficulty,
         estimated_time: formData.estimatedTime,
@@ -418,8 +419,7 @@ export default function CreateAssignmentPage() {
           .replace(/\*{1,3}/g, '') // Remove bold/italic asterisks
           .replace(/#{1,6}\s*/g, '') // Remove markdown headers
           .replace(/`{1,3}[^`]*`{1,3}/g, '') // Remove code blocks
-          .replace(/^\s*[-*+]\s+/gm, '') // Remove bullet markers
-          .replace(/^\s*\d+\.\s+/gm, '') // Remove numbered list markers
+          .replace(/^\s*[-+]\s+/gm, '') // Remove bullet markers (keep numbers)
           .replace(/\n{3,}/g, '\n\n') // Clean excessive line breaks
           .trim()
 
@@ -429,8 +429,8 @@ export default function CreateAssignmentPage() {
 
         // Extract description (includes objectives and description)
         let description = ''
-        const descMatch = content.match(/Description:\s*([\s\S]*?)(?=Objectives:|Questions:|Requirements:|Evaluation:|$)/i)
-        const objMatch = content.match(/Objectives:\s*([\s\S]*?)(?=Questions:|Requirements:|Evaluation:|$)/i)
+        const descMatch = content.match(/Description:\s*([\s\S]*?)(?=Objectives:|Requirements:|Evaluation:|Questions:|$)/i)
+        const objMatch = content.match(/Objectives:\s*([\s\S]*?)(?=Requirements:|Evaluation:|Questions:|$)/i)
 
         if (descMatch) {
           description = 'Description:\n' + descMatch[1].trim()
@@ -439,14 +439,14 @@ export default function CreateAssignmentPage() {
           description += '\n\nObjectives:\n' + objMatch[1].trim()
         }
 
-        // Extract questions only
-        const questionsMatch = content.match(/Questions:\s*([\s\S]*?)(?=Requirements:|Evaluation:|Submission:|Guidelines:|$)/i)
+        // Extract questions (always at the end now)
+        const questionsMatch = content.match(/Questions:\s*([\s\S]*?)$/i)
         const questions = questionsMatch ? questionsMatch[1].trim() : ''
 
         // Extract submission guidelines (requirements + evaluation + any other info)
         let submissionGuidelines = ''
-        const reqMatch = content.match(/Requirements:\s*([\s\S]*?)(?=Evaluation:|Submission:|Guidelines:|$)/i)
-        const evalMatch = content.match(/Evaluation:\s*([\s\S]*?)(?=Submission:|Guidelines:|$)/i)
+        const reqMatch = content.match(/Requirements:\s*([\s\S]*?)(?=Evaluation:|Questions:|Submission:|$)/i)
+        const evalMatch = content.match(/Evaluation:\s*([\s\S]*?)(?=Questions:|Submission:|$)/i)
 
         if (reqMatch) {
           submissionGuidelines = 'Requirements:\n' + reqMatch[1].trim()

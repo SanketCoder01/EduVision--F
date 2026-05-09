@@ -14,16 +14,24 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.replace('Bearer ', '')
-    const supabase = createClient(supabaseUrl, supabaseKey)
-    
+
+    // Create Supabase client with the user's auth token
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    })
+
     // Get user from auth token
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-    
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+
     if (authError || !user) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
     }
 
-    // Try to find user in student tables
+    // List of all possible student tables
     const studentTables = [
       'students_cse_1st_year', 'students_cse_2nd_year', 'students_cse_3rd_year', 'students_cse_4th_year',
       'students_cyber_1st_year', 'students_cyber_2nd_year', 'students_cyber_3rd_year', 'students_cyber_4th_year',
@@ -31,44 +39,45 @@ export async function GET(request: NextRequest) {
       'students_aiml_1st_year', 'students_aiml_2nd_year', 'students_aiml_3rd_year', 'students_aiml_4th_year'
     ]
 
-    for (const table of studentTables) {
-      try {
-        const { data: student, error } = await supabase
-          .from(table)
-          .select('*')
-          .eq('email', user.email)
-          .single()
-
-        if (student && !error) {
-          const [, department, year] = table.split('_')
-          return NextResponse.json({
-            ...student,
-            department: department.toUpperCase(),
-            year,
-            user_type: 'student'
-          })
-        }
-      } catch (error) {
-        continue
-      }
-    }
-
-    // Try faculty table
-    try {
-      const { data: faculty, error } = await supabase
-        .from('faculty')
+    // Run searches in parallel to drastically improve the 5000ms slowdown
+    const searchPromises = studentTables.map(async (table) => {
+      const { data: student, error } = await supabase
+        .from(table)
         .select('*')
         .eq('email', user.email)
         .single()
 
-      if (faculty && !error) {
-        return NextResponse.json({
-          ...faculty,
-          user_type: 'faculty'
-        })
+      if (student && !error) {
+        const [, department, year] = table.split('_')
+        return {
+          ...student,
+          department: department.toUpperCase(),
+          year,
+          user_type: 'student'
+        }
       }
-    } catch (error) {
-      // Continue
+      return null
+    })
+
+    const results = await Promise.all(searchPromises)
+    const foundStudent = results.find(result => result !== null)
+
+    if (foundStudent) {
+      return NextResponse.json(foundStudent)
+    }
+
+    // Try faculty table if not found in student tables
+    const { data: faculty, error } = await supabase
+      .from('faculty')
+      .select('*')
+      .eq('email', user.email)
+      .single()
+
+    if (faculty && !error) {
+      return NextResponse.json({
+        ...faculty,
+        user_type: 'faculty'
+      })
     }
 
     return NextResponse.json({ error: 'User not found in any table' }, { status: 404 })
